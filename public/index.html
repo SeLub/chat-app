@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Ollama Chat</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background-color: #f4f4f4;
+      margin: 0;
+      padding: 0;
+    }
+
+    #chat-container {
+      max-width: 600px;
+      margin: 50px auto;
+      background-color: #fff;
+      padding: 20px;
+      border-radius: 10px;
+      box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+    }
+
+    #messages {
+      height: 400px;
+      overflow-y: auto;
+      border: 1px solid #ccc;
+      padding: 10px;
+      margin-bottom: 15px;
+      background-color: #f9f9f9;
+      border-radius: 8px;
+    }
+
+    .message {
+      margin: 5px 0;
+      padding: 10px;
+      border-radius: 6px;
+      max-width: 80%;
+    }
+
+    .user {
+      background-color: #dcf8c6;
+      align-self: flex-end;
+    }
+
+    .bot {
+      background-color: #f1f1f1;
+      align-self: flex-start;
+    }
+
+    #chat-form {
+      display: flex;
+      gap: 10px;
+    }
+
+    #user-input {
+      flex: 1;
+      padding: 10px;
+      font-size: 16px;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+    }
+
+    #send-btn {
+      padding: 10px 15px;
+      font-size: 16px;
+      background-color: #28a745;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+
+    #send-btn:hover {
+      background-color: #218838;
+    }
+
+    #status {
+      padding: 10px;
+      margin-bottom: 15px;
+      border-radius: 6px;
+      text-align: center;
+      font-weight: bold;
+    }
+
+    .status-connected {
+      background-color: #d4edda;
+      color: #155724;
+    }
+
+    .status-disconnected {
+      background-color: #f8d7da;
+      color: #721c24;
+    }
+  </style>
+</head>
+<body>
+  <div id="chat-container">
+    <div id="status">Checking model status...</div>
+    <div id="messages"></div>
+    <form id="chat-form">
+      <input type="text" id="user-input" placeholder="Type your message..." />
+      <button type="submit" id="send-btn">Send</button>
+    </form>
+  </div>
+
+  <script>
+    const messagesDiv = document.getElementById('messages');
+    const statusDiv = document.getElementById('status');
+
+    async function checkStatus() {
+      try {
+        const response = await fetch('/api/status');
+        const data = await response.json();
+        if (data.connected && data.model === 'phi4:latest') {
+          statusDiv.textContent = "Model 'phi4:latest' connected";
+          statusDiv.className = 'status-connected';
+        } else {
+          statusDiv.textContent = 'Model is unavailable';
+          statusDiv.className = 'status-disconnected';
+        }
+      } catch (error) {
+        statusDiv.textContent = 'Model is unavailable';
+        statusDiv.className = 'status-disconnected';
+      }
+    }
+
+    checkStatus();
+    setInterval(checkStatus, 10000);
+
+    function addMessage(text, sender) {
+      const div = document.createElement('div');
+      div.className = `message ${sender}`;
+      div.textContent = text;
+      messagesDiv.appendChild(div);
+      messagesDiv.scrollTop = messagesDiv.scrollHeight;
+    }
+
+    document.getElementById('chat-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const input = document.getElementById('user-input');
+      const message = input.value.trim();
+      if (!message) return;
+
+      addMessage(message, 'user');
+      input.value = '';
+
+      try {
+        const response = await fetch('/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message }),
+        });
+
+        const data = await response.json();
+        
+        if (!response.ok) {
+          addMessage(`Error: ${data.error}`, 'bot');
+          return;
+        }
+
+        if (data.response) {
+          addMessage(data.response, 'bot');
+        }
+      } catch (error) {
+        addMessage('Connection failed', 'bot');
+      }
+    });
+  </script>
+</body>
+</html>
