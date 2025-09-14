@@ -6,20 +6,54 @@ const port = 3000;
 app.use(express.json());
 app.use(express.static('public'));
 
+app.get('/api/models', async (req, res) => {
+  try {
+    const [tagsResponse, psResponse] = await Promise.all([
+      fetch('http://localhost:11434/api/tags'),
+      fetch('http://localhost:11434/api/ps')
+    ]);
+    
+    const availableModels = await tagsResponse.json();
+    const runningModels = await psResponse.json();
+    
+    const runningModelNames = new Set(
+      runningModels.models?.map(rm => rm.name) || []
+    );
+    
+    const models = availableModels.models?.map(model => ({
+      name: model.name,
+      size: model.size,
+      status: runningModelNames.has(model.name) ? 'running' : 'available'
+    })) || [];
+    
+    console.log('Running models from /api/ps:', runningModelNames);
+    res.json({ models });
+  } catch (error) {
+    console.error('Models API error:', error);
+    res.json({ models: [] });
+  }
+});
+
 app.get('/api/status', async (req, res) => {
   try {
-    const response = await fetch('http://localhost:11434/api/tags');
+    const response = await fetch('http://localhost:11434/api/ps');
     const data = await response.json();
-    const phi4Model = data.models?.find(m => m.name === 'phi4:latest');
-    res.json({ connected: true, model: phi4Model ? 'phi4:latest' : 'unavailable' });
+    console.log('Status check - running models:', data);
+    const hasRunningModels = data.models && data.models.length > 0;
+    res.json({ connected: true, hasRunningModels });
   } catch (error) {
-    res.json({ connected: false, model: 'unavailable' });
+    console.error('Status API error:', error);
+    res.json({ connected: false, hasRunningModels: false });
   }
 });
 
 app.post('/api/chat', async (req, res) => {
-  const { message } = req.body;
-  console.log('Received message:', message);
+  const { message, model } = req.body;
+  console.log('Received message:', message, 'for model:', model);
+
+  if (!model) {
+    return res.status(400).json({ error: 'Model not specified' });
+  }
 
   try {
     console.log('Sending request to Ollama...');
@@ -27,7 +61,7 @@ app.post('/api/chat', async (req, res) => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: 'phi4:latest',
+        model: model,
         prompt: message,
         stream: false,
       }),
