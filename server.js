@@ -47,12 +47,32 @@ app.get('/api/status', async (req, res) => {
   }
 });
 
+function isSpecialModel(modelName) {
+  const embedModels = ['nomic-embed-text', 'embed'];
+  const visionModels = ['vision', 'llava'];
+  
+  const isEmbed = embedModels.some(type => modelName.includes(type));
+  const isVision = visionModels.some(type => modelName.includes(type));
+  
+  return { isEmbed, isVision };
+}
+
 app.post('/api/chat', async (req, res) => {
   const { message, model } = req.body;
   console.log('Received message:', message, 'for model:', model);
 
   if (!model) {
     return res.status(400).json({ error: 'Model not specified' });
+  }
+
+  const { isEmbed, isVision } = isSpecialModel(model);
+  
+  if (isEmbed) {
+    return res.status(400).json({ error: 'Embedding models cannot generate text responses' });
+  }
+  
+  if (isVision) {
+    return res.status(400).json({ error: 'Vision models require image inputs (not supported yet)' });
   }
 
   try {
@@ -70,14 +90,15 @@ app.post('/api/chat', async (req, res) => {
     console.log('Ollama response status:', response.status);
     
     if (!response.ok) {
-      console.error('Ollama response not ok:', response.statusText);
-      return res.status(500).json({ error: 'Model unavailable' });
+      const errorText = await response.text();
+      console.error('Ollama response not ok:', response.statusText, errorText);
+      return res.status(500).json({ error: `Model error: ${response.statusText}` });
     }
 
     const data = await response.json();
     console.log('Ollama response:', data);
     
-    res.json({ response: data.response });
+    res.json({ response: data.response, model: model });
   } catch (error) {
     console.error('Chat error:', error);
     res.status(500).json({ error: 'Connection failed' });

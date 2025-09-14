@@ -12,14 +12,158 @@
       padding: 0;
     }
 
+    #header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 10px 20px;
+      background-color: #2c3e50;
+      color: white;
+      border-bottom: 1px solid #34495e;
+    }
+
+    #logo {
+      font-size: 20px;
+      font-weight: bold;
+    }
+
+    #menu {
+      position: relative;
+    }
+
+    #menu-btn {
+      background: #3498db;
+      color: white;
+      border: none;
+      padding: 8px 15px;
+      border-radius: 5px;
+      cursor: pointer;
+    }
+
+    #menu-dropdown {
+      display: none;
+      position: absolute;
+      right: 0;
+      top: 100%;
+      background: white;
+      border: 1px solid #ddd;
+      border-radius: 5px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+      min-width: 200px;
+      z-index: 1000;
+    }
+
+    .menu-item {
+      padding: 10px 15px;
+      cursor: pointer;
+      color: #333;
+      border-bottom: 1px solid #eee;
+    }
+
+    .menu-item:hover {
+      background-color: #f8f9fa;
+    }
+
+    .menu-item:last-child {
+      border-bottom: none;
+    }
+
     #chat-container {
       display: flex;
-      height: 100vh;
+      height: calc(100vh - 60px);
       width: 100vw;
       background-color: #fff;
       gap: 10px;
       padding: 10px;
       box-sizing: border-box;
+    }
+
+    .modal {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background-color: rgba(0,0,0,0.5);
+      z-index: 2000;
+    }
+
+    .modal-content {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background: white;
+      padding: 20px;
+      border-radius: 8px;
+      min-width: 400px;
+      max-width: 600px;
+      max-height: 80vh;
+      overflow-y: auto;
+    }
+
+    .modal-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 20px;
+      border-bottom: 1px solid #eee;
+      padding-bottom: 10px;
+    }
+
+    .close-btn {
+      background: none;
+      border: none;
+      font-size: 24px;
+      cursor: pointer;
+      color: #999;
+    }
+
+    .conversation-item {
+      padding: 10px;
+      border: 1px solid #ddd;
+      border-radius: 5px;
+      margin: 5px 0;
+      cursor: pointer;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .conversation-item:hover {
+      background-color: #f8f9fa;
+    }
+
+    .btn {
+      padding: 8px 15px;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+      margin: 5px;
+    }
+
+    .btn-primary {
+      background-color: #007bff;
+      color: white;
+    }
+
+    .btn-danger {
+      background-color: #dc3545;
+      color: white;
+    }
+
+    .btn-secondary {
+      background-color: #6c757d;
+      color: white;
+    }
+
+    #save-name {
+      width: 100%;
+      padding: 10px;
+      border: 1px solid #ddd;
+      border-radius: 5px;
+      margin: 10px 0;
     }
 
     #left-panel {
@@ -75,6 +219,18 @@
       background-color: #f1f1f1;
       align-self: flex-start;
       line-height: 1.6;
+      position: relative;
+    }
+
+    .model-badge {
+      display: inline-block;
+      background-color: #007bff;
+      color: white;
+      font-size: 10px;
+      padding: 2px 6px;
+      border-radius: 10px;
+      margin-bottom: 5px;
+      font-weight: bold;
     }
 
     .bot h1, .bot h2, .bot h3 {
@@ -287,6 +443,45 @@
   </style>
 </head>
 <body>
+  <div id="header">
+    <div id="logo">🦙 Ollama Chat</div>
+    <div id="menu">
+      <button id="menu-btn">Menu ▼</button>
+      <div id="menu-dropdown">
+        <div class="menu-item" onclick="saveConversation()">💾 Save Conversation</div>
+        <div class="menu-item" onclick="loadConversation()">📂 Load Conversation</div>
+        <div class="menu-item" onclick="clearConversation()">🗑️ Clear Current Chat</div>
+        <div class="menu-item" onclick="exportConversation()">📤 Export to File</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Save Modal -->
+  <div id="save-modal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>Save Conversation</h3>
+        <button class="close-btn" onclick="closeSaveModal()">&times;</button>
+      </div>
+      <input type="text" id="save-name" placeholder="Enter conversation name...">
+      <div>
+        <button class="btn btn-primary" onclick="confirmSave()">Save</button>
+        <button class="btn btn-secondary" onclick="closeSaveModal()">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Load Modal -->
+  <div id="load-modal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>Load Conversation</h3>
+        <button class="close-btn" onclick="closeLoadModal()">&times;</button>
+      </div>
+      <div id="conversations-list">No saved conversations</div>
+    </div>
+  </div>
+
   <div id="chat-container">
     <!-- Left Panel: Models (20%) -->
     <div id="left-panel">
@@ -319,12 +514,16 @@
           <div class="stat-value" id="context-size">-</div>
         </div>
         <div class="stat-item">
-          <div class="stat-label">Messages:</div>
-          <div class="stat-value" id="message-count">0</div>
+          <div class="stat-label">Questions:</div>
+          <div class="stat-value" id="question-count">0</div>
         </div>
         <div class="stat-item">
           <div class="stat-label">Tokens:</div>
           <div class="stat-value" id="token-count">~0</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-label">Response:</div>
+          <div class="stat-value" id="response-time">-</div>
         </div>
       </div>
     </div>
@@ -340,8 +539,249 @@
     
     let selectedModel = null;
     let models = [];
-    let messageCount = 0;
+    let questionCount = 0;
     let tokenCount = 0;
+    let requestStartTime = null;
+    let responseTimer = null;
+    let conversationMessages = [];
+
+    // Menu functionality
+    document.getElementById('menu-btn').addEventListener('click', () => {
+      const dropdown = document.getElementById('menu-dropdown');
+      dropdown.style.display = dropdown.style.display === 'block' ? 'none' : 'block';
+    });
+
+    // Close menu when clicking outside
+    document.addEventListener('click', (e) => {
+      if (!e.target.closest('#menu')) {
+        document.getElementById('menu-dropdown').style.display = 'none';
+      }
+    });
+
+    // Storage functions
+    function saveToStorage(key, data) {
+      try {
+        localStorage.setItem(key, JSON.stringify(data));
+      } catch (error) {
+        console.error('Failed to save to localStorage:', error);
+      }
+    }
+
+    function loadFromStorage(key) {
+      try {
+        const data = localStorage.getItem(key);
+        return data ? JSON.parse(data) : null;
+      } catch (error) {
+        console.error('Failed to load from localStorage:', error);
+        return null;
+      }
+    }
+
+    function calculateStatistics(messages) {
+      let questions = 0;
+      let tokens = 0;
+      
+      messages.forEach(msg => {
+        if (msg.sender === 'user') {
+          questions++;
+        }
+        tokens += Math.ceil(msg.text.length / 4);
+      });
+      
+      return { questions, tokens };
+    }
+
+    function autoSaveCurrentSession() {
+      const sessionData = {
+        selectedModel,
+        messages: conversationMessages,
+        questionCount,
+        tokenCount,
+        timestamp: Date.now()
+      };
+      saveToStorage('ollama-chat-current', sessionData);
+    }
+
+    function loadCurrentSession() {
+      const sessionData = loadFromStorage('ollama-chat-current');
+      if (sessionData) {
+        selectedModel = sessionData.selectedModel;
+        conversationMessages = sessionData.messages || [];
+        
+        // Calculate statistics from messages
+        const stats = calculateStatistics(conversationMessages);
+        questionCount = stats.questions;
+        tokenCount = stats.tokens;
+        
+        // Restore UI
+        if (selectedModel) {
+          selectedModelDiv.textContent = `Selected: ${selectedModel}`;
+          userInput.disabled = false;
+          userInput.placeholder = 'Type your message...';
+          sendBtn.disabled = false;
+        }
+        
+        // Restore messages
+        messagesDiv.innerHTML = '';
+        conversationMessages.forEach(msg => {
+          addMessageToUI(msg.text, msg.sender, msg.model);
+        });
+        
+        // Update statistics
+        document.getElementById('question-count').textContent = questionCount;
+        document.getElementById('token-count').textContent = `~${tokenCount}`;
+      }
+    }
+
+    // Modal functions
+    function saveConversation() {
+      if (conversationMessages.length === 0) {
+        alert('No conversation to save!');
+        return;
+      }
+      document.getElementById('save-modal').style.display = 'block';
+      document.getElementById('save-name').focus();
+    }
+
+    function closeSaveModal() {
+      document.getElementById('save-modal').style.display = 'none';
+      document.getElementById('save-name').value = '';
+    }
+
+    function confirmSave() {
+      const name = document.getElementById('save-name').value.trim();
+      if (!name) {
+        alert('Please enter a conversation name');
+        return;
+      }
+      
+      const conversationData = {
+        id: Date.now(),
+        name: name,
+        selectedModel,
+        messages: conversationMessages,
+        questionCount,
+        tokenCount,
+        createdAt: new Date().toISOString()
+      };
+      
+      saveToStorage(`ollama-chat-saved-${conversationData.id}`, conversationData);
+      closeSaveModal();
+      alert('Conversation saved successfully!');
+    }
+
+    function loadConversation() {
+      const savedConversations = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key.startsWith('ollama-chat-saved-')) {
+          const data = loadFromStorage(key);
+          if (data) savedConversations.push({ key, ...data });
+        }
+      }
+      
+      const listDiv = document.getElementById('conversations-list');
+      if (savedConversations.length === 0) {
+        listDiv.innerHTML = '<p>No saved conversations</p>';
+      } else {
+        listDiv.innerHTML = savedConversations.map(conv => `
+          <div class="conversation-item">
+            <div>
+              <strong>${conv.name}</strong><br>
+              <small>${new Date(conv.createdAt).toLocaleString()} - ${calculateStatistics(conv.messages || []).questions} questions</small>
+            </div>
+            <div>
+              <button class="btn btn-primary" onclick="loadSpecificConversation('${conv.key}')">Load</button>
+              <button class="btn btn-danger" onclick="deleteConversation('${conv.key}')">Delete</button>
+            </div>
+          </div>
+        `).join('');
+      }
+      
+      document.getElementById('load-modal').style.display = 'block';
+    }
+
+    function closeLoadModal() {
+      document.getElementById('load-modal').style.display = 'none';
+    }
+
+    function loadSpecificConversation(key) {
+      const data = loadFromStorage(key);
+      if (data) {
+        selectedModel = data.selectedModel;
+        conversationMessages = data.messages || [];
+        
+        // Calculate statistics from messages
+        const stats = calculateStatistics(conversationMessages);
+        questionCount = stats.questions;
+        tokenCount = stats.tokens;
+        
+        // Clear and restore UI
+        messagesDiv.innerHTML = '';
+        conversationMessages.forEach(msg => {
+          addMessageToUI(msg.text, msg.sender, msg.model);
+        });
+        
+        // Update UI state
+        if (selectedModel) {
+          selectedModelDiv.textContent = `Selected: ${selectedModel}`;
+          userInput.disabled = false;
+          userInput.placeholder = 'Type your message...';
+          sendBtn.disabled = false;
+        }
+        
+        // Update statistics
+        document.getElementById('question-count').textContent = questionCount;
+        document.getElementById('token-count').textContent = `~${tokenCount}`;
+        
+        autoSaveCurrentSession();
+        closeLoadModal();
+      }
+    }
+
+    function deleteConversation(key) {
+      if (confirm('Are you sure you want to delete this conversation?')) {
+        localStorage.removeItem(key);
+        loadConversation(); // Refresh the list
+      }
+    }
+
+    function clearConversation() {
+      if (confirm('Are you sure you want to clear the current conversation?')) {
+        conversationMessages = [];
+        questionCount = 0;
+        tokenCount = 0;
+        messagesDiv.innerHTML = '';
+        document.getElementById('question-count').textContent = '0';
+        document.getElementById('token-count').textContent = '~0';
+        document.getElementById('response-time').textContent = '-';
+        localStorage.removeItem('ollama-chat-current');
+      }
+    }
+
+    function exportConversation() {
+      if (conversationMessages.length === 0) {
+        alert('No conversation to export!');
+        return;
+      }
+      
+      const exportData = {
+        name: `Ollama Chat Export - ${new Date().toISOString()}`,
+        selectedModel,
+        messages: conversationMessages,
+        questionCount,
+        tokenCount,
+        exportedAt: new Date().toISOString()
+      };
+      
+      const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `ollama-chat-${Date.now()}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
 
     async function checkStatus() {
       try {
@@ -412,9 +852,32 @@
 
     function updateStatistics(model) {
       document.getElementById('model-size').textContent = formatBytes(model.size);
-      document.getElementById('context-size').textContent = '32K'; // Default, could be fetched from API
-      document.getElementById('message-count').textContent = messageCount;
+      document.getElementById('context-size').textContent = '32K';
+      document.getElementById('question-count').textContent = questionCount;
       document.getElementById('token-count').textContent = `~${tokenCount}`;
+    }
+
+    function updateResponseTime(duration) {
+      document.getElementById('response-time').textContent = `${duration}s`;
+    }
+
+    function startResponseTimer() {
+      requestStartTime = Date.now();
+      document.getElementById('response-time').textContent = '0.0s';
+      
+      responseTimer = setInterval(() => {
+        if (requestStartTime) {
+          const elapsed = ((Date.now() - requestStartTime) / 1000).toFixed(1);
+          document.getElementById('response-time').textContent = `${elapsed}s`;
+        }
+      }, 100);
+    }
+
+    function stopResponseTimer() {
+      if (responseTimer) {
+        clearInterval(responseTimer);
+        responseTimer = null;
+      }
     }
 
     function formatBytes(bytes) {
@@ -425,8 +888,11 @@
       return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
     }
 
+    // Initialize app
     checkStatus();
     loadModels();
+    loadCurrentSession();
+    
     setInterval(() => {
       checkStatus();
       loadModels();
@@ -458,26 +924,46 @@
         .replace(/\n/g, '<br>');
     }
 
-    function addMessage(text, sender) {
+    function addMessageToUI(text, sender, modelName = null) {
       const div = document.createElement('div');
       div.className = `message ${sender}`;
       
       if (sender === 'bot') {
         const formatted = parseMarkdown(text);
-        div.innerHTML = '<p>' + formatted + '</p>';
-        tokenCount += Math.ceil(text.length / 4); // Rough token estimate
+        const modelBadge = modelName ? `<div class="model-badge">${modelName}</div>` : '';
+        div.innerHTML = modelBadge + '<p>' + formatted + '</p>';
       } else {
         div.textContent = text;
-        tokenCount += Math.ceil(text.length / 4);
       }
       
-      messageCount++;
       messagesDiv.appendChild(div);
       messagesDiv.scrollTop = messagesDiv.scrollHeight;
+    }
+
+    function addMessage(text, sender, modelName = null) {
+      // Add to UI
+      addMessageToUI(text, sender, modelName);
       
-      // Update statistics
-      document.getElementById('message-count').textContent = messageCount;
+      // Add to conversation data
+      conversationMessages.push({
+        text,
+        sender,
+        model: modelName,
+        timestamp: Date.now()
+      });
+      
+      // Update counters
+      tokenCount += Math.ceil(text.length / 4);
+      if (sender === 'user') {
+        questionCount++;
+      }
+      
+      // Update statistics display
+      document.getElementById('question-count').textContent = questionCount;
       document.getElementById('token-count').textContent = `~${tokenCount}`;
+      
+      // Auto-save current session
+      autoSaveCurrentSession();
     }
 
     document.getElementById('chat-form').addEventListener('submit', async (e) => {
@@ -495,11 +981,17 @@
       }
 
       try {
+        startResponseTimer();
+        
         const response = await fetch('/api/chat', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ message, model: selectedModel }),
         });
+
+        stopResponseTimer();
+        const responseTime = ((Date.now() - requestStartTime) / 1000).toFixed(1);
+        updateResponseTime(responseTime);
 
         const data = await response.json();
         
@@ -509,9 +1001,10 @@
         }
 
         if (data.response) {
-          addMessage(data.response, 'bot');
+          addMessage(data.response, 'bot', data.model);
         }
       } catch (error) {
+        stopResponseTimer();
         addMessage('Connection failed', 'bot');
       }
     });

@@ -19,15 +19,24 @@ A modern web chat interface for Ollama models with advanced model management and
 
 ### Enhanced Chat Experience
 - Markdown formatting for bot responses (headers, code blocks, tables, etc.)
-- Real-time message and token counting
-- Model size and context window information
+- Model badges showing which model answered each question
+- Real-time response timer with live counter
+- Question and token counting
 - Responsive full-screen design
+
+### Conversation Persistence
+- Auto-save current session (survives page reload)
+- Save named conversations with custom titles
+- Load and manage multiple saved conversations
+- Export conversations to JSON files
+- Clear current chat functionality
 
 ### Statistics Dashboard
 - Model size display
 - Context window size
-- Live message count
+- Live question count (user questions only)
 - Estimated token usage
+- Real-time response time tracking
 
 ## Setup
 
@@ -67,6 +76,28 @@ A modern web chat interface for Ollama models with advanced model management and
 4. If a model shows "Available", start it first: `ollama run model-name`
 5. Start chatting! Responses are formatted with markdown for better readability
 6. Monitor your usage with real-time statistics in the right panel
+7. Use the menu to save, load, or export conversations
+8. Your current conversation auto-saves and restores on page reload
+
+## Features in Detail
+
+### Conversation Management
+- **Auto-save**: Current conversation automatically saved to localStorage
+- **Named saves**: Save important conversations with custom names
+- **Load conversations**: Browse and load any saved conversation
+- **Export**: Download conversations as JSON files for backup
+- **Clear chat**: Reset current conversation when needed
+
+### Smart Statistics
+- **Questions**: Counts only user questions (not total messages)
+- **Response time**: Live timer showing model response speed
+- **Tokens**: Estimated token usage for cost tracking
+- **Model info**: Size and context window for each model
+
+### Model Support
+- **Text models**: Full chat support (phi4, llama, qwen, etc.)
+- **Embedding models**: Detected and marked as unavailable for chat
+- **Vision models**: Detected with note about image input requirement
 
 ## API Endpoints
 
