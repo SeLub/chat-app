@@ -310,12 +310,10 @@
     }
 
     #chat-form {
-      display: flex;
-      gap: 10px;
+      width: 100%;
     }
 
     #user-input {
-      flex: 1;
       padding: 10px;
       font-size: 16px;
       border: 1px solid #ccc;
@@ -496,8 +494,13 @@
       <div id="selected-model">No model selected</div>
       <div id="messages"></div>
       <form id="chat-form">
-        <input type="text" id="user-input" placeholder="Select a running model first..." disabled />
-        <button type="submit" id="send-btn" disabled>Send</button>
+        <div style="display: flex; gap: 10px; align-items: stretch; width: 100%;">
+          <input type="text" id="user-input" placeholder="Select a running model first..." disabled style="flex: 1; min-width: 0;" />
+          <input type="file" id="file-input" accept=".pdf" style="display: none;" />
+          <button type="button" id="file-btn" onclick="document.getElementById('file-input').click()" disabled style="padding: 10px; background: #6c757d; color: white; border: none; border-radius: 6px; cursor: pointer; white-space: nowrap;">📎 PDF</button>
+          <button type="submit" id="send-btn" disabled style="white-space: nowrap;">Send</button>
+        </div>
+        <div id="file-preview" style="margin-top: 5px; font-size: 12px; color: #666;"></div>
       </form>
     </div>
 
@@ -536,6 +539,9 @@
     const selectedModelDiv = document.getElementById('selected-model');
     const userInput = document.getElementById('user-input');
     const sendBtn = document.getElementById('send-btn');
+    const fileInput = document.getElementById('file-input');
+    const fileBtn = document.getElementById('file-btn');
+    const filePreview = document.getElementById('file-preview');
     
     let selectedModel = null;
     let models = [];
@@ -619,6 +625,7 @@
           userInput.disabled = false;
           userInput.placeholder = 'Type your message...';
           sendBtn.disabled = false;
+          fileBtn.disabled = false;
         }
         
         // Restore messages
@@ -728,6 +735,7 @@
           userInput.disabled = false;
           userInput.placeholder = 'Type your message...';
           sendBtn.disabled = false;
+          fileBtn.disabled = false;
         }
         
         // Update statistics
@@ -846,6 +854,7 @@
       userInput.disabled = false;
       userInput.placeholder = 'Type your message...';
       sendBtn.disabled = false;
+      fileBtn.disabled = false;
       renderModels();
       updateStatistics(model);
     }
@@ -892,6 +901,9 @@
     checkStatus();
     loadModels();
     loadCurrentSession();
+    
+    // Clear file preview on page load
+    filePreview.textContent = '';
     
     setInterval(() => {
       checkStatus();
@@ -966,14 +978,30 @@
       autoSaveCurrentSession();
     }
 
+    // File input handler
+    fileInput.addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (file) {
+        filePreview.textContent = `📄 ${file.name} (${formatBytes(file.size)})`;
+      } else {
+        filePreview.textContent = '';
+      }
+    });
+
     document.getElementById('chat-form').addEventListener('submit', async (e) => {
       e.preventDefault();
       const input = document.getElementById('user-input');
       const message = input.value.trim();
-      if (!message) return;
+      const file = fileInput.files[0];
+      
+      if (!message && !file) return;
 
-      addMessage(message, 'user');
+      // Display user message
+      const displayMessage = file ? `${message} [📄 ${file.name}]` : message;
+      addMessage(displayMessage, 'user');
       input.value = '';
+      fileInput.value = '';
+      filePreview.textContent = '';
 
       if (!selectedModel) {
         alert('Please select a running model first');
@@ -983,10 +1011,16 @@
       try {
         startResponseTimer();
         
+        const formData = new FormData();
+        formData.append('message', message || 'Please analyze this document.');
+        formData.append('model', selectedModel);
+        if (file) {
+          formData.append('file', file);
+        }
+
         const response = await fetch('/api/chat', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ message, model: selectedModel }),
+          body: formData,
         });
 
         stopResponseTimer();

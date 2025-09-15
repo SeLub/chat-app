@@ -23,6 +23,7 @@ A modern web chat interface for Ollama models with advanced model management and
 - Real-time response timer with live counter
 - Question and token counting
 - Responsive full-screen design
+- PDF document processing and analysis
 
 ### Conversation Persistence
 - Auto-save current session (survives page reload)
@@ -30,6 +31,12 @@ A modern web chat interface for Ollama models with advanced model management and
 - Load and manage multiple saved conversations
 - Export conversations to JSON files
 - Clear current chat functionality
+
+### Document Processing
+- PDF file upload and text extraction
+- Automatic document analysis with any text model
+- File preview with name and size display
+- Support for document-based conversations
 
 ### Statistics Dashboard
 - Model size display
@@ -73,8 +80,8 @@ A modern web chat interface for Ollama models with advanced model management and
 1. The app will automatically detect all your installed Ollama models
 2. Models currently loaded in memory will show as "Running"
 3. Click on any model to select it for chat
-4. If a model shows "Available", start it first: `ollama run model-name`
-5. Start chatting! Responses are formatted with markdown for better readability
+4. Start chatting! Responses are formatted with markdown for better readability
+5. Upload PDF documents using the 📎 PDF button for document analysis
 6. Monitor your usage with real-time statistics in the right panel
 7. Use the menu to save, load, or export conversations
 8. Your current conversation auto-saves and restores on page reload
@@ -95,9 +102,10 @@ A modern web chat interface for Ollama models with advanced model management and
 - **Model info**: Size and context window for each model
 
 ### Model Support
-- **Text models**: Full chat support (phi4, llama, qwen, etc.)
+- **Text models**: Full chat support with document processing (phi4, llama, qwen, etc.)
 - **Embedding models**: Detected and marked as unavailable for chat
 - **Vision models**: Detected with note about image input requirement
+- **Document analysis**: All text models can process and analyze PDF documents
 
 ## API Endpoints
 
@@ -110,3 +118,10 @@ A modern web chat interface for Ollama models with advanced model management and
 - Node.js
 - Ollama installed and running
 - At least one Ollama model downloaded
+
+## Dependencies
+
+- `express` - Web server framework
+- `node-fetch` - HTTP client for Ollama API
+- `multer` - File upload handling
+- `pdfjs-dist` - PDF text extraction

@@ -1,7 +1,11 @@
 import express from 'express';
 import fetch from 'node-fetch';
+import multer from 'multer';
+import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
 const app = express();
 const port = 3000;
+
+const upload = multer({ storage: multer.memoryStorage() });
 
 app.use(express.json());
 app.use(express.static('public'));
@@ -57,9 +61,11 @@ function isSpecialModel(modelName) {
   return { isEmbed, isVision };
 }
 
-app.post('/api/chat', async (req, res) => {
-  const { message, model } = req.body;
-  console.log('Received message:', message, 'for model:', model);
+app.post('/api/chat', upload.single('file'), async (req, res) => {
+  let { message, model } = req.body;
+  const file = req.file;
+  
+  console.log('Received message:', message, 'for model:', model, 'with file:', file?.originalname);
 
   if (!model) {
     return res.status(400).json({ error: 'Model not specified' });
@@ -73,6 +79,31 @@ app.post('/api/chat', async (req, res) => {
   
   if (isVision) {
     return res.status(400).json({ error: 'Vision models require image inputs (not supported yet)' });
+  }
+
+  // Process PDF file if uploaded
+  if (file && file.mimetype === 'application/pdf') {
+    try {
+      const uint8Array = new Uint8Array(file.buffer);
+      const loadingTask = pdfjs.getDocument({ data: uint8Array });
+      const pdf = await loadingTask.promise;
+      let extractedText = '';
+      
+      for (let i = 1; i <= pdf.numPages; i++) {
+        const page = await pdf.getPage(i);
+        const textContent = await page.getTextContent();
+        const pageText = textContent.items.map(item => item.str).join(' ');
+        extractedText += pageText + '\n';
+      }
+      
+      message = `Document: ${file.originalname}\n\nExtracted text:\n${extractedText}\n\nUser question: ${message}`;
+      console.log('PDF processed, extracted', extractedText.length, 'characters');
+    } catch (error) {
+      console.error('PDF processing error:', error);
+      return res.status(400).json({ error: 'Failed to process PDF file' });
+    }
+  } else if (file) {
+    return res.status(400).json({ error: 'Only PDF files are supported currently' });
   }
 
   try {
