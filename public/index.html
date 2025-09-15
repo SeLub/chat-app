@@ -496,11 +496,20 @@
       <form id="chat-form">
         <div style="display: flex; gap: 10px; align-items: stretch; width: 100%;">
           <input type="text" id="user-input" placeholder="Select a running model first..." disabled style="flex: 1; min-width: 0;" />
-          <input type="file" id="file-input" accept=".pdf" style="display: none;" />
-          <button type="button" id="file-btn" onclick="document.getElementById('file-input').click()" disabled style="padding: 10px; background: #6c757d; color: white; border: none; border-radius: 6px; cursor: pointer; white-space: nowrap;">📎 PDF</button>
+          <input type="file" id="file-input" accept=".pdf,.doc,.docx,.xls,.xlsx,.csv" style="display: none;" />
+          <input type="file" id="image-input" accept=".jpg,.jpeg,.png,.gif,.bmp,.webp" style="display: none;" />
+          <button type="button" id="file-btn" onclick="document.getElementById('file-input').click()" disabled style="padding: 10px; background: #6c757d; color: white; border: none; border-radius: 6px; cursor: pointer; white-space: nowrap;">📎 PDF,DOC,XLS</button>
+          <button type="button" id="image-btn" onclick="document.getElementById('image-input').click()" disabled style="padding: 10px; background: #17a2b8; color: white; border: none; border-radius: 6px; cursor: pointer; white-space: nowrap;">🖼️ IMG</button>
           <button type="submit" id="send-btn" disabled style="white-space: nowrap;">Send</button>
         </div>
         <div id="file-preview" style="margin-top: 5px; font-size: 12px; color: #666;"></div>
+        <div id="image-preview" style="margin-top: 5px; font-size: 12px; color: #666;"></div>
+        <div id="file-warning" style="margin-top: 5px; font-size: 11px; color: #856404; background: #fff3cd; padding: 5px; border-radius: 3px; display: none;">
+          ⚠️ Large documents may be truncated to fit the model's context window
+        </div>
+        <div id="vision-warning" style="margin-top: 5px; font-size: 11px; color: #721c24; background: #f8d7da; padding: 5px; border-radius: 3px; display: none;">
+          ⚠️ Images require vision models (llama3.2-vision, llava, etc.)
+        </div>
       </form>
     </div>
 
@@ -542,6 +551,9 @@
     const fileInput = document.getElementById('file-input');
     const fileBtn = document.getElementById('file-btn');
     const filePreview = document.getElementById('file-preview');
+    const imageInput = document.getElementById('image-input');
+    const imageBtn = document.getElementById('image-btn');
+    const imagePreview = document.getElementById('image-preview');
     
     let selectedModel = null;
     let models = [];
@@ -626,6 +638,7 @@
           userInput.placeholder = 'Type your message...';
           sendBtn.disabled = false;
           fileBtn.disabled = false;
+          imageBtn.disabled = false;
         }
         
         // Restore messages
@@ -736,6 +749,7 @@
           userInput.placeholder = 'Type your message...';
           sendBtn.disabled = false;
           fileBtn.disabled = false;
+          imageBtn.disabled = false;
         }
         
         // Update statistics
@@ -855,6 +869,7 @@
       userInput.placeholder = 'Type your message...';
       sendBtn.disabled = false;
       fileBtn.disabled = false;
+      imageBtn.disabled = false;
       renderModels();
       updateStatistics(model);
     }
@@ -902,8 +917,9 @@
     loadModels();
     loadCurrentSession();
     
-    // Clear file preview on page load
+    // Clear previews on page load
     filePreview.textContent = '';
+    imagePreview.textContent = '';
     
     setInterval(() => {
       checkStatus();
@@ -981,10 +997,43 @@
     // File input handler
     fileInput.addEventListener('change', (e) => {
       const file = e.target.files[0];
+      const fileWarning = document.getElementById('file-warning');
+      
       if (file) {
         filePreview.textContent = `📄 ${file.name} (${formatBytes(file.size)})`;
+        imagePreview.textContent = ''; // Clear image preview
+        
+        // Show warning for files larger than 5MB
+        if (file.size > 5 * 1024 * 1024) {
+          fileWarning.style.display = 'block';
+        } else {
+          fileWarning.style.display = 'none';
+        }
       } else {
         filePreview.textContent = '';
+        fileWarning.style.display = 'none';
+      }
+    });
+
+    // Image input handler
+    imageInput.addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      const visionWarning = document.getElementById('vision-warning');
+      
+      if (file) {
+        imagePreview.textContent = `🖼️ ${file.name} (${formatBytes(file.size)})`;
+        filePreview.textContent = ''; // Clear document preview
+        
+        // Show warning if not a vision model
+        const isVisionModel = selectedModel && (selectedModel.includes('vision') || selectedModel.includes('llava'));
+        if (!isVisionModel) {
+          visionWarning.style.display = 'block';
+        } else {
+          visionWarning.style.display = 'none';
+        }
+      } else {
+        imagePreview.textContent = '';
+        visionWarning.style.display = 'none';
       }
     });
 
@@ -993,15 +1042,21 @@
       const input = document.getElementById('user-input');
       const message = input.value.trim();
       const file = fileInput.files[0];
+      const image = imageInput.files[0];
       
-      if (!message && !file) return;
+      if (!message && !file && !image) return;
 
       // Display user message
-      const displayMessage = file ? `${message} [📄 ${file.name}]` : message;
+      let displayMessage = message;
+      if (file) displayMessage += ` [📄 ${file.name}]`;
+      if (image) displayMessage += ` [🖼️ ${image.name}]`;
+      
       addMessage(displayMessage, 'user');
       input.value = '';
       fileInput.value = '';
+      imageInput.value = '';
       filePreview.textContent = '';
+      imagePreview.textContent = '';
 
       if (!selectedModel) {
         alert('Please select a running model first');
@@ -1012,10 +1067,13 @@
         startResponseTimer();
         
         const formData = new FormData();
-        formData.append('message', message || 'Please analyze this document.');
+        formData.append('message', message || (image ? 'What is in this image?' : 'Please analyze this document.'));
         formData.append('model', selectedModel);
         if (file) {
           formData.append('file', file);
+        }
+        if (image) {
+          formData.append('file', image);
         }
 
         const response = await fetch('/api/chat', {

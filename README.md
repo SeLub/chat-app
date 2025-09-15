@@ -23,7 +23,7 @@ A modern web chat interface for Ollama models with advanced model management and
 - Real-time response timer with live counter
 - Question and token counting
 - Responsive full-screen design
-- PDF document processing and analysis
+- Document and image processing with AI analysis
 
 ### Conversation Persistence
 - Auto-save current session (survives page reload)
@@ -34,9 +34,18 @@ A modern web chat interface for Ollama models with advanced model management and
 
 ### Document Processing
 - PDF file upload and text extraction
+- Word document processing (DOC/DOCX)
+- Excel spreadsheet analysis (XLS/XLSX/CSV)
 - Automatic document analysis with any text model
 - File preview with name and size display
 - Support for document-based conversations
+
+### Image Processing
+- Image upload and analysis with vision models
+- Support for JPG, PNG, GIF, BMP, WEBP formats
+- Visual recognition and image reasoning
+- Image captioning and question answering
+- Compatible with llama3.2-vision, llava, and other vision models
 
 ### Statistics Dashboard
 - Model size display
@@ -81,7 +90,7 @@ A modern web chat interface for Ollama models with advanced model management and
 2. Models currently loaded in memory will show as "Running"
 3. Click on any model to select it for chat
 4. Start chatting! Responses are formatted with markdown for better readability
-5. Upload PDF documents using the 📎 PDF button for document analysis
+5. Upload documents using the 📎 PDF,DOC,XLS button or images using the 🖼️ IMG button
 6. Monitor your usage with real-time statistics in the right panel
 7. Use the menu to save, load, or export conversations
 8. Your current conversation auto-saves and restores on page reload
@@ -103,9 +112,10 @@ A modern web chat interface for Ollama models with advanced model management and
 
 ### Model Support
 - **Text models**: Full chat support with document processing (phi4, llama, qwen, etc.)
+- **Vision models**: Image analysis and visual reasoning (llama3.2-vision, llava, etc.)
 - **Embedding models**: Detected and marked as unavailable for chat
-- **Vision models**: Detected with note about image input requirement
-- **Document analysis**: All text models can process and analyze PDF documents
+- **Document analysis**: All text models can process PDF, DOC, DOCX, XLS, XLSX, CSV files
+- **Image analysis**: Vision models can analyze JPG, PNG, GIF, BMP, WEBP images
 
 ## API Endpoints
 
@@ -125,3 +135,5 @@ A modern web chat interface for Ollama models with advanced model management and
 - `node-fetch` - HTTP client for Ollama API
 - `multer` - File upload handling
 - `pdfjs-dist` - PDF text extraction
+- `word-extractor` - DOC/DOCX text extraction
+- `xlsx` - Excel spreadsheet processing

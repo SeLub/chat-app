@@ -2,8 +2,12 @@ import express from 'express';
 import fetch from 'node-fetch';
 import multer from 'multer';
 import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
+import WordExtractor from 'word-extractor';
+import * as XLSX from 'xlsx';
 const app = express();
 const port = 3000;
+
+const extractor = new WordExtractor();
 
 const upload = multer({ storage: multer.memoryStorage() });
 
@@ -77,33 +81,99 @@ app.post('/api/chat', upload.single('file'), async (req, res) => {
     return res.status(400).json({ error: 'Embedding models cannot generate text responses' });
   }
   
-  if (isVision) {
-    return res.status(400).json({ error: 'Vision models require image inputs (not supported yet)' });
+  if (isVision && !file) {
+    return res.status(400).json({ error: 'Vision models require image inputs' });
   }
 
-  // Process PDF file if uploaded
-  if (file && file.mimetype === 'application/pdf') {
+  // Process uploaded file
+  if (file) {
     try {
-      const uint8Array = new Uint8Array(file.buffer);
-      const loadingTask = pdfjs.getDocument({ data: uint8Array });
-      const pdf = await loadingTask.promise;
       let extractedText = '';
       
-      for (let i = 1; i <= pdf.numPages; i++) {
-        const page = await pdf.getPage(i);
-        const textContent = await page.getTextContent();
-        const pageText = textContent.items.map(item => item.str).join(' ');
-        extractedText += pageText + '\n';
+      // Handle image files for vision models
+      if (file.mimetype.startsWith('image/')) {
+        if (!isVision) {
+          return res.status(400).json({ error: 'Images require vision models (llama3.2-vision, llava, etc.)' });
+        }
+        
+        // Convert image to base64
+        const base64Image = file.buffer.toString('base64');
+        
+        try {
+          console.log('Sending image to vision model...');
+          const response = await fetch('http://localhost:11434/api/chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              model: model,
+              messages: [{
+                role: 'user',
+                content: message || 'What is in this image?',
+                images: [base64Image]
+              }],
+              stream: false
+            }),
+          });
+
+          console.log('Vision model response status:', response.status);
+          
+          if (!response.ok) {
+            const errorText = await response.text();
+            console.error('Vision model response not ok:', response.statusText, errorText);
+            return res.status(500).json({ error: `Vision model error: ${response.statusText}` });
+          }
+
+          const data = await response.json();
+          console.log('Vision model response:', data);
+          
+          return res.json({ response: data.message.content, model: model });
+        } catch (error) {
+          console.error('Vision model error:', error);
+          return res.status(500).json({ error: 'Vision model connection failed' });
+        }
+      } else if (file.mimetype === 'application/pdf') {
+        // Process PDF
+        const uint8Array = new Uint8Array(file.buffer);
+        const loadingTask = pdfjs.getDocument({ data: uint8Array });
+        const pdf = await loadingTask.promise;
+        
+        for (let i = 1; i <= pdf.numPages; i++) {
+          const page = await pdf.getPage(i);
+          const textContent = await page.getTextContent();
+          const pageText = textContent.items.map(item => item.str).join(' ');
+          extractedText += pageText + '\n';
+        }
+      } else if (file.mimetype === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' || 
+                 file.mimetype === 'application/msword') {
+        // Process DOC/DOCX
+        const extracted = await extractor.extract(file.buffer);
+        extractedText = extracted.getBody();
+      } else if (file.mimetype === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
+                 file.mimetype === 'application/vnd.ms-excel' ||
+                 file.mimetype === 'text/csv') {
+        // Process Excel files (XLSX, XLS, CSV)
+        const workbook = XLSX.read(file.buffer, { type: 'buffer' });
+        const sheetName = workbook.SheetNames[0]; // First sheet
+        const worksheet = workbook.Sheets[sheetName];
+        
+        // Convert to CSV format for better readability
+        const csvData = XLSX.utils.sheet_to_csv(worksheet);
+        extractedText = `Sheet: ${sheetName}\n\n${csvData}`;
+      } else {
+        return res.status(400).json({ error: 'Supported files: PDF, DOC, DOCX, XLS, XLSX, CSV, and images (JPG, PNG, etc.)' });
       }
       
       message = `Document: ${file.originalname}\n\nExtracted text:\n${extractedText}\n\nUser question: ${message}`;
-      console.log('PDF processed, extracted', extractedText.length, 'characters');
+      let fileType = 'Unknown';
+      if (file.mimetype.includes('pdf')) fileType = 'PDF';
+      else if (file.mimetype.includes('word') || file.mimetype.includes('document')) fileType = 'DOC/DOCX';
+      else if (file.mimetype.includes('sheet') || file.mimetype.includes('excel') || file.mimetype.includes('csv')) fileType = 'Excel/CSV';
+      
+      console.log(`${fileType} processed, extracted`, extractedText.length, 'characters');
     } catch (error) {
-      console.error('PDF processing error:', error);
-      return res.status(400).json({ error: 'Failed to process PDF file' });
+      console.error('Document processing error:', error);
+      return res.status(400).json({ error: 'Failed to process document file' });
     }
-  } else if (file) {
-    return res.status(400).json({ error: 'Only PDF files are supported currently' });
   }
 
   try {
