@@ -4,6 +4,8 @@ import multer from 'multer';
 import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
 import WordExtractor from 'word-extractor';
 import * as XLSX from 'xlsx';
+import { browseURL, searchWeb } from './web-browse-tool.js';
+
 const app = express();
 const port = 3000;
 
@@ -178,12 +180,18 @@ app.post('/api/chat', upload.single('file'), async (req, res) => {
 
   try {
     console.log('Sending request to Ollama...');
+    
+    // Enhance the prompt with information about available tools
+    const enhancedMessage = message + "\n\nYou have access to the following tools:\n" +
+      "1. browse_url - Browse a URL and retrieve its text content. Use this when you need to read content from a website.\n" +
+      "To use a tool, describe what you want to do and mention the tool name. For example: 'I'll browse the URL to get more information about this topic.'";
+    
     const response = await fetch('http://localhost:11434/api/generate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         model: model,
-        prompt: message,
+        prompt: enhancedMessage,
         stream: false,
       }),
     });
@@ -203,6 +211,50 @@ app.post('/api/chat', upload.single('file'), async (req, res) => {
   } catch (error) {
     console.error('Chat error:', error);
     res.status(500).json({ error: 'Connection failed' });
+  }
+});
+
+// Web browsing endpoint using web browsing tool
+app.get('/api/browse', async (req, res) => {
+  try {
+    const query = req.query.query;
+    if (!query) {
+      return res.status(400).json({ error: 'Query parameter is required' });
+    }
+
+    // Use the web browsing tool to search the web
+    const searchResult = await searchWeb(query);
+    
+    res.json({ 
+      success: true, 
+      result: searchResult,
+      query: query
+    });
+  } catch (error) {
+    console.error('Browse API error:', error);
+    res.status(500).json({ error: 'Failed to browse the web' });
+  }
+});
+
+// Web browsing endpoint for specific URLs
+app.get('/api/browse-url', async (req, res) => {
+  try {
+    const url = req.query.url;
+    if (!url) {
+      return res.status(400).json({ error: 'URL parameter is required' });
+    }
+
+    // Use the web browsing tool to browse the URL
+    const browseResult = await browseURL(url);
+    
+    res.json({ 
+      success: true, 
+      result: browseResult,
+      url: url
+    });
+  } catch (error) {
+    console.error('Browse URL API error:', error);
+    res.status(500).json({ error: 'Failed to browse the URL' });
   }
 });
 

@@ -187,7 +187,7 @@
 
     #right-panel {
       width: 10%;
-      background-color: #f9f9f9;
+      background-color: #f9f9;
       border-radius: 8px;
       padding: 15px;
       border: 1px solid #ddd;
@@ -208,6 +208,30 @@
       margin: 5px 0;
       padding: 10px;
       border-radius: 6px;
+      position: relative;
+    }
+
+    .delete-btn {
+      position: absolute;
+      top: 5px;
+      right: 5px;
+      background: #dc3545;
+      color: white;
+      border: none;
+      border-radius: 3px;
+      padding: 2px 6px;
+      font-size: 10px;
+      cursor: pointer;
+      opacity: 0;
+      transition: opacity 0.2s;
+    }
+
+    .message:hover .delete-btn {
+      opacity: 1;
+    }
+
+    .delete-btn:hover {
+      background: #c82333;
     }
 
     .user {
@@ -441,7 +465,7 @@
   </style>
 </head>
 <body>
-  <div id="header">
+ <div id="header">
     <div id="logo">🦙 Ollama Chat</div>
     <div id="menu">
       <button id="menu-btn">Menu ▼</button>
@@ -500,6 +524,7 @@
           <input type="file" id="image-input" accept=".jpg,.jpeg,.png,.gif,.bmp,.webp" style="display: none;" />
           <button type="button" id="file-btn" onclick="document.getElementById('file-input').click()" disabled style="padding: 10px; background: #6c757d; color: white; border: none; border-radius: 6px; cursor: pointer; white-space: nowrap;">📎 PDF,DOC,XLS</button>
           <button type="button" id="image-btn" onclick="document.getElementById('image-input').click()" disabled style="padding: 10px; background: #17a2b8; color: white; border: none; border-radius: 6px; cursor: pointer; white-space: nowrap;">🖼️ IMG</button>
+          <button type="button" id="browse-btn" onclick="browseWeb()" style="padding: 10px; background: #28a745; color: white; border: none; border-radius: 6px; cursor: pointer; white-space: nowrap;">🌐 Browse</button>
           <button type="submit" id="send-btn" disabled style="white-space: nowrap;">Send</button>
         </div>
         <div id="file-preview" style="margin-top: 5px; font-size: 12px; color: #666;"></div>
@@ -626,6 +651,13 @@
         selectedModel = sessionData.selectedModel;
         conversationMessages = sessionData.messages || [];
         
+        // Ensure all messages have IDs
+        conversationMessages.forEach(msg => {
+          if (!msg.id) {
+            msg.id = Date.now() + Math.random();
+          }
+        });
+        
         // Calculate statistics from messages
         const stats = calculateStatistics(conversationMessages);
         questionCount = stats.questions;
@@ -644,7 +676,7 @@
         // Restore messages
         messagesDiv.innerHTML = '';
         conversationMessages.forEach(msg => {
-          addMessageToUI(msg.text, msg.sender, msg.model);
+          addMessageToUI(msg.text, msg.sender, msg.model, msg.id);
         });
         
         // Update statistics
@@ -731,6 +763,13 @@
         selectedModel = data.selectedModel;
         conversationMessages = data.messages || [];
         
+        // Ensure all messages have IDs
+        conversationMessages.forEach(msg => {
+          if (!msg.id) {
+            msg.id = Date.now() + Math.random();
+          }
+        });
+        
         // Calculate statistics from messages
         const stats = calculateStatistics(conversationMessages);
         questionCount = stats.questions;
@@ -739,7 +778,7 @@
         // Clear and restore UI
         messagesDiv.innerHTML = '';
         conversationMessages.forEach(msg => {
-          addMessageToUI(msg.text, msg.sender, msg.model);
+          addMessageToUI(msg.text, msg.sender, msg.model, msg.id);
         });
         
         // Update UI state
@@ -912,6 +951,59 @@
       return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
     }
 
+    function deleteMessagePair(messageId) {
+      if (!confirm('Delete this question and its answer?')) return;
+      
+      console.log('Deleting message with ID:', messageId);
+      console.log('Current messages:', conversationMessages);
+      
+      // Find message index
+      const messageIndex = conversationMessages.findIndex(msg => msg.id == messageId);
+      console.log('Found message at index:', messageIndex);
+      
+      if (messageIndex === -1) {
+        console.log('Message not found!');
+        return;
+      }
+      
+      // Remove user message and following bot response
+      const messagesToRemove = [];
+      messagesToRemove.push(messageIndex); // User message
+      
+      // Find and remove the bot response that follows
+      if (messageIndex + 1 < conversationMessages.length && 
+          conversationMessages[messageIndex + 1].sender === 'bot') {
+        messagesToRemove.push(messageIndex + 1);
+      }
+      
+      console.log('Removing message indices:', messagesToRemove);
+      
+      // Remove from conversation data (reverse order to maintain indices)
+      messagesToRemove.reverse().forEach(index => {
+        conversationMessages.splice(index, 1);
+      });
+      
+      console.log('Messages after deletion:', conversationMessages);
+      
+      // Recalculate statistics
+      const stats = calculateStatistics(conversationMessages);
+      questionCount = stats.questions;
+      tokenCount = stats.tokens;
+      
+      // Update UI
+      messagesDiv.innerHTML = '';
+      conversationMessages.forEach(msg => {
+        addMessageToUI(msg.text, msg.sender, msg.model, msg.id);
+      });
+      
+      // Update statistics display
+      document.getElementById('question-count').textContent = questionCount;
+      document.getElementById('token-count').textContent = `~${tokenCount}`;
+      
+      // Auto-save current session
+      autoSaveCurrentSession();
+    }
+
     // Initialize app
     checkStatus();
     loadModels();
@@ -952,9 +1044,13 @@
         .replace(/\n/g, '<br>');
     }
 
-    function addMessageToUI(text, sender, modelName = null) {
+    function addMessageToUI(text, sender, modelName = null, messageId = null) {
       const div = document.createElement('div');
       div.className = `message ${sender}`;
+      
+      if (messageId !== null) {
+        div.setAttribute('data-message-id', messageId);
+      }
       
       if (sender === 'bot') {
         const formatted = parseMarkdown(text);
@@ -962,6 +1058,13 @@
         div.innerHTML = modelBadge + '<p>' + formatted + '</p>';
       } else {
         div.textContent = text;
+        // Add delete button to user messages
+        const deleteBtn = document.createElement('button');
+        deleteBtn.className = 'delete-btn';
+        deleteBtn.textContent = '✕';
+        deleteBtn.title = 'Delete this question and answer';
+        deleteBtn.onclick = () => deleteMessagePair(messageId);
+        div.appendChild(deleteBtn);
       }
       
       messagesDiv.appendChild(div);
@@ -969,11 +1072,15 @@
     }
 
     function addMessage(text, sender, modelName = null) {
+      // Generate unique message ID
+      const messageId = Date.now() + Math.random();
+      
       // Add to UI
-      addMessageToUI(text, sender, modelName);
+      addMessageToUI(text, sender, modelName, messageId);
       
       // Add to conversation data
       conversationMessages.push({
+        id: messageId,
         text,
         sender,
         model: modelName,
@@ -1014,6 +1121,27 @@
         fileWarning.style.display = 'none';
       }
     });
+
+    // Web browsing function
+    async function browseWeb() {
+      const query = prompt('Enter your search query:');
+      if (!query) return;
+      
+      addMessage(`Searching the web for: ${query}`, 'user');
+      
+      try {
+        const response = await fetch(`/api/browse?query=${encodeURIComponent(query)}`);
+        const data = await response.json();
+        
+        if (data.success) {
+          addMessage(data.result, 'bot', 'Web Browser');
+        } else {
+          addMessage(`Web browsing functionality would use MCP servers to search for information. ${data.message}`, 'bot', 'Web Browser');
+        }
+      } catch (error) {
+        addMessage('Failed to browse the web. This feature would use MCP servers for web browsing.', 'bot', 'Web Browser');
+      }
+    }
 
     // Image input handler
     imageInput.addEventListener('change', (e) => {

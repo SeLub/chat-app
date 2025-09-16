@@ -74,9 +74,29 @@ A modern web chat interface for Ollama models with advanced model management and
    npm install
    ```
 
-4. **Start the server:**
+4. **Start the servers:**
+   
+   For basic chat functionality only:
    ```bash
-   node server.js
+   npm run start
+   ```
+   
+   For chat functionality with MCP web browsing capabilities:
+   ```bash
+   # Terminal 1: Start the simple MCP web browsing server (recommended)
+   npm run mcp:simple-web-browse
+   
+   # Terminal 2: Start the main chat application server
+   npm run start
+   ```
+   
+   Alternative (if you have the full MCP SDK working):
+   ```bash
+   # Terminal 1: Start the full MCP web browsing server
+   npm run mcp:web-browse
+   
+   # Terminal 2: Start the main chat application server
+   npm run start
    ```
 
 5. **Open in browser:**
@@ -128,6 +148,15 @@ A modern web chat interface for Ollama models with advanced model management and
 - Node.js
 - Ollama installed and running
 - At least one Ollama model downloaded
+
+## MCP Integration
+
+This chat application can be enhanced with Model Context Protocol (MCP) servers that provide additional capabilities to AI models. See [MCP-README.md](MCP-README.md) for details on how to set up and use MCP servers.
+
+### Available MCP Servers
+
+1. **Web Browse Server** (`mcp-web-browse-server.js`) - Provides web browsing capabilities
+2. **Web Server** (`mcp-web-server.js`) - Example MCP server implementation
 
 ## Dependencies
 
