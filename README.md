@@ -24,6 +24,8 @@ A modern web chat interface for Ollama models with advanced model management and
 - Question and token counting
 - Responsive full-screen design
 - Document and image processing with AI analysis
+- Web content extraction from URLs
+- Message deletion for conversation curation
 
 ### Conversation Persistence
 - Auto-save current session (survives page reload)
@@ -46,6 +48,13 @@ A modern web chat interface for Ollama models with advanced model management and
 - Visual recognition and image reasoning
 - Image captioning and question answering
 - Compatible with llama3.2-vision, llava, and other vision models
+
+### Web Content Processing
+- Automatic URL detection in messages
+- Web page content extraction and analysis
+- Clean article text extraction using Mozilla Readability
+- Support for news articles, blogs, and documentation
+- Rate limiting (max 3 URLs per message) with timeout protection
 
 ### Statistics Dashboard
 - Model size display
@@ -91,9 +100,11 @@ A modern web chat interface for Ollama models with advanced model management and
 3. Click on any model to select it for chat
 4. Start chatting! Responses are formatted with markdown for better readability
 5. Upload documents using the 📎 PDF,DOC,XLS button or images using the 🖼️ IMG button
-6. Monitor your usage with real-time statistics in the right panel
-7. Use the menu to save, load, or export conversations
-8. Your current conversation auto-saves and restores on page reload
+6. Include URLs in messages for automatic web content analysis
+7. Delete unwanted question-answer pairs by hovering over user messages and clicking ✕
+8. Monitor your usage with real-time statistics in the right panel
+9. Use the menu to save, load, or export conversations
+10. Your current conversation auto-saves and restores on page reload
 
 ## Features in Detail
 
@@ -110,12 +121,20 @@ A modern web chat interface for Ollama models with advanced model management and
 - **Tokens**: Estimated token usage for cost tracking
 - **Model info**: Size and context window for each model
 
+### Conversation Management
+- **Message deletion**: Remove unwanted question-answer pairs
+- **Auto-save**: Current conversation automatically saved to localStorage
+- **Named saves**: Save important conversations with custom names
+- **Load conversations**: Browse and load any saved conversation
+- **Export**: Download conversations as JSON files for backup
+
 ### Model Support
 - **Text models**: Full chat support with document processing (phi4, llama, qwen, etc.)
 - **Vision models**: Image analysis and visual reasoning (llama3.2-vision, llava, etc.)
 - **Embedding models**: Detected and marked as unavailable for chat
 - **Document analysis**: All text models can process PDF, DOC, DOCX, XLS, XLSX, CSV files
 - **Image analysis**: Vision models can analyze JPG, PNG, GIF, BMP, WEBP images
+- **Web content**: All text models can analyze content from URLs automatically
 
 ## API Endpoints
 
@@ -137,3 +156,6 @@ A modern web chat interface for Ollama models with advanced model management and
 - `pdfjs-dist` - PDF text extraction
 - `word-extractor` - DOC/DOCX text extraction
 - `xlsx` - Excel spreadsheet processing
+- `@mozilla/readability` - Web content extraction
+- `jsdom` - Server-side DOM parsing
+- `cheerio` - HTML parsing utilities

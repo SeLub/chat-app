@@ -4,6 +4,8 @@ import multer from 'multer';
 import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
 import WordExtractor from 'word-extractor';
 import * as XLSX from 'xlsx';
+import { Readability } from '@mozilla/readability';
+import { JSDOM } from 'jsdom';
 const app = express();
 const port = 3000;
 
@@ -65,11 +67,97 @@ function isSpecialModel(modelName) {
   return { isEmbed, isVision };
 }
 
+function extractUrls(text) {
+  const urlRegex = /https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_\+.~#?&//=]*)/g;
+  return text.match(urlRegex) || [];
+}
+
+async function fetchWebContent(url) {
+  try {
+    console.log('Fetching content from:', url);
+    
+    const response = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (compatible; ChatBot/1.0)'
+      },
+      timeout: 10000 // 10 second timeout
+    });
+    
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
+    
+    const html = await response.text();
+    const dom = new JSDOM(html, { url });
+    const reader = new Readability(dom.window.document);
+    const article = reader.parse();
+    
+    if (article && article.textContent) {
+      const cleanText = article.textContent.trim();
+      console.log(`Extracted ${cleanText.length} characters from ${url}`);
+      return {
+        title: article.title || 'Web Page',
+        content: cleanText,
+        url: url
+      };
+    } else {
+      // Fallback: extract basic text content
+      const textContent = dom.window.document.body?.textContent || '';
+      return {
+        title: dom.window.document.title || 'Web Page',
+        content: textContent.trim(),
+        url: url
+      };
+    }
+  } catch (error) {
+    console.error('Error fetching web content:', error);
+    throw new Error(`Failed to fetch content from ${url}: ${error.message}`);
+  }
+}
+
 app.post('/api/chat', upload.single('file'), async (req, res) => {
   let { message, model } = req.body;
   const file = req.file;
   
   console.log('Received message:', message, 'for model:', model, 'with file:', file?.originalname);
+
+  // Extract and fetch web content if URLs are present
+  const urls = extractUrls(message);
+  if (urls.length > 0) {
+    try {
+      console.log('Found URLs:', urls);
+      
+      // Limit to 3 URLs to prevent abuse
+      const urlsToFetch = urls.slice(0, 3);
+      const webContents = [];
+      
+      for (const url of urlsToFetch) {
+        try {
+          const content = await fetchWebContent(url);
+          webContents.push(content);
+        } catch (error) {
+          console.error(`Failed to fetch ${url}:`, error.message);
+          webContents.push({
+            title: 'Error',
+            content: `Unable to fetch content from ${url}: ${error.message}`,
+            url: url
+          });
+        }
+      }
+      
+      // Append web content to message
+      if (webContents.length > 0) {
+        const webContentText = webContents.map(content => 
+          `\n\n--- Web Content from ${content.url} ---\nTitle: ${content.title}\n\n${content.content}`
+        ).join('');
+        
+        message = message + webContentText + '\n\n--- End of Web Content ---';
+      }
+    } catch (error) {
+      console.error('Error processing URLs:', error);
+      // Continue without web content if there's an error
+    }
+  }
 
   if (!model) {
     return res.status(400).json({ error: 'Model not specified' });
