@@ -874,11 +874,76 @@
       updateStatistics(model);
     }
 
-    function updateStatistics(model) {
+    async function updateStatistics(model) {
       document.getElementById('model-size').textContent = formatBytes(model.size);
-      document.getElementById('context-size').textContent = '32K';
       document.getElementById('question-count').textContent = questionCount;
       document.getElementById('token-count').textContent = `~${tokenCount}`;
+      
+      // Try to get context window size
+      try {
+        const contextSize = await getModelContextSize(model.name);
+        document.getElementById('context-size').textContent = contextSize;
+      } catch (error) {
+        console.log('Could not get context size for', model.name);
+        document.getElementById('context-size').textContent = 'Unknown';
+      }
+    }
+    
+    async function getModelContextSize(modelName) {
+      try {
+        const response = await fetch('/api/show', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: modelName })
+        });
+        
+        if (!response.ok) {
+          throw new Error('Failed to get model info');
+        }
+        
+        const data = await response.json();
+        
+        // Try to extract context size from parameters
+        if (data.parameters) {
+          const numCtxMatch = data.parameters.match(/num_ctx\s+(\d+)/);
+          if (numCtxMatch) {
+            const tokens = parseInt(numCtxMatch[1]);
+            return formatTokens(tokens);
+          }
+        }
+        
+        // Try to extract from modelfile
+        if (data.modelfile) {
+          const numCtxMatch = data.modelfile.match(/PARAMETER num_ctx (\d+)/);
+          if (numCtxMatch) {
+            const tokens = parseInt(numCtxMatch[1]);
+            return formatTokens(tokens);
+          }
+        }
+        
+        // Fallback to default based on model name
+        return getDefaultContextSize(modelName);
+      } catch (error) {
+        console.error('Error getting model context size:', error);
+        return getDefaultContextSize(modelName);
+      }
+    }
+    
+    function getDefaultContextSize(modelName) {
+      // Common defaults based on model families
+      if (modelName.includes('phi4')) return '16K';
+      if (modelName.includes('mistral-nemo')) return '128K';
+      if (modelName.includes('qwen')) return '32K';
+      if (modelName.includes('llama3.2')) return '128K';
+      if (modelName.includes('llama')) return '8K';
+      return '4K'; // Conservative default
+    }
+    
+    function formatTokens(tokens) {
+      if (tokens >= 1024) {
+        return Math.round(tokens / 1024) + 'K';
+      }
+      return tokens.toString();
     }
 
     function updateResponseTime(duration) {

@@ -57,6 +57,33 @@ app.get('/api/status', async (req, res) => {
   }
 });
 
+app.post('/api/show', async (req, res) => {
+  try {
+    const { name } = req.body;
+    if (!name) {
+      return res.status(400).json({ error: 'Model name is required' });
+    }
+    
+    const response = await fetch('http://localhost:11434/api/show', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name })
+    });
+    
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('Ollama show API error:', response.statusText, errorText);
+      return res.status(response.status).json({ error: response.statusText });
+    }
+    
+    const data = await response.json();
+    res.json(data);
+  } catch (error) {
+    console.error('Show API error:', error);
+    res.status(500).json({ error: 'Failed to get model information' });
+  }
+});
+
 function isSpecialModel(modelName) {
   const embedModels = ['nomic-embed-text', 'embed'];
   const visionModels = ['vision', 'llava'];

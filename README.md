@@ -119,7 +119,8 @@ A modern web chat interface for Ollama models with advanced model management and
 - **Questions**: Counts only user questions (not total messages)
 - **Response time**: Live timer showing model response speed
 - **Tokens**: Estimated token usage for cost tracking
-- **Model info**: Size and context window for each model
+- **Model info**: Size and dynamic context window detection for each model
+- **Context detection**: Automatically detects custom context window sizes (e.g., 64K, 128K)
 
 ### Conversation Management
 - **Message deletion**: Remove unwanted question-answer pairs
@@ -141,6 +142,7 @@ A modern web chat interface for Ollama models with advanced model management and
 - `GET /api/models` - List all available models with status
 - `GET /api/status` - Check Ollama connection status
 - `POST /api/chat` - Send message to selected model
+- `POST /api/show` - Get detailed model information including context window size
 
 ## Requirements
 
