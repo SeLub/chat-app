@@ -208,6 +208,81 @@
       margin: 5px 0;
       padding: 10px;
       border-radius: 6px;
+      position: relative;
+    }
+
+    .message-content {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+    }
+
+    .message-text {
+      flex: 1;
+    }
+
+    .message-image {
+      flex-shrink: 0;
+    }
+
+    .image-thumbnail {
+      width: 80px;
+      height: 80px;
+      object-fit: cover;
+      border-radius: 8px;
+      cursor: pointer;
+      border: 2px solid #ddd;
+      transition: all 0.2s ease;
+    }
+
+    .image-thumbnail:hover {
+      border-color: #007bff;
+      transform: scale(1.05);
+    }
+
+    .image-modal {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background-color: rgba(0,0,0,0.8);
+      z-index: 3000;
+      cursor: pointer;
+    }
+
+    .image-modal img {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      max-width: 90%;
+      max-height: 90%;
+      border-radius: 8px;
+    }
+
+    .delete-btn {
+      position: absolute;
+      top: 5px;
+      right: 5px;
+      background: #dc3545;
+      color: white;
+      border: none;
+      border-radius: 3px;
+      padding: 2px 6px;
+      font-size: 10px;
+      cursor: pointer;
+      opacity: 0;
+      transition: opacity 0.2s;
+    }
+
+    .message:hover .delete-btn {
+      opacity: 1;
+    }
+
+    .delete-btn:hover {
+      background: #c82333;
     }
 
     .user {
@@ -641,10 +716,13 @@
           imageBtn.disabled = false;
         }
         
-        // Restore messages
+        // Restore messages - ensure IDs exist
         messagesDiv.innerHTML = '';
         conversationMessages.forEach(msg => {
-          addMessageToUI(msg.text, msg.sender, msg.model);
+          if (!msg.id) {
+            msg.id = Date.now() + Math.random();
+          }
+          addMessageToUI(msg.text, msg.sender, msg.model, msg.id, msg.imageData);
         });
         
         // Update statistics
@@ -736,10 +814,13 @@
         questionCount = stats.questions;
         tokenCount = stats.tokens;
         
-        // Clear and restore UI
+        // Clear and restore UI - ensure IDs exist
         messagesDiv.innerHTML = '';
         conversationMessages.forEach(msg => {
-          addMessageToUI(msg.text, msg.sender, msg.model);
+          if (!msg.id) {
+            msg.id = Date.now() + Math.random();
+          }
+          addMessageToUI(msg.text, msg.sender, msg.model, msg.id, msg.imageData);
         });
         
         // Update UI state
@@ -1017,31 +1098,139 @@
         .replace(/\n/g, '<br>');
     }
 
-    function addMessageToUI(text, sender, modelName = null) {
+    function addMessageToUI(text, sender, modelName = null, messageId = null, imageData = null) {
       const div = document.createElement('div');
       div.className = `message ${sender}`;
+      
+      if (messageId !== null) {
+        div.setAttribute('data-message-id', messageId);
+      }
       
       if (sender === 'bot') {
         const formatted = parseMarkdown(text);
         const modelBadge = modelName ? `<div class="model-badge">${modelName}</div>` : '';
         div.innerHTML = modelBadge + '<p>' + formatted + '</p>';
       } else {
-        div.textContent = text;
+        // Extract text without image indicator
+        const cleanText = text.replace(/\s*\[🖼️[^\]]+\]\s*$/, '');
+        
+        // Create message content container
+        const contentDiv = document.createElement('div');
+        contentDiv.className = 'message-content';
+        
+        // Create text container
+        const textDiv = document.createElement('div');
+        textDiv.className = 'message-text';
+        textDiv.textContent = cleanText;
+        contentDiv.appendChild(textDiv);
+        
+        // Add image thumbnail if present
+        if (imageData) {
+          const imageDiv = document.createElement('div');
+          imageDiv.className = 'message-image';
+          
+          const img = document.createElement('img');
+          img.src = imageData.thumbnailUrl;
+          img.className = 'image-thumbnail';
+          img.title = `Click to view full image: ${imageData.filename}`;
+          img.onclick = () => showImageModal(imageData.fullUrl);
+          
+          imageDiv.appendChild(img);
+          contentDiv.appendChild(imageDiv);
+        }
+        
+        div.appendChild(contentDiv);
+        
+        // Add image filename on new line if present
+        if (imageData) {
+          const filenameDiv = document.createElement('div');
+          filenameDiv.style.fontSize = '12px';
+          filenameDiv.style.color = '#666';
+          filenameDiv.style.marginTop = '5px';
+          filenameDiv.style.textAlign = 'right';
+          filenameDiv.textContent = `🖼️ ${imageData.filename}`;
+          div.appendChild(filenameDiv);
+        }
+        
+        // Add delete button to user messages
+        const deleteBtn = document.createElement('button');
+        deleteBtn.className = 'delete-btn';
+        deleteBtn.textContent = '✕';
+        deleteBtn.title = 'Delete this question and answer';
+        deleteBtn.onclick = () => deleteMessagePair(messageId);
+        div.appendChild(deleteBtn);
       }
       
       messagesDiv.appendChild(div);
       messagesDiv.scrollTop = messagesDiv.scrollHeight;
     }
+    
+    function showImageModal(imageUrl) {
+      const modal = document.createElement('div');
+      modal.className = 'image-modal';
+      modal.innerHTML = `<img src="${imageUrl}" alt="Full size image">`;
+      modal.onclick = () => document.body.removeChild(modal);
+      document.body.appendChild(modal);
+      modal.style.display = 'block';
+    }
 
-    function addMessage(text, sender, modelName = null) {
+    function deleteMessagePair(messageId) {
+      if (!confirm('Delete this question and answer?')) return;
+      
+      console.log('Deleting message with ID:', messageId);
+      console.log('Current messages:', conversationMessages.map(m => ({id: m.id, sender: m.sender, text: m.text.substring(0, 50)})));
+      
+      // Find the user message index
+      const userIndex = conversationMessages.findIndex(msg => msg.id == messageId && msg.sender === 'user');
+      console.log('Found user message at index:', userIndex);
+      
+      if (userIndex === -1) {
+        console.log('Message not found!');
+        return;
+      }
+      
+      // Remove user message and following bot message (if exists)
+      const messagesToRemove = [userIndex];
+      if (userIndex + 1 < conversationMessages.length && conversationMessages[userIndex + 1].sender === 'bot') {
+        messagesToRemove.push(userIndex + 1);
+      }
+      
+      console.log('Removing messages at indices:', messagesToRemove);
+      
+      // Remove from array (reverse order to maintain indices)
+      messagesToRemove.reverse().forEach(index => {
+        const removedMsg = conversationMessages.splice(index, 1)[0];
+        if (removedMsg.sender === 'user') questionCount--;
+        tokenCount -= Math.ceil(removedMsg.text.length / 4);
+      });
+      
+      // Refresh UI
+      messagesDiv.innerHTML = '';
+      conversationMessages.forEach(msg => {
+        addMessageToUI(msg.text, msg.sender, msg.model, msg.id, msg.imageData);
+      });
+      
+      // Update statistics
+      document.getElementById('question-count').textContent = questionCount;
+      document.getElementById('token-count').textContent = `~${tokenCount}`;
+      
+      autoSaveCurrentSession();
+    }
+
+    function addMessage(text, sender, modelName = null, imageData = null) {
+      // Generate unique message ID
+      const messageId = Date.now() + Math.random();
+      
       // Add to UI
-      addMessageToUI(text, sender, modelName);
+      addMessageToUI(text, sender, modelName, messageId, imageData);
       
       // Add to conversation data
       conversationMessages.push({
+        id: messageId,
         text,
         sender,
         model: modelName,
+        imageData: imageData,
         timestamp: Date.now()
       });
       
@@ -1159,6 +1348,24 @@
 
         if (data.response) {
           addMessage(data.response, 'bot', data.model);
+          
+          // If this was an image upload, update the user message with image data
+          if (data.imageData && conversationMessages.length > 0) {
+            const lastUserMessage = conversationMessages[conversationMessages.length - 2];
+            if (lastUserMessage && lastUserMessage.sender === 'user') {
+              lastUserMessage.imageData = data.imageData;
+              autoSaveCurrentSession();
+              
+              // Refresh UI to show thumbnail
+              messagesDiv.innerHTML = '';
+              conversationMessages.forEach(msg => {
+                if (!msg.id) {
+                  msg.id = Date.now() + Math.random();
+                }
+                addMessageToUI(msg.text, msg.sender, msg.model, msg.id, msg.imageData);
+              });
+            }
+          }
         }
       } catch (error) {
         stopResponseTimer();

@@ -26,6 +26,7 @@ A modern web chat interface for Ollama models with advanced model management and
 - Document and image processing with AI analysis
 - Web content extraction from URLs
 - Message deletion for conversation curation
+- Professional image message layout with thumbnails
 
 ### Conversation Persistence
 - Auto-save current session (survives page reload)
@@ -48,6 +49,8 @@ A modern web chat interface for Ollama models with advanced model management and
 - Visual recognition and image reasoning
 - Image captioning and question answering
 - Compatible with llama3.2-vision, llava, and other vision models
+- Professional message layout with image thumbnails and filename display
+- Click thumbnails to view full-size images in modal
 
 ### Web Content Processing
 - Automatic URL detection in messages
@@ -102,9 +105,10 @@ A modern web chat interface for Ollama models with advanced model management and
 5. Upload documents using the 📎 PDF,DOC,XLS button or images using the 🖼️ IMG button
 6. Include URLs in messages for automatic web content analysis
 7. Delete unwanted question-answer pairs by hovering over user messages and clicking ✕
-8. Monitor your usage with real-time statistics in the right panel
-9. Use the menu to save, load, or export conversations
-10. Your current conversation auto-saves and restores on page reload
+8. View uploaded images as clean thumbnails with filenames displayed below
+9. Monitor your usage with real-time statistics in the right panel
+10. Use the menu to save, load, or export conversations
+11. Your current conversation auto-saves and restores on page reload
 
 ## Features in Detail
 

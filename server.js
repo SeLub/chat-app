@@ -6,12 +6,51 @@ import WordExtractor from 'word-extractor';
 import * as XLSX from 'xlsx';
 import { Readability } from '@mozilla/readability';
 import { JSDOM } from 'jsdom';
+import sharp from 'sharp';
+import path from 'path';
+import fs from 'fs';
 const app = express();
 const port = 3000;
 
 const extractor = new WordExtractor();
 
-const upload = multer({ storage: multer.memoryStorage() });
+const upload = multer({ 
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 50 * 1024 * 1024 } // 50MB max file size
+});
+
+// Ensure upload directories exist
+const uploadsDir = './uploads/images';
+const thumbnailsDir = './uploads/images/thumbnails';
+if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
+if (!fs.existsSync(thumbnailsDir)) fs.mkdirSync(thumbnailsDir, { recursive: true });
+
+function generateImageId() {
+  return `img_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+}
+
+async function saveImageFiles(buffer, originalName) {
+  const imageId = generateImageId();
+  const ext = path.extname(originalName).toLowerCase();
+  const fullPath = path.join(uploadsDir, `${imageId}${ext}`);
+  const thumbPath = path.join(thumbnailsDir, `${imageId}_thumb.jpg`);
+  
+  // Save original image
+  await fs.promises.writeFile(fullPath, buffer);
+  
+  // Generate and save thumbnail
+  await sharp(buffer)
+    .resize(150, 150, { fit: 'inside', withoutEnlargement: true })
+    .jpeg({ quality: 80 })
+    .toFile(thumbPath);
+  
+  return {
+    id: imageId,
+    filename: originalName,
+    fullUrl: `/api/images/${imageId}/full`,
+    thumbnailUrl: `/api/images/${imageId}/thumb`
+  };
+}
 
 app.use(express.json());
 app.use(express.static('public'));
@@ -81,6 +120,52 @@ app.post('/api/show', async (req, res) => {
   } catch (error) {
     console.error('Show API error:', error);
     res.status(500).json({ error: 'Failed to get model information' });
+  }
+});
+
+// Serve images
+app.get('/api/images/:imageId/:type', (req, res) => {
+  const { imageId, type } = req.params;
+  
+  try {
+    let filePath;
+    if (type === 'thumb') {
+      filePath = path.join(thumbnailsDir, `${imageId}_thumb.jpg`);
+    } else if (type === 'full') {
+      // Find the original file with any extension
+      const files = fs.readdirSync(uploadsDir);
+      const originalFile = files.find(file => file.startsWith(imageId) && !file.includes('_thumb'));
+      if (!originalFile) {
+        return res.status(404).json({ error: 'Image not found' });
+      }
+      filePath = path.join(uploadsDir, originalFile);
+    } else {
+      return res.status(400).json({ error: 'Invalid image type' });
+    }
+    
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({ error: 'Image not found' });
+    }
+    
+    // Set appropriate headers
+    const ext = path.extname(filePath).toLowerCase();
+    const mimeTypes = {
+      '.jpg': 'image/jpeg',
+      '.jpeg': 'image/jpeg', 
+      '.png': 'image/png',
+      '.gif': 'image/gif',
+      '.webp': 'image/webp',
+      '.bmp': 'image/bmp'
+    };
+    
+    res.setHeader('Content-Type', mimeTypes[ext] || 'image/jpeg');
+    res.setHeader('Cache-Control', 'public, max-age=31536000'); // 1 year cache
+    
+    const imageStream = fs.createReadStream(filePath);
+    imageStream.pipe(res);
+  } catch (error) {
+    console.error('Error serving image:', error);
+    res.status(500).json({ error: 'Failed to serve image' });
   }
 });
 
@@ -211,7 +296,10 @@ app.post('/api/chat', upload.single('file'), async (req, res) => {
           return res.status(400).json({ error: 'Images require vision models (llama3.2-vision, llava, etc.)' });
         }
         
-        // Convert image to base64
+        // Save image files and get URLs
+        const imageData = await saveImageFiles(file.buffer, file.originalname);
+        
+        // Convert image to base64 for vision model
         const base64Image = file.buffer.toString('base64');
         
         try {
@@ -241,7 +329,11 @@ app.post('/api/chat', upload.single('file'), async (req, res) => {
           const data = await response.json();
           console.log('Vision model response:', data);
           
-          return res.json({ response: data.message.content, model: model });
+          return res.json({ 
+            response: data.message.content, 
+            model: model,
+            imageData: imageData
+          });
         } catch (error) {
           console.error('Vision model error:', error);
           return res.status(500).json({ error: 'Vision model connection failed' });
