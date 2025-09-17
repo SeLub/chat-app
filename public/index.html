@@ -518,13 +518,16 @@
 <body>
   <div id="header">
     <div id="logo">🦙 Ollama Chat</div>
-    <div id="menu">
-      <button id="menu-btn">Menu ▼</button>
-      <div id="menu-dropdown">
-        <div class="menu-item" onclick="saveConversation()">💾 Save Conversation</div>
-        <div class="menu-item" onclick="loadConversation()">📂 Load Conversation</div>
-        <div class="menu-item" onclick="clearConversation()">🗑️ Clear Current Chat</div>
-        <div class="menu-item" onclick="exportConversation()">📤 Export to File</div>
+    <div style="display: flex; align-items: center; gap: 15px;">
+      <a href="/dashboard.html" style="color: #3498db; text-decoration: none; padding: 8px 15px; border-radius: 5px; background: rgba(52, 152, 219, 0.1);">📊 Dashboard</a>
+      <div id="menu">
+        <button id="menu-btn">Menu ▼</button>
+        <div id="menu-dropdown">
+          <div class="menu-item" onclick="saveConversation()">💾 Save Conversation</div>
+          <div class="menu-item" onclick="loadConversation()">📂 Load Conversation</div>
+          <div class="menu-item" onclick="clearConversation()">🗑️ Clear Current Chat</div>
+          <div class="menu-item" onclick="exportConversation()">📤 Export to File</div>
+        </div>
       </div>
     </div>
   </div>
@@ -1058,10 +1061,25 @@
       return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
     }
 
+    // Check for URL parameters to load specific conversation
+    function checkUrlParams() {
+      const urlParams = new URLSearchParams(window.location.search);
+      const loadKey = urlParams.get('load');
+      if (loadKey) {
+        const data = loadFromStorage(loadKey);
+        if (data) {
+          loadSpecificConversation(loadKey);
+          // Clear URL parameter
+          window.history.replaceState({}, document.title, window.location.pathname);
+        }
+      }
+    }
+
     // Initialize app
     checkStatus();
     loadModels();
     loadCurrentSession();
+    checkUrlParams();
     
     // Clear previews on page load
     filePreview.textContent = '';

@@ -1,6 +1,7 @@
 # Ollama Chat App
 
-![Screenshot](Screenshot.png)
+![Chat](Screenshot.png)
+![Dashboard](Screenshot2.png)
 
 A modern web chat interface for Ollama models with advanced model management and real-time statistics.
 
@@ -34,6 +35,7 @@ A modern web chat interface for Ollama models with advanced model management and
 - Load and manage multiple saved conversations
 - Export conversations to JSON files
 - Clear current chat functionality
+- Dedicated dashboard for conversation management
 
 ### Document Processing
 - PDF file upload and text extraction
@@ -108,16 +110,20 @@ A modern web chat interface for Ollama models with advanced model management and
 8. View uploaded images as clean thumbnails with filenames displayed below
 9. Monitor your usage with real-time statistics in the right panel
 10. Use the menu to save, load, or export conversations
-11. Your current conversation auto-saves and restores on page reload
+11. Access the Dashboard to manage all saved conversations with search, bulk operations, and statistics
+12. Your current conversation auto-saves and restores on page reload
 
 ## Features in Detail
 
 ### Conversation Management
 - **Auto-save**: Current conversation automatically saved to localStorage
 - **Named saves**: Save important conversations with custom names
-- **Load conversations**: Browse and load any saved conversation
-- **Export**: Download conversations as JSON files for backup
-- **Clear chat**: Reset current conversation when needed
+- **Dashboard**: Dedicated page for managing all conversations
+- **Search & Filter**: Find conversations by name or content
+- **Bulk Operations**: Select and manage multiple conversations at once
+- **Export**: Download individual or multiple conversations as JSON files
+- **Rename**: Edit conversation names inline
+- **Statistics**: View total conversations and message counts
 
 ### Smart Statistics
 - **Questions**: Counts only user questions (not total messages)
@@ -126,12 +132,13 @@ A modern web chat interface for Ollama models with advanced model management and
 - **Model info**: Size and dynamic context window detection for each model
 - **Context detection**: Automatically detects custom context window sizes (e.g., 64K, 128K)
 
-### Conversation Management
-- **Message deletion**: Remove unwanted question-answer pairs
-- **Auto-save**: Current conversation automatically saved to localStorage
-- **Named saves**: Save important conversations with custom names
-- **Load conversations**: Browse and load any saved conversation
-- **Export**: Download conversations as JSON files for backup
+### Dashboard Features
+- **Conversation Grid**: Visual cards showing all saved conversations
+- **Search Functionality**: Real-time search through conversation names and content
+- **Bulk Operations**: Select multiple conversations for batch export or deletion
+- **Statistics Overview**: Total conversations, messages, and selection counts
+- **Individual Management**: Rename, export, delete, or open any conversation
+- **Direct Loading**: Open conversations directly from dashboard to main chat
 
 ### Model Support
 - **Text models**: Full chat support with document processing (phi4, llama, qwen, etc.)
