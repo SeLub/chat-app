@@ -413,6 +413,49 @@ app.post('/api/chat', upload.single('file'), async (req, res) => {
   }
 });
 
+// Delete conversation images
+app.delete('/api/conversation-images', express.json(), (req, res) => {
+  try {
+    const { imageUrls } = req.body;
+    
+    if (!imageUrls || !Array.isArray(imageUrls)) {
+      return res.status(400).json({ error: 'Invalid image URLs array' });
+    }
+    
+    let deletedCount = 0;
+    
+    imageUrls.forEach(url => {
+      // Extract image ID from URL (e.g., '/api/images/img_123_abc/full' -> 'img_123_abc')
+      const match = url.match(/\/api\/images\/([^/]+)\/(full|thumb)/);
+      if (match) {
+        const imageId = match[1];
+        
+        // Find and delete original image
+        const files = fs.readdirSync(uploadsDir);
+        const originalFile = files.find(file => file.startsWith(imageId) && !file.includes('_thumb'));
+        if (originalFile) {
+          const imagePath = path.join(uploadsDir, originalFile);
+          if (fs.existsSync(imagePath)) {
+            fs.unlinkSync(imagePath);
+            deletedCount++;
+          }
+        }
+        
+        // Delete thumbnail
+        const thumbPath = path.join(thumbnailsDir, `${imageId}_thumb.jpg`);
+        if (fs.existsSync(thumbPath)) {
+          fs.unlinkSync(thumbPath);
+        }
+      }
+    });
+    
+    res.json({ success: true, deletedCount });
+  } catch (error) {
+    console.error('Error deleting images:', error);
+    res.status(500).json({ error: 'Failed to delete images' });
+  }
+});
+
 app.listen(port, () => {
   console.log(`Server running on http://localhost:${port}`);
 });

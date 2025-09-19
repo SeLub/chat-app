@@ -1,0 +1,4 @@
+{
+    "localaipilot.standalone.ollamaModel": "qwen3-coder-30b-c64k:latest",
+    "localaipilot.general.inlineSuggestions": false
+}

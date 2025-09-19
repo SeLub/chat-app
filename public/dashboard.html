@@ -374,11 +374,35 @@
       }
     }
 
-    function deleteConversation(key) {
+    async function deleteConversation(key) {
       const conv = conversations.find(c => c.key === key);
       if (!conv) return;
       
       if (confirm(`Delete "${conv.name}"?`)) {
+        // Check for images in conversation
+        const imageUrls = [];
+        if (conv.messages) {
+          conv.messages.forEach(msg => {
+            if (msg.imageData && msg.imageData.fullUrl) {
+              imageUrls.push(msg.imageData.fullUrl);
+            }
+          });
+        }
+        
+        // Delete images from server if any exist
+        if (imageUrls.length > 0) {
+          try {
+            await fetch('/api/conversation-images', {
+              method: 'DELETE',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ imageUrls })
+            });
+            console.log(`Deleted ${imageUrls.length} images for conversation`);
+          } catch (error) {
+            console.error('Failed to delete images:', error);
+          }
+        }
+        
         localStorage.removeItem(key);
         selectedConversations.delete(key);
         refreshConversations();
@@ -416,10 +440,37 @@
       URL.revokeObjectURL(url);
     }
 
-    function deleteSelected() {
+    async function deleteSelected() {
       if (selectedConversations.size === 0) return;
       
       if (confirm(`Delete ${selectedConversations.size} selected conversations?`)) {
+        // Collect all image URLs from selected conversations
+        const allImageUrls = [];
+        selectedConversations.forEach(key => {
+          const conv = conversations.find(c => c.key === key);
+          if (conv && conv.messages) {
+            conv.messages.forEach(msg => {
+              if (msg.imageData && msg.imageData.fullUrl) {
+                allImageUrls.push(msg.imageData.fullUrl);
+              }
+            });
+          }
+        });
+        
+        // Delete images from server if any exist
+        if (allImageUrls.length > 0) {
+          try {
+            await fetch('/api/conversation-images', {
+              method: 'DELETE',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ imageUrls: allImageUrls })
+            });
+            console.log(`Deleted ${allImageUrls.length} images from selected conversations`);
+          } catch (error) {
+            console.error('Failed to delete images:', error);
+          }
+        }
+        
         selectedConversations.forEach(key => {
           localStorage.removeItem(key);
         });
