@@ -73,9 +73,8 @@ app.get('/api/models', async (req, res) => {
       name: model.name,
       size: model.size,
       status: runningModelNames.has(model.name) ? 'running' : 'available'
-    })) || [];
+    })).sort((a, b) => a.name.localeCompare(b.name)) || [];
     
-    console.log('Running models from /api/ps:', runningModelNames);
     res.json({ models });
   } catch (error) {
     console.error('Models API error:', error);
@@ -87,7 +86,6 @@ app.get('/api/status', async (req, res) => {
   try {
     const response = await fetch('http://localhost:11434/api/ps');
     const data = await response.json();
-    console.log('Status check - running models:', data);
     const hasRunningModels = data.models && data.models.length > 0;
     res.json({ connected: true, hasRunningModels });
   } catch (error) {
@@ -227,11 +225,12 @@ async function fetchWebContent(url) {
   }
 }
 
-app.post('/api/chat', upload.single('file'), async (req, res) => {
+app.post('/api/chat', upload.fields([{ name: 'file', maxCount: 1 }, { name: 'codeFiles', maxCount: 50 }]), async (req, res) => {
   let { message, model } = req.body;
-  const file = req.file;
+  const file = req.files?.file?.[0];
+  const codeFiles = req.files?.codeFiles || [];
   
-  console.log('Received message:', message, 'for model:', model, 'with file:', file?.originalname);
+  console.log('Received message:', message, 'for model:', model, 'with file:', file?.originalname, 'code files:', codeFiles.length);
 
   // Extract and fetch web content if URLs are present
   const urls = extractUrls(message);
@@ -285,8 +284,37 @@ app.post('/api/chat', upload.single('file'), async (req, res) => {
     return res.status(400).json({ error: 'Vision models require image inputs' });
   }
 
+  // Process code files first
+  if (codeFiles.length > 0) {
+    try {
+      let codeContent = '';
+      const supportedExtensions = ['.js', '.ts', '.jsx', '.tsx', '.py', '.java', '.html', '.css', '.scss', '.json', '.xml', '.yaml', '.yml', '.md', '.txt', '.sql', '.php', '.rb', '.go', '.rs', '.cpp', '.c', '.h', '.cs', '.swift', '.kt', '.scala', '.sh', '.bat', '.dockerfile', '.gitignore', '.env'];
+      
+      codeContent += `Code Analysis Request - ${codeFiles.length} files:\n\n`;
+      
+      for (const codeFile of codeFiles) {
+        const ext = path.extname(codeFile.originalname).toLowerCase();
+        
+        if (supportedExtensions.includes(ext) || !ext) {
+          const fileContent = codeFile.buffer.toString('utf-8');
+          codeContent += `--- File: ${codeFile.originalname} ---\n`;
+          codeContent += fileContent;
+          codeContent += '\n\n';
+        } else {
+          codeContent += `--- File: ${codeFile.originalname} (binary/unsupported) ---\n`;
+          codeContent += '[Binary file - content not displayed]\n\n';
+        }
+      }
+      
+      message = codeContent + `\nUser request: ${message}`;
+      console.log('Code files processed, total content length:', codeContent.length);
+    } catch (error) {
+      console.error('Code file processing error:', error);
+      return res.status(400).json({ error: 'Failed to process code files' });
+    }
+  }
   // Process uploaded file
-  if (file) {
+  else if (file) {
     try {
       let extractedText = '';
       
@@ -456,6 +484,7 @@ app.delete('/api/conversation-images', express.json(), (req, res) => {
   }
 });
 
-app.listen(port, () => {
+app.listen(port, '0.0.0.0', () => {
   console.log(`Server running on http://localhost:${port}`);
+  console.log(`Network access: http://YOUR_CLIENT_IP:${port}`);
 });

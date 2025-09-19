@@ -19,7 +19,7 @@ A modern web chat interface for Ollama models with advanced model management and
 - Support for any Ollama model
 
 ### Enhanced Chat Experience
-- Markdown formatting for bot responses (headers, code blocks, tables, etc.)
+- Markdown formatting for both user questions and bot responses (headers, code blocks, tables, etc.)
 - Model badges showing which model answered each question
 - Real-time response timer with live counter
 - Question and token counting
@@ -28,6 +28,8 @@ A modern web chat interface for Ollama models with advanced model management and
 - Web content extraction from URLs
 - Message deletion for conversation curation
 - Professional image message layout with thumbnails
+- Multiline input modal for complex messages with code
+- Message actions: copy, jump to question, delete Q&A pairs
 
 ### Conversation Persistence
 - Auto-save current session (survives page reload)
@@ -44,6 +46,13 @@ A modern web chat interface for Ollama models with advanced model management and
 - Automatic document analysis with any text model
 - File preview with name and size display
 - Support for document-based conversations
+
+### Code File Processing
+- Multiple code file upload (up to 50 files)
+- Support for all major programming languages (.js, .py, .java, .html, .css, etc.)
+- Cumulative file selection across different folders
+- Structured code analysis and recommendations
+- Project-wide code review capabilities
 
 ### Image Processing
 - Image upload and analysis with vision models
@@ -104,14 +113,16 @@ A modern web chat interface for Ollama models with advanced model management and
 2. Models currently loaded in memory will show as "Running"
 3. Click on any model to select it for chat
 4. Start chatting! Responses are formatted with markdown for better readability
-5. Upload documents using the 📎 PDF,DOC,XLS button or images using the 🖼️ IMG button
-6. Include URLs in messages for automatic web content analysis
-7. Delete unwanted question-answer pairs by hovering over user messages and clicking ✕
-8. View uploaded images as clean thumbnails with filenames displayed below
-9. Monitor your usage with real-time statistics in the right panel
-10. Use the menu to save, load, or export conversations
-11. Access the Dashboard to manage all saved conversations with search, bulk operations, and statistics
-12. Your current conversation auto-saves and restores on page reload
+5. Use 📝 MULTILINE button for complex messages with code blocks and formatting
+6. Upload documents using the 📎 PDF,DOC,XLS button or images using the 🖼️ IMG button
+7. Upload code files using the 📁 CODE button (supports multiple files and cumulative selection)
+8. Include URLs in messages for automatic web content analysis
+9. Use message actions: copy questions/answers, jump between Q&A pairs, delete unwanted pairs
+10. View uploaded images as clean thumbnails with filenames displayed below
+11. Monitor your usage with real-time statistics in the right panel
+12. Use the menu to save, load, or export conversations
+13. Access the Dashboard to manage all saved conversations with search, bulk operations, and statistics
+14. Your current conversation auto-saves and restores on page reload
 
 ## Features in Detail
 
@@ -141,12 +152,14 @@ A modern web chat interface for Ollama models with advanced model management and
 - **Direct Loading**: Open conversations directly from dashboard to main chat
 
 ### Model Support
-- **Text models**: Full chat support with document processing (phi4, llama, qwen, etc.)
+- **Text models**: Full chat support with document and code processing (phi4, llama, qwen, etc.)
 - **Vision models**: Image analysis and visual reasoning (llama3.2-vision, llava, etc.)
 - **Embedding models**: Detected and marked as unavailable for chat
 - **Document analysis**: All text models can process PDF, DOC, DOCX, XLS, XLSX, CSV files
+- **Code analysis**: All text models can analyze multiple code files for reviews and recommendations
 - **Image analysis**: Vision models can analyze JPG, PNG, GIF, BMP, WEBP images
 - **Web content**: All text models can analyze content from URLs automatically
+- **Alphabetical sorting**: Models displayed in alphabetical order for easy navigation
 
 ## API Endpoints
 

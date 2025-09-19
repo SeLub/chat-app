@@ -285,9 +285,73 @@
       background: #c82333;
     }
 
+    .message-actions {
+      display: flex;
+      gap: 5px;
+      margin-top: 10px;
+      padding: 8px;
+      background: rgba(0,0,0,0.05);
+      border-radius: 5px;
+      border-top: 1px solid #ddd;
+    }
+
+    .action-btn {
+      padding: 4px 8px;
+      border: none;
+      border-radius: 3px;
+      font-size: 11px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    .btn-copy { background: #17a2b8; color: white; }
+    .btn-copy:hover { background: #138496; }
+    .btn-delete { background: #dc3545; color: white; }
+    .btn-delete:hover { background: #c82333; }
+    .btn-share { background: #28a745; color: white; }
+    .btn-share:hover { background: #218838; }
+    .btn-telegram { background: #0088cc; color: white; }
+    .btn-telegram:hover { background: #006699; }
+    .btn-notion { background: #000; color: white; }
+    .btn-notion:hover { background: #333; }
+
     .user {
       background-color: #dcf8c6;
       align-self: flex-end;
+    }
+
+    .user code {
+      background-color: #c3e6cb;
+      padding: 2px 4px;
+      border-radius: 3px;
+      font-family: 'Courier New', monospace;
+      font-size: 0.9em;
+    }
+
+    .user pre {
+      background-color: #c3e6cb;
+      padding: 10px;
+      border-radius: 5px;
+      overflow-x: auto;
+      margin: 10px 0;
+    }
+
+    .user pre code {
+      background: none;
+      padding: 0;
+    }
+
+    .user h1, .user h2, .user h3 {
+      margin: 15px 0 10px 0;
+      color: #333;
+    }
+
+    .user strong {
+      font-weight: bold;
+    }
+
+    .user em {
+      font-style: italic;
     }
 
     .bot {
@@ -558,6 +622,24 @@
     </div>
   </div>
 
+  <!-- Multiline Input Modal -->
+  <div id="multiline-modal" class="modal">
+    <div class="modal-content" style="max-width: 800px;">
+      <div class="modal-header">
+        <h3>Multiline Message</h3>
+        <button class="close-btn" onclick="closeMultilineModal()">&times;</button>
+      </div>
+      <textarea id="multiline-input" placeholder="Type your multiline message here...\n\nYou can use markdown formatting:\n- **bold text**\n- *italic text*\n- \`inline code\`\n- ```code blocks```" style="width: 100%; height: 300px; padding: 10px; border: 1px solid #ddd; border-radius: 5px; font-family: 'Courier New', monospace; font-size: 14px; resize: vertical;"></textarea>
+      <div style="margin-top: 15px; display: flex; justify-content: space-between; align-items: center;">
+        <small style="color: #666;">Tip: Use Ctrl+Enter to send</small>
+        <div>
+          <button class="btn btn-secondary" onclick="closeMultilineModal()">Cancel</button>
+          <button class="btn btn-primary" onclick="sendMultilineMessage()">Send Message</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <div id="chat-container">
     <!-- Left Panel: Models (20%) -->
     <div id="left-panel">
@@ -576,17 +658,24 @@
           <input type="text" id="user-input" placeholder="Select a running model first..." disabled style="flex: 1; min-width: 0;" />
           <input type="file" id="file-input" accept=".pdf,.doc,.docx,.xls,.xlsx,.csv" style="display: none;" />
           <input type="file" id="image-input" accept=".jpg,.jpeg,.png,.gif,.bmp,.webp" style="display: none;" />
+          <input type="file" id="code-input" accept=".js,.ts,.jsx,.tsx,.py,.java,.html,.css,.scss,.json,.xml,.yaml,.yml,.md,.txt,.sql,.php,.rb,.go,.rs,.cpp,.c,.h,.cs,.swift,.kt,.scala,.sh,.bat,.dockerfile,.gitignore,.env" multiple style="display: none;" />
+          <button type="button" id="multiline-btn" onclick="openMultilineModal()" disabled style="padding: 10px; background: #6f42c1; color: white; border: none; border-radius: 6px; cursor: pointer; white-space: nowrap;">📝 MULTILINE</button>
           <button type="button" id="file-btn" onclick="document.getElementById('file-input').click()" disabled style="padding: 10px; background: #6c757d; color: white; border: none; border-radius: 6px; cursor: pointer; white-space: nowrap;">📎 PDF,DOC,XLS</button>
           <button type="button" id="image-btn" onclick="document.getElementById('image-input').click()" disabled style="padding: 10px; background: #17a2b8; color: white; border: none; border-radius: 6px; cursor: pointer; white-space: nowrap;">🖼️ IMG</button>
+          <button type="button" id="code-btn" onclick="document.getElementById('code-input').click()" disabled style="padding: 10px; background: #28a745; color: white; border: none; border-radius: 6px; cursor: pointer; white-space: nowrap;">📁 CODE</button>
           <button type="submit" id="send-btn" disabled style="white-space: nowrap;">Send</button>
         </div>
         <div id="file-preview" style="margin-top: 5px; font-size: 12px; color: #666;"></div>
         <div id="image-preview" style="margin-top: 5px; font-size: 12px; color: #666;"></div>
+        <div id="code-preview" style="margin-top: 5px; font-size: 12px; color: #666;"></div>
         <div id="file-warning" style="margin-top: 5px; font-size: 11px; color: #856404; background: #fff3cd; padding: 5px; border-radius: 3px; display: none;">
           ⚠️ Large documents may be truncated to fit the model's context window
         </div>
         <div id="vision-warning" style="margin-top: 5px; font-size: 11px; color: #721c24; background: #f8d7da; padding: 5px; border-radius: 3px; display: none;">
           ⚠️ Images require vision models (llama3.2-vision, llava, etc.)
+        </div>
+        <div id="code-warning" style="margin-top: 5px; font-size: 11px; color: #0c5460; background: #d1ecf1; padding: 5px; border-radius: 3px; display: none;">
+          💡 Code files will be analyzed for structure, patterns, and recommendations
         </div>
       </form>
     </div>
@@ -632,6 +721,10 @@
     const imageInput = document.getElementById('image-input');
     const imageBtn = document.getElementById('image-btn');
     const imagePreview = document.getElementById('image-preview');
+    const codeInput = document.getElementById('code-input');
+    const codeBtn = document.getElementById('code-btn');
+    const codePreview = document.getElementById('code-preview');
+    const multilineBtn = document.getElementById('multiline-btn');
     
     let selectedModel = null;
     let models = [];
@@ -640,6 +733,7 @@
     let requestStartTime = null;
     let responseTimer = null;
     let conversationMessages = [];
+    let selectedCodeFiles = []; // Store accumulated code files
 
     // Menu functionality
     document.getElementById('menu-btn').addEventListener('click', () => {
@@ -954,6 +1048,8 @@
       sendBtn.disabled = false;
       fileBtn.disabled = false;
       imageBtn.disabled = false;
+      codeBtn.disabled = false;
+      multilineBtn.disabled = false;
       renderModels();
       updateStatistics(model);
     }
@@ -1084,6 +1180,7 @@
     // Clear previews on page load
     filePreview.textContent = '';
     imagePreview.textContent = '';
+    codePreview.textContent = '';
     
     setInterval(() => {
       checkStatus();
@@ -1096,10 +1193,26 @@
         .replace(/^### (.*$)/gm, '<h3>$1</h3>')
         .replace(/^## (.*$)/gm, '<h2>$1</h2>')
         .replace(/^# (.*$)/gm, '<h1>$1</h1>')
-        // Code blocks
-        .replace(/```([\s\S]*?)```/g, '<pre><code>$1</code></pre>')
-        // Inline code
-        .replace(/`([^`]+)`/g, '<code>$1</code>')
+        // Code blocks (escape HTML inside)
+        .replace(/```([\s\S]*?)```/g, (match, code) => {
+          const escapedCode = code
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+          return `<pre><code>${escapedCode}</code></pre>`;
+        })
+        // Inline code (escape HTML inside)
+        .replace(/`([^`]+)`/g, (match, code) => {
+          const escapedCode = code
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+          return `<code>${escapedCode}</code>`;
+        })
         // Bold
         .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
         // Italic
@@ -1122,12 +1235,28 @@
       
       if (messageId !== null) {
         div.setAttribute('data-message-id', messageId);
+        if (sender === 'user') {
+          div.id = `question-${messageId}`; // Add anchor for questions
+        }
       }
       
       if (sender === 'bot') {
         const formatted = parseMarkdown(text);
         const modelBadge = modelName ? `<div class="model-badge">${modelName}</div>` : '';
         div.innerHTML = modelBadge + '<p>' + formatted + '</p>';
+        
+        // Add actions panel for bot messages
+        const actionsDiv = document.createElement('div');
+        actionsDiv.className = 'message-actions';
+        actionsDiv.innerHTML = `
+          <button class="action-btn btn-copy" onclick="copyMessage('${messageId}', 'answer')" title="Copy answer">📋 Copy</button>
+          <button class="action-btn btn-copy" onclick="jumpToQuestion('${messageId}')" title="Jump to question">⬆️ Question</button>
+          <button class="action-btn btn-delete" onclick="deleteMessagePair('${messageId}')" title="Delete Q&A pair">🗑️ Delete</button>
+          <button class="action-btn btn-share" onclick="shareMessage('${messageId}')" title="Share (Coming soon)" disabled>📤 Share</button>
+          <button class="action-btn btn-telegram" onclick="sendToTelegram('${messageId}')" title="Send to Telegram (Coming soon)" disabled>📱 Telegram</button>
+          <button class="action-btn btn-notion" onclick="shareToNotion('${messageId}')" title="Share to Notion (Coming soon)" disabled>📝 Notion</button>
+        `;
+        div.appendChild(actionsDiv);
       } else {
         // Extract text without image indicator
         const cleanText = text.replace(/\s*\[🖼️[^\]]+\]\s*$/, '');
@@ -1139,7 +1268,6 @@
         // Create text container
         const textDiv = document.createElement('div');
         textDiv.className = 'message-text';
-        textDiv.textContent = cleanText;
         contentDiv.appendChild(textDiv);
         
         // Add image thumbnail if present
@@ -1157,6 +1285,11 @@
           contentDiv.appendChild(imageDiv);
         }
         
+        // Apply markdown parsing to user messages too
+        const cleanUserText = text.replace(/\s*\[🖼️[^\]]+\]\s*$/, '');
+        const formattedText = parseMarkdown(cleanUserText);
+        textDiv.innerHTML = formattedText;
+        
         div.appendChild(contentDiv);
         
         // Add image filename on new line if present
@@ -1169,6 +1302,18 @@
           filenameDiv.textContent = `🖼️ ${imageData.filename}`;
           div.appendChild(filenameDiv);
         }
+        
+        // Add copy button to user messages
+        const copyBtn = document.createElement('button');
+        copyBtn.className = 'delete-btn';
+        copyBtn.style.right = '35px';
+        copyBtn.style.background = '#17a2b8';
+        copyBtn.textContent = '📋';
+        copyBtn.title = 'Copy question';
+        copyBtn.onclick = () => copyMessage(messageId, 'question');
+        copyBtn.onmouseover = () => copyBtn.style.background = '#138496';
+        copyBtn.onmouseout = () => copyBtn.style.background = '#17a2b8';
+        div.appendChild(copyBtn);
         
         // Add delete button to user messages
         const deleteBtn = document.createElement('button');
@@ -1192,19 +1337,260 @@
       modal.style.display = 'block';
     }
 
+    function copyMessage(messageId, type) {
+      const message = conversationMessages.find(msg => msg.id == messageId);
+      if (!message) return;
+      
+      let textToCopy = '';
+      if (type === 'question') {
+        textToCopy = message.text;
+      } else if (type === 'answer') {
+        // Find the bot message and its preceding user message
+        const botIndex = conversationMessages.findIndex(msg => msg.id == messageId);
+        const botMessage = conversationMessages[botIndex];
+        const userMessage = conversationMessages[botIndex - 1];
+        
+        if (botMessage && userMessage && userMessage.sender === 'user') {
+          textToCopy = `Q: ${userMessage.text}\n\nA: ${botMessage.text}`;
+        } else {
+          textToCopy = botMessage ? botMessage.text : 'Message not found';
+        }
+      }
+      
+      // Try modern clipboard API first, fallback to older method
+      if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard.writeText(textToCopy).then(() => {
+          showCopySuccess(event.target);
+        }).catch(() => {
+          fallbackCopy(textToCopy, event.target);
+        });
+      } else {
+        fallbackCopy(textToCopy, event.target);
+      }
+    }
+    
+    function showCopySuccess(btn) {
+      const originalText = btn.textContent;
+      btn.textContent = '✓ Copied!';
+      setTimeout(() => {
+        btn.textContent = originalText;
+      }, 1000);
+    }
+    
+    function fallbackCopy(text, btn) {
+      const textArea = document.createElement('textarea');
+      textArea.value = text;
+      textArea.style.position = 'fixed';
+      textArea.style.opacity = '0';
+      document.body.appendChild(textArea);
+      textArea.select();
+      
+      try {
+        document.execCommand('copy');
+        showCopySuccess(btn);
+      } catch (err) {
+        console.error('Fallback copy failed:', err);
+        alert('Copy failed. Please copy manually.');
+      } finally {
+        document.body.removeChild(textArea);
+      }
+    }
+    
+    // Scaffold functions for future features
+    function shareMessage(messageId) {
+      alert('Share feature coming soon!');
+    }
+    
+    function sendToTelegram(messageId) {
+      alert('Telegram integration coming soon!');
+    }
+    
+    function shareToNotion(messageId) {
+      alert('Notion integration coming soon!');
+    }
+    
+    // Multiline modal functions
+    function openMultilineModal() {
+      console.log('Opening multiline modal');
+      const modal = document.getElementById('multiline-modal');
+      if (modal) {
+        modal.style.display = 'block';
+        const input = document.getElementById('multiline-input');
+        if (input) {
+          input.focus();
+        }
+      } else {
+        console.error('Multiline modal not found');
+      }
+    }
+    
+    function closeMultilineModal() {
+      document.getElementById('multiline-modal').style.display = 'none';
+      document.getElementById('multiline-input').value = '';
+    }
+    
+    function sendMultilineMessage() {
+      const multilineText = document.getElementById('multiline-input').value.trim();
+      if (!multilineText) return;
+      
+      // Close modal first
+      closeMultilineModal();
+      
+      // Send the multiline message directly
+      sendMessage(multilineText);
+    }
+    
+    async function sendMessage(messageText) {
+      const file = fileInput.files[0];
+      const image = imageInput.files[0];
+      const codeFiles = selectedCodeFiles;
+      
+      if (!messageText && !file && !image && codeFiles.length === 0) return;
+
+      // Display user message
+      let displayMessage = messageText;
+      if (file) displayMessage += ` [📄 ${file.name}]`;
+      if (image) displayMessage += ` [🖼️ ${image.name}]`;
+      if (codeFiles.length > 0) displayMessage += ` [📁 ${codeFiles.length} code files]`;
+      
+      addMessage(displayMessage, 'user');
+      
+      // Clear inputs
+      fileInput.value = '';
+      imageInput.value = '';
+      selectedCodeFiles = [];
+      filePreview.textContent = '';
+      imagePreview.textContent = '';
+      codePreview.textContent = '';
+      document.getElementById('code-warning').style.display = 'none';
+
+      if (!selectedModel) {
+        alert('Please select a running model first');
+        return;
+      }
+
+      try {
+        startResponseTimer();
+        
+        const formData = new FormData();
+        let defaultMessage = messageText;
+        if (!defaultMessage) {
+          if (image) defaultMessage = 'What is in this image?';
+          else if (codeFiles.length > 0) defaultMessage = 'Please analyze these code files and provide recommendations.';
+          else defaultMessage = 'Please analyze this document.';
+        }
+        formData.append('message', defaultMessage);
+        formData.append('model', selectedModel);
+        if (file) {
+          formData.append('file', file);
+        }
+        if (image) {
+          formData.append('file', image);
+        }
+        if (codeFiles.length > 0) {
+          codeFiles.forEach(codeFile => {
+            formData.append('codeFiles', codeFile);
+          });
+        }
+
+        const response = await fetch('/api/chat', {
+          method: 'POST',
+          body: formData,
+        });
+
+        stopResponseTimer();
+        const responseTime = ((Date.now() - requestStartTime) / 1000).toFixed(1);
+        updateResponseTime(responseTime);
+
+        const data = await response.json();
+        
+        if (!response.ok) {
+          addMessage(`Error: ${data.error}`, 'bot');
+          return;
+        }
+
+        if (data.response) {
+          addMessage(data.response, 'bot', data.model);
+          
+          // If this was an image upload, update the user message with image data
+          if (data.imageData && conversationMessages.length > 0) {
+            const lastUserMessage = conversationMessages[conversationMessages.length - 2];
+            if (lastUserMessage && lastUserMessage.sender === 'user') {
+              lastUserMessage.imageData = data.imageData;
+              autoSaveCurrentSession();
+              
+              // Refresh UI to show thumbnail
+              messagesDiv.innerHTML = '';
+              conversationMessages.forEach(msg => {
+                if (!msg.id) {
+                  msg.id = Date.now() + Math.random();
+                }
+                addMessageToUI(msg.text, msg.sender, msg.model, msg.id, msg.imageData);
+              });
+            }
+          }
+        }
+      } catch (error) {
+        stopResponseTimer();
+        addMessage('Connection failed', 'bot');
+      }
+    }
+    
+    // Add Ctrl+Enter shortcut for multiline modal
+    document.addEventListener('keydown', (e) => {
+      if (e.ctrlKey && e.key === 'Enter') {
+        const modal = document.getElementById('multiline-modal');
+        if (modal.style.display === 'block') {
+          sendMultilineMessage();
+        }
+      }
+    });
+    
+    function jumpToQuestion(messageId) {
+      // Find the user message that comes before this bot message
+      const botIndex = conversationMessages.findIndex(msg => msg.id == messageId && msg.sender === 'bot');
+      if (botIndex > 0) {
+        const userMessage = conversationMessages[botIndex - 1];
+        if (userMessage && userMessage.sender === 'user') {
+          const questionElement = document.getElementById(`question-${userMessage.id}`);
+          if (questionElement) {
+            questionElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            // Highlight briefly
+            questionElement.style.backgroundColor = '#fff3cd';
+            setTimeout(() => {
+              questionElement.style.backgroundColor = '';
+            }, 2000);
+          }
+        }
+      }
+    }
+
     function deleteMessagePair(messageId) {
       if (!confirm('Delete this question and answer?')) return;
       
       console.log('Deleting message with ID:', messageId);
       console.log('Current messages:', conversationMessages.map(m => ({id: m.id, sender: m.sender, text: m.text.substring(0, 50)})));
       
-      // Find the user message index
-      const userIndex = conversationMessages.findIndex(msg => msg.id == messageId && msg.sender === 'user');
-      console.log('Found user message at index:', userIndex);
+      // Find the message index (could be user or bot)
+      const messageIndex = conversationMessages.findIndex(msg => msg.id == messageId);
+      console.log('Found message at index:', messageIndex);
       
-      if (userIndex === -1) {
+      if (messageIndex === -1) {
         console.log('Message not found!');
         return;
+      }
+      
+      let userIndex;
+      if (conversationMessages[messageIndex].sender === 'user') {
+        // If it's a user message, use it directly
+        userIndex = messageIndex;
+      } else {
+        // If it's a bot message, find the preceding user message
+        userIndex = messageIndex - 1;
+        if (userIndex < 0 || conversationMessages[userIndex].sender !== 'user') {
+          console.log('No corresponding user message found!');
+          return;
+        }
       }
       
       // Remove user message and following bot message (if exists)
@@ -1215,6 +1601,8 @@
       
       console.log('Removing messages at indices:', messagesToRemove);
       
+      console.log('Removing messages at indices:', messagesToRemove);
+      
       // Remove from array (reverse order to maintain indices)
       messagesToRemove.reverse().forEach(index => {
         const removedMsg = conversationMessages.splice(index, 1)[0];
@@ -1222,11 +1610,24 @@
         tokenCount -= Math.ceil(removedMsg.text.length / 4);
       });
       
+      // Store current scroll position
+      const scrollTop = messagesDiv.scrollTop;
+      const scrollHeight = messagesDiv.scrollHeight;
+      const clientHeight = messagesDiv.clientHeight;
+      const wasAtBottom = scrollTop + clientHeight >= scrollHeight - 10;
+      
       // Refresh UI
       messagesDiv.innerHTML = '';
       conversationMessages.forEach(msg => {
         addMessageToUI(msg.text, msg.sender, msg.model, msg.id, msg.imageData);
       });
+      
+      // Restore scroll position (don't jump to bottom unless user was already there)
+      if (!wasAtBottom) {
+        messagesDiv.scrollTop = scrollTop;
+      } else {
+        messagesDiv.scrollTop = messagesDiv.scrollHeight;
+      }
       
       // Update statistics
       document.getElementById('question-count').textContent = questionCount;
@@ -1274,6 +1675,7 @@
       if (file) {
         filePreview.textContent = `📄 ${file.name} (${formatBytes(file.size)})`;
         imagePreview.textContent = ''; // Clear image preview
+        codePreview.textContent = ''; // Clear code preview
         
         // Show warning for files larger than 5MB
         if (file.size > 5 * 1024 * 1024) {
@@ -1295,6 +1697,7 @@
       if (file) {
         imagePreview.textContent = `🖼️ ${file.name} (${formatBytes(file.size)})`;
         filePreview.textContent = ''; // Clear document preview
+        codePreview.textContent = ''; // Clear code preview
         
         // Show warning if not a vision model
         const isVisionModel = selectedModel && (selectedModel.includes('vision') || selectedModel.includes('llava'));
@@ -1309,86 +1712,40 @@
       }
     });
 
+    // Code input handler
+    codeInput.addEventListener('change', (e) => {
+      const newFiles = Array.from(e.target.files);
+      const codeWarning = document.getElementById('code-warning');
+      
+      if (newFiles.length > 0) {
+        // Add new files to existing selection
+        selectedCodeFiles = [...selectedCodeFiles, ...newFiles];
+        
+        const totalSize = selectedCodeFiles.reduce((sum, file) => sum + file.size, 0);
+        codePreview.textContent = `📁 ${selectedCodeFiles.length} code files (${formatBytes(totalSize)})`;
+        filePreview.textContent = ''; // Clear document preview
+        imagePreview.textContent = ''; // Clear image preview
+        codeWarning.style.display = 'block';
+        
+        console.log('Code files selected:', selectedCodeFiles.map(f => f.name));
+      } else if (selectedCodeFiles.length === 0) {
+        codePreview.textContent = '';
+        codeWarning.style.display = 'none';
+      }
+      
+      // Clear the input to allow selecting same files again
+      e.target.value = '';
+    });
+
     document.getElementById('chat-form').addEventListener('submit', async (e) => {
       e.preventDefault();
       const input = document.getElementById('user-input');
       const message = input.value.trim();
-      const file = fileInput.files[0];
-      const image = imageInput.files[0];
       
-      if (!message && !file && !image) return;
-
-      // Display user message
-      let displayMessage = message;
-      if (file) displayMessage += ` [📄 ${file.name}]`;
-      if (image) displayMessage += ` [🖼️ ${image.name}]`;
+      if (!message) return;
       
-      addMessage(displayMessage, 'user');
       input.value = '';
-      fileInput.value = '';
-      imageInput.value = '';
-      filePreview.textContent = '';
-      imagePreview.textContent = '';
-
-      if (!selectedModel) {
-        alert('Please select a running model first');
-        return;
-      }
-
-      try {
-        startResponseTimer();
-        
-        const formData = new FormData();
-        formData.append('message', message || (image ? 'What is in this image?' : 'Please analyze this document.'));
-        formData.append('model', selectedModel);
-        if (file) {
-          formData.append('file', file);
-        }
-        if (image) {
-          formData.append('file', image);
-        }
-
-        const response = await fetch('/api/chat', {
-          method: 'POST',
-          body: formData,
-        });
-
-        stopResponseTimer();
-        const responseTime = ((Date.now() - requestStartTime) / 1000).toFixed(1);
-        updateResponseTime(responseTime);
-
-        const data = await response.json();
-        
-        if (!response.ok) {
-          addMessage(`Error: ${data.error}`, 'bot');
-          return;
-        }
-
-        if (data.response) {
-          addMessage(data.response, 'bot', data.model);
-          
-          // If this was an image upload, update the user message with image data
-          if (data.imageData && conversationMessages.length > 0) {
-            const lastUserMessage = conversationMessages[conversationMessages.length - 2];
-            if (lastUserMessage && lastUserMessage.sender === 'user') {
-              lastUserMessage.imageData = data.imageData;
-              autoSaveCurrentSession();
-              
-              // Refresh UI to show thumbnail
-              messagesDiv.innerHTML = '';
-              conversationMessages.forEach(msg => {
-                if (!msg.id) {
-                  msg.id = Date.now() + Math.random();
-                }
-                addMessageToUI(msg.text, msg.sender, msg.model, msg.id, msg.imageData);
-              });
-            }
-          }
-        }
-      } catch (error) {
-        stopResponseTimer();
-        addMessage('Connection failed', 'bot');
-      }
+      await sendMessage(message);
     });
   </script>
 </body>
