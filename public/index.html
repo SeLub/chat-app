@@ -589,6 +589,7 @@
         <div id="menu-dropdown">
           <div class="menu-item" onclick="saveConversation()">💾 Save Conversation</div>
           <div class="menu-item" onclick="loadConversation()">📂 Load Conversation</div>
+          <div class="menu-item" onclick="returnToCurrent()" id="return-current-item" style="display: none;">⬅️ Return to Current</div>
           <div class="menu-item" onclick="clearConversation()">🗑️ Clear Current Chat</div>
           <div class="menu-item" onclick="exportConversation()">📤 Export to File</div>
         </div>
@@ -903,6 +904,18 @@
     function loadSpecificConversation(key) {
       const data = loadFromStorage(key);
       if (data) {
+        // Backup current conversation before loading saved one
+        if (conversationMessages.length > 0) {
+          const currentBackup = {
+            selectedModel,
+            messages: conversationMessages,
+            questionCount,
+            tokenCount,
+            timestamp: Date.now()
+          };
+          saveToStorage('ollama-chat-current-backup', currentBackup);
+        }
+        
         selectedModel = data.selectedModel;
         conversationMessages = data.messages || [];
         
@@ -936,6 +949,9 @@
         
         autoSaveCurrentSession();
         closeLoadModal();
+        
+        // Show return to current button
+        document.getElementById('return-current-item').style.display = 'block';
       }
     }
 
@@ -981,6 +997,61 @@
       a.download = `ollama-chat-${Date.now()}.json`;
       a.click();
       URL.revokeObjectURL(url);
+    }
+    
+    function returnToCurrent() {
+      const backup = loadFromStorage('ollama-chat-current-backup');
+      if (backup) {
+        selectedModel = backup.selectedModel;
+        conversationMessages = backup.messages || [];
+        
+        // Calculate statistics from messages
+        const stats = calculateStatistics(conversationMessages);
+        questionCount = stats.questions;
+        tokenCount = stats.tokens;
+        
+        // Clear and restore UI
+        messagesDiv.innerHTML = '';
+        conversationMessages.forEach(msg => {
+          if (!msg.id) {
+            msg.id = Date.now() + Math.random();
+          }
+          addMessageToUI(msg.text, msg.sender, msg.model, msg.id, msg.imageData);
+        });
+        
+        // Update UI state
+        if (selectedModel) {
+          selectedModelDiv.textContent = `Selected: ${selectedModel}`;
+          userInput.disabled = false;
+          userInput.placeholder = 'Type your message...';
+          sendBtn.disabled = false;
+          fileBtn.disabled = false;
+          imageBtn.disabled = false;
+          codeBtn.disabled = false;
+          multilineBtn.disabled = false;
+        }
+        
+        // Update statistics
+        document.getElementById('question-count').textContent = questionCount;
+        document.getElementById('token-count').textContent = `~${tokenCount}`;
+        
+        // Save as current and remove backup
+        autoSaveCurrentSession();
+        localStorage.removeItem('ollama-chat-current-backup');
+        
+        // Hide the return button
+        document.getElementById('return-current-item').style.display = 'none';
+      }
+    }
+    
+    function checkReturnButtonVisibility() {
+      const backup = loadFromStorage('ollama-chat-current-backup');
+      const returnItem = document.getElementById('return-current-item');
+      if (backup && backup.messages && backup.messages.length > 0) {
+        returnItem.style.display = 'block';
+      } else {
+        returnItem.style.display = 'none';
+      }
     }
 
     async function checkStatus() {
@@ -1176,6 +1247,7 @@
     loadModels();
     loadCurrentSession();
     checkUrlParams();
+    checkReturnButtonVisibility();
     
     // Clear previews on page load
     filePreview.textContent = '';

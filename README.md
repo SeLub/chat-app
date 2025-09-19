@@ -35,6 +35,7 @@ A modern web chat interface for Ollama models with advanced model management and
 - Auto-save current session (survives page reload)
 - Save named conversations with custom titles
 - Load and manage multiple saved conversations
+- Return to current conversation after browsing saved ones
 - Export conversations to JSON files
 - Clear current chat functionality
 - Dedicated dashboard for conversation management
@@ -121,14 +122,17 @@ A modern web chat interface for Ollama models with advanced model management and
 10. View uploaded images as clean thumbnails with filenames displayed below
 11. Monitor your usage with real-time statistics in the right panel
 12. Use the menu to save, load, or export conversations
-13. Access the Dashboard to manage all saved conversations with search, bulk operations, and statistics
-14. Your current conversation auto-saves and restores on page reload
+13. Return to your working conversation after loading saved ones (preserves your progress)
+14. Access the Dashboard to manage all saved conversations with search, bulk operations, and statistics
+15. Your current conversation auto-saves and restores on page reload
 
 ## Features in Detail
 
 ### Conversation Management
 - **Auto-save**: Current conversation automatically saved to localStorage
 - **Named saves**: Save important conversations with custom names
+- **Current conversation backup**: Preserves working conversation when browsing saved ones
+- **Return to current**: Easy way to get back to your working conversation
 - **Dashboard**: Dedicated page for managing all conversations
 - **Search & Filter**: Find conversations by name or content
 - **Bulk Operations**: Select and manage multiple conversations at once
