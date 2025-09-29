@@ -8,9 +8,9 @@ A modern web chat interface for Ollama models with advanced model management and
 ## Features
 
 ### Three-Panel Layout
-- **Left Panel (20%)**: Available models list with real-time status indicators
+- **Left Panel (20%)**: Questions navigation panel with model indicators
 - **Middle Panel (70%)**: Chat interface with markdown-formatted responses
-- **Right Panel (10%)**: Connection status and live statistics
+- **Right Panel (10%)**: Available models list and live statistics
 
 ### Model Management
 - Automatic detection of installed Ollama models
@@ -30,6 +30,7 @@ A modern web chat interface for Ollama models with advanced model management and
 - Professional image message layout with thumbnails
 - Multiline input modal for complex messages with code
 - Message actions: copy, jump to question, delete Q&A pairs
+- Questions navigation panel with model names for easy conversation browsing
 
 ### Conversation Persistence
 - Auto-save current session (survives page reload)
@@ -80,6 +81,45 @@ A modern web chat interface for Ollama models with advanced model management and
 
 ## Setup
 
+### Option 1: Docker Setup (Recommended)
+
+1. **Run Ollama in Docker:**
+   ```bash
+   # Make script executable and run
+   chmod +x run-ollama-docker.sh
+   ./run-ollama-docker.sh
+   ```
+   This script will:
+   - Install Docker if not present
+   - Install NVIDIA Container Toolkit for GPU support
+   - Stop local Ollama service
+   - Start Ollama in Docker container with GPU access
+
+2. **Download models:**
+   ```bash
+   # Download models inside Docker container
+   docker exec -it ollama ollama pull phi4:latest
+   docker exec -it ollama ollama pull llama3.2
+   docker exec -it ollama ollama pull qwen2.5-coder
+   ```
+
+3. **Install app dependencies:**
+   ```bash
+   npm install
+   ```
+
+4. **Start the server:**
+   ```bash
+   node server.js
+   ```
+
+5. **Open in browser:**
+   ```
+   http://localhost:3000
+   ```
+
+### Option 2: Local Installation
+
 1. **Install Ollama:**
    - Go to [ollama.com](https://ollama.com)
    - Download and install for your operating system
@@ -123,8 +163,9 @@ A modern web chat interface for Ollama models with advanced model management and
 11. Monitor your usage with real-time statistics in the right panel
 12. Use the menu to save, load, or export conversations
 13. Return to your working conversation after loading saved ones (preserves your progress)
-14. Access the Dashboard to manage all saved conversations with search, bulk operations, and statistics
-15. Your current conversation auto-saves and restores on page reload
+14. Navigate through your conversation using the Questions panel (shows Q1, Q2, etc. with model names)
+15. Access the Dashboard to manage all saved conversations with search, bulk operations, and statistics
+16. Your current conversation auto-saves and restores on page reload
 
 ## Features in Detail
 
@@ -174,9 +215,24 @@ A modern web chat interface for Ollama models with advanced model management and
 
 ## Requirements
 
+### For Docker Setup:
+- Node.js
+- Docker and Docker Compose
+- NVIDIA GPU (optional, for GPU acceleration)
+- NVIDIA Container Toolkit (for GPU support)
+
+### For Local Setup:
 - Node.js
 - Ollama installed and running
 - At least one Ollama model downloaded
+
+## Docker Configuration
+
+The `docker-compose.yml` includes:
+- GPU support with NVIDIA runtime
+- Persistent model storage
+- Optimized memory and context settings
+- Port mapping to localhost:11434
 
 ## Dependencies
 

@@ -57,13 +57,29 @@ app.use(express.static('public'));
 
 app.get('/api/models', async (req, res) => {
   try {
+    console.log('Checking Ollama connection...');
     const [tagsResponse, psResponse] = await Promise.all([
       fetch('http://localhost:11434/api/tags'),
       fetch('http://localhost:11434/api/ps')
     ]);
     
+    console.log('Tags response status:', tagsResponse.status);
+    console.log('PS response status:', psResponse.status);
+    
+    if (!tagsResponse.ok || !psResponse.ok) {
+      throw new Error('Ollama service not responding');
+    }
+    
     const availableModels = await tagsResponse.json();
     const runningModels = await psResponse.json();
+    
+    console.log('Available models:', availableModels);
+    console.log('Running models:', runningModels);
+    
+    // Check if Ollama is actually working by verifying we get valid data
+    if (!availableModels || !availableModels.models) {
+      throw new Error('Ollama returned invalid data');
+    }
     
     const runningModelNames = new Set(
       runningModels.models?.map(rm => rm.name) || []
@@ -75,24 +91,17 @@ app.get('/api/models', async (req, res) => {
       status: runningModelNames.has(model.name) ? 'running' : 'available'
     })).sort((a, b) => a.name.localeCompare(b.name)) || [];
     
-    res.json({ models });
+    res.json({ models, connected: true });
   } catch (error) {
-    console.error('Models API error:', error);
-    res.json({ models: [] });
+    console.error('Models API error:', error.message);
+    console.error('Error type:', error.code || error.type);
+    res.json({ models: [], connected: false });
   }
 });
 
-app.get('/api/status', async (req, res) => {
-  try {
-    const response = await fetch('http://localhost:11434/api/ps');
-    const data = await response.json();
-    const hasRunningModels = data.models && data.models.length > 0;
-    res.json({ connected: true, hasRunningModels });
-  } catch (error) {
-    console.error('Status API error:', error);
-    res.json({ connected: false, hasRunningModels: false });
-  }
-});
+
+
+
 
 app.post('/api/show', async (req, res) => {
   try {

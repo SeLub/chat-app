@@ -175,6 +175,40 @@
       overflow-y: auto;
     }
 
+    #questions-panel h3 {
+      margin: 0 0 10px 0;
+      color: #333;
+      font-size: 16px;
+    }
+
+    .question-item {
+      padding: 8px 12px;
+      margin: 5px 0;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+      background-color: white;
+      cursor: pointer;
+      font-size: 13px;
+      line-height: 1.3;
+    }
+
+    .question-item:hover {
+      background-color: #f0f0f0;
+    }
+
+    .question-item.current {
+      background-color: #d4edda;
+      border-color: #28a745;
+    }
+
+    .question-text {
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
     #middle-panel {
       width: 70%;
       display: flex;
@@ -192,6 +226,30 @@
       padding: 15px;
       border: 1px solid #ddd;
       overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 15px;
+    }
+
+    #models-section {
+      flex-shrink: 0;
+    }
+
+    #models-section h3 {
+      margin: 0 0 10px 0;
+      color: #333;
+      font-size: 14px;
+    }
+
+    #models-section .model-item {
+      font-size: 11px;
+      padding: 6px 8px;
+      margin: 3px 0;
+    }
+
+    #models-section .model-status {
+      font-size: 10px;
+      padding: 2px 4px;
     }
 
     #messages {
@@ -642,11 +700,11 @@
   </div>
 
   <div id="chat-container">
-    <!-- Left Panel: Models (20%) -->
+    <!-- Left Panel: Questions (20%) -->
     <div id="left-panel">
-      <div id="model-selector">
-        <h3>Available Models:</h3>
-        <div id="models-list">Loading models...</div>
+      <div id="questions-panel">
+        <h3>Questions:</h3>
+        <div id="questions-list">No questions yet</div>
       </div>
     </div>
 
@@ -681,9 +739,12 @@
       </form>
     </div>
 
-    <!-- Right Panel: Status & Stats (10%) -->
+    <!-- Right Panel: Models & Stats (10%) -->
     <div id="right-panel">
-      <div id="status">Checking...</div>
+      <div id="models-section">
+        <h3>Models:</h3>
+        <div id="models-list">Loading models...</div>
+      </div>
       <div id="statistics">
         <div class="stat-item">
           <div class="stat-label">Model Size:</div>
@@ -711,8 +772,8 @@
 
   <script>
     const messagesDiv = document.getElementById('messages');
-    const statusDiv = document.getElementById('status');
     const modelsListDiv = document.getElementById('models-list');
+    const questionsListDiv = document.getElementById('questions-list');
     const selectedModelDiv = document.getElementById('selected-model');
     const userInput = document.getElementById('user-input');
     const sendBtn = document.getElementById('send-btn');
@@ -823,9 +884,10 @@
           addMessageToUI(msg.text, msg.sender, msg.model, msg.id, msg.imageData);
         });
         
-        // Update statistics
+        // Update statistics and questions list
         document.getElementById('question-count').textContent = questionCount;
         document.getElementById('token-count').textContent = `~${tokenCount}`;
+        updateQuestionsList();
       }
     }
 
@@ -943,9 +1005,10 @@
           imageBtn.disabled = false;
         }
         
-        // Update statistics
+        // Update statistics and questions list
         document.getElementById('question-count').textContent = questionCount;
         document.getElementById('token-count').textContent = `~${tokenCount}`;
+        updateQuestionsList();
         
         autoSaveCurrentSession();
         closeLoadModal();
@@ -971,6 +1034,7 @@
         document.getElementById('question-count').textContent = '0';
         document.getElementById('token-count').textContent = '~0';
         document.getElementById('response-time').textContent = '-';
+        updateQuestionsList();
         localStorage.removeItem('ollama-chat-current');
       }
     }
@@ -1031,9 +1095,10 @@
           multilineBtn.disabled = false;
         }
         
-        // Update statistics
+        // Update statistics and questions list
         document.getElementById('question-count').textContent = questionCount;
         document.getElementById('token-count').textContent = `~${tokenCount}`;
+        updateQuestionsList();
         
         // Save as current and remove backup
         autoSaveCurrentSession();
@@ -1054,35 +1119,34 @@
       }
     }
 
-    async function checkStatus() {
-      try {
-        const response = await fetch('/api/status');
-        const data = await response.json();
-        if (data.connected) {
-          statusDiv.textContent = 'Connected to Ollama';
-          statusDiv.className = 'status-connected';
-        } else {
-          statusDiv.textContent = 'Ollama is unavailable';
-          statusDiv.className = 'status-disconnected';
-        }
-      } catch (error) {
-        statusDiv.textContent = 'Ollama is unavailable';
-        statusDiv.className = 'status-disconnected';
-      }
-    }
+
 
     async function loadModels() {
+      console.log('Loading models...');
       try {
         const response = await fetch('/api/models');
         const data = await response.json();
+        console.log('Models response:', data);
         models = data.models || [];
-        renderModels();
+        renderModels(data.connected);
       } catch (error) {
-        modelsListDiv.textContent = 'Failed to load models';
+        console.log('Models fetch error:', error);
+        renderModels(false);
       }
     }
 
-    function renderModels() {
+    function renderModels(connected = true) {
+      console.log('Rendering models, connected:', connected, 'models count:', models.length);
+      
+      if (!connected) {
+        modelsListDiv.innerHTML = `
+          <div style="background: #f8d7da; color: #721c24; padding: 15px; border-radius: 6px; text-align: center; font-size: 12px;">
+            <div style="font-weight: bold;">⚠️ Server is not accessible</div>
+          </div>
+        `;
+        return;
+      }
+
       if (models.length === 0) {
         modelsListDiv.textContent = 'No models found';
         return;
@@ -1243,7 +1307,6 @@
     }
 
     // Initialize app
-    checkStatus();
     loadModels();
     loadCurrentSession();
     checkUrlParams();
@@ -1255,7 +1318,6 @@
     codePreview.textContent = '';
     
     setInterval(() => {
-      checkStatus();
       loadModels();
     }, 5000);
 
@@ -1618,22 +1680,50 @@
       }
     });
     
-    function jumpToQuestion(messageId) {
-      // Find the user message that comes before this bot message
-      const botIndex = conversationMessages.findIndex(msg => msg.id == messageId && msg.sender === 'bot');
-      if (botIndex > 0) {
-        const userMessage = conversationMessages[botIndex - 1];
-        if (userMessage && userMessage.sender === 'user') {
-          const questionElement = document.getElementById(`question-${userMessage.id}`);
-          if (questionElement) {
-            questionElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
-            // Highlight briefly
-            questionElement.style.backgroundColor = '#fff3cd';
-            setTimeout(() => {
-              questionElement.style.backgroundColor = '';
-            }, 2000);
+    function jumpToQuestion(messageId, isDirectQuestion = false) {
+      let targetId;
+      
+      if (isDirectQuestion) {
+        // Direct question click from questions panel
+        targetId = messageId;
+      } else {
+        // Find the user message that comes before this bot message
+        const botIndex = conversationMessages.findIndex(msg => msg.id == messageId && msg.sender === 'bot');
+        if (botIndex > 0) {
+          const userMessage = conversationMessages[botIndex - 1];
+          if (userMessage && userMessage.sender === 'user') {
+            targetId = userMessage.id;
           }
         }
+      }
+      
+      if (targetId) {
+        const questionElement = document.getElementById(`question-${targetId}`);
+        if (questionElement) {
+          questionElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          // Highlight briefly
+          questionElement.style.backgroundColor = '#fff3cd';
+          setTimeout(() => {
+            questionElement.style.backgroundColor = '';
+          }, 2000);
+          
+          // Update questions panel to show current question
+          updateQuestionsHighlight(targetId);
+        }
+      }
+    }
+    
+    function updateQuestionsHighlight(currentQuestionId) {
+      const questionItems = document.querySelectorAll('.question-item');
+      questionItems.forEach(item => {
+        item.classList.remove('current');
+      });
+      
+      // Find and highlight current question
+      const userQuestions = conversationMessages.filter(msg => msg.sender === 'user');
+      const currentIndex = userQuestions.findIndex(q => q.id == currentQuestionId);
+      if (currentIndex >= 0 && questionItems[currentIndex]) {
+        questionItems[currentIndex].classList.add('current');
       }
     }
 
@@ -1701,9 +1791,10 @@
         messagesDiv.scrollTop = messagesDiv.scrollHeight;
       }
       
-      // Update statistics
+      // Update statistics and questions list
       document.getElementById('question-count').textContent = questionCount;
       document.getElementById('token-count').textContent = `~${tokenCount}`;
+      updateQuestionsList();
       
       autoSaveCurrentSession();
     }
@@ -1729,6 +1820,7 @@
       tokenCount += Math.ceil(text.length / 4);
       if (sender === 'user') {
         questionCount++;
+        updateQuestionsList();
       }
       
       // Update statistics display
@@ -1737,6 +1829,44 @@
       
       // Auto-save current session
       autoSaveCurrentSession();
+    }
+
+    function updateQuestionsList() {
+      const userQuestions = conversationMessages.filter(msg => msg.sender === 'user');
+      
+      if (userQuestions.length === 0) {
+        questionsListDiv.innerHTML = '<div style="color: #666; font-size: 12px; text-align: center; padding: 10px;">No questions yet</div>';
+        return;
+      }
+      
+      questionsListDiv.innerHTML = '';
+      userQuestions.forEach((question, index) => {
+        const questionDiv = document.createElement('div');
+        questionDiv.className = 'question-item';
+        questionDiv.onclick = () => jumpToQuestion(question.id, true);
+        
+        const questionText = document.createElement('div');
+        questionText.className = 'question-text';
+        questionText.textContent = question.text.replace(/\s*\[🖼️[^\]]+\]\s*$/, '').replace(/\s*\[📄[^\]]+\]\s*$/, '').replace(/\s*\[📁[^\]]+\]\s*$/, '');
+        questionText.title = questionText.textContent;
+        
+        // Find the corresponding bot answer to get the model name
+        const questionIndex = conversationMessages.findIndex(msg => msg.id === question.id);
+        const botAnswer = questionIndex >= 0 && questionIndex + 1 < conversationMessages.length ? 
+          conversationMessages[questionIndex + 1] : null;
+        const modelName = botAnswer && botAnswer.sender === 'bot' && botAnswer.model ? 
+          botAnswer.model : 'Unknown';
+        
+        const questionNumber = document.createElement('div');
+        questionNumber.style.fontSize = '10px';
+        questionNumber.style.color = '#666';
+        questionNumber.style.marginTop = '3px';
+        questionNumber.textContent = `Q${index + 1} (${modelName})`;
+        
+        questionDiv.appendChild(questionText);
+        questionDiv.appendChild(questionNumber);
+        questionsListDiv.appendChild(questionDiv);
+      });
     }
 
     // File input handler
