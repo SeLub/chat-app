@@ -178,7 +178,7 @@ app.get('/api/images/:imageId/:type', (req, res) => {
 
 function isSpecialModel(modelName) {
   const embedModels = ['nomic-embed-text', 'embed'];
-  const visionModels = ['vision', 'llava'];
+  const visionModels = ['vision', 'llava', 'gemma3'];
   
   const isEmbed = embedModels.some(type => modelName.includes(type));
   const isVision = visionModels.some(type => modelName.includes(type));
@@ -330,7 +330,7 @@ app.post('/api/chat', upload.fields([{ name: 'file', maxCount: 1 }, { name: 'cod
       // Handle image files for vision models
       if (file.mimetype.startsWith('image/')) {
         if (!isVision) {
-          return res.status(400).json({ error: 'Images require vision models (llama3.2-vision, llava, etc.)' });
+          return res.status(400).json({ error: 'Images require vision models (llama3.2-vision, llava, gemma3, etc.)' });
         }
         
         // Save image files and get URLs

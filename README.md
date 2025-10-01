@@ -15,6 +15,7 @@ A modern web chat interface for Ollama models with advanced model management and
 ### Model Management
 - Automatic detection of installed Ollama models
 - Real-time status monitoring (Running/Available)
+- Visual indicators for model types (vision models marked with 👁️)
 - Easy model switching without restart
 - Support for any Ollama model
 
@@ -61,7 +62,7 @@ A modern web chat interface for Ollama models with advanced model management and
 - Support for JPG, PNG, GIF, BMP, WEBP formats
 - Visual recognition and image reasoning
 - Image captioning and question answering
-- Compatible with llama3.2-vision, llava, and other vision models
+- Compatible with llama3.2-vision, llava, gemma3, and other vision models
 - Professional message layout with image thumbnails and filename display
 - Click thumbnails to view full-size images in modal
 
@@ -198,11 +199,11 @@ A modern web chat interface for Ollama models with advanced model management and
 
 ### Model Support
 - **Text models**: Full chat support with document and code processing (phi4, llama, qwen, etc.)
-- **Vision models**: Image analysis and visual reasoning (llama3.2-vision, llava, etc.)
+- **Vision models**: Image analysis and visual reasoning (llama3.2-vision, llava, gemma3, etc.) - marked with 👁️ eye icon
 - **Embedding models**: Detected and marked as unavailable for chat
 - **Document analysis**: All text models can process PDF, DOC, DOCX, XLS, XLSX, CSV files
 - **Code analysis**: All text models can analyze multiple code files for reviews and recommendations
-- **Image analysis**: Vision models can analyze JPG, PNG, GIF, BMP, WEBP images
+- **Image analysis**: Vision models (llama3.2-vision, llava, gemma3) can analyze JPG, PNG, GIF, BMP, WEBP images
 - **Web content**: All text models can analyze content from URLs automatically
 - **Alphabetical sorting**: Models displayed in alphabetical order for easy navigation
 

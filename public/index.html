@@ -731,7 +731,7 @@
           ⚠️ Large documents may be truncated to fit the model's context window
         </div>
         <div id="vision-warning" style="margin-top: 5px; font-size: 11px; color: #721c24; background: #f8d7da; padding: 5px; border-radius: 3px; display: none;">
-          ⚠️ Images require vision models (llama3.2-vision, llava, etc.)
+          ⚠️ Images require vision models (llama3.2-vision, llava, gemma3, etc.)
         </div>
         <div id="code-warning" style="margin-top: 5px; font-size: 11px; color: #0c5460; background: #d1ecf1; padding: 5px; border-radius: 3px; display: none;">
           💡 Code files will be analyzed for structure, patterns, and recommendations
@@ -1163,9 +1163,13 @@
         const statusClass = model.status === 'running' ? 'status-running' : 'status-available';
         const statusText = model.status === 'running' ? 'Running' : 'Available';
         
+        // Check if it's a vision model
+        const isVisionModel = model.name.includes('vision') || model.name.includes('llava') || model.name.includes('gemma3');
+        const visionIcon = isVisionModel ? ' 👁️' : '';
+        
         modelDiv.innerHTML = `
           <div>
-            <strong>${model.name}</strong>
+            <strong>${model.name}${visionIcon}</strong>
           </div>
           <span class="model-status ${statusClass}">${statusText}</span>
         `;
@@ -1902,7 +1906,7 @@
         codePreview.textContent = ''; // Clear code preview
         
         // Show warning if not a vision model
-        const isVisionModel = selectedModel && (selectedModel.includes('vision') || selectedModel.includes('llava'));
+        const isVisionModel = selectedModel && (selectedModel.includes('vision') || selectedModel.includes('llava') || selectedModel.includes('gemma3'));
         if (!isVisionModel) {
           visionWarning.style.display = 'block';
         } else {
