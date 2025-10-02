@@ -1,7 +1,7 @@
 # Ollama Chat App
 
-![Chat](Screenshot.png)
-![Dashboard](Screenshot2.png)
+![Chat](ScreenshotMain.png)
+![Dashboard](ScreenshotDashboard.png)
 
 A modern web chat interface for Ollama models with advanced model management and real-time statistics.
 
