@@ -35,7 +35,8 @@ A modern web chat interface for Ollama models with advanced model management and
 
 ### Conversation Persistence
 - Auto-save current session (survives page reload)
-- Save named conversations with custom titles
+- Save named conversations with custom titles and categories
+- Category autocomplete with Tab/Arrow key navigation
 - Load and manage multiple saved conversations
 - Return to current conversation after browsing saved ones
 - Export conversations to JSON files
@@ -172,15 +173,19 @@ A modern web chat interface for Ollama models with advanced model management and
 
 ### Conversation Management
 - **Auto-save**: Current conversation automatically saved to localStorage
-- **Named saves**: Save important conversations with custom names
+- **Named saves**: Save important conversations with custom names and categories
+- **Category system**: Organize conversations by topics (Javascript, English, Python, etc.)
+- **Smart autocomplete**: Existing categories suggested with Tab/Arrow navigation
+- **Update conversations**: Modify loaded conversations and update original or save as new
 - **Current conversation backup**: Preserves working conversation when browsing saved ones
 - **Return to current**: Easy way to get back to your working conversation
-- **Dashboard**: Dedicated page for managing all conversations
-- **Search & Filter**: Find conversations by name or content
+- **Dashboard**: Dedicated page for managing all conversations with category organization
+- **Accordion interface**: Collapsible category sections for better organization
+- **Search & Filter**: Find conversations by name or content across all categories
 - **Bulk Operations**: Select and manage multiple conversations at once
 - **Export**: Download individual or multiple conversations as JSON files
 - **Rename**: Edit conversation names inline
-- **Statistics**: View total conversations and message counts
+- **Statistics**: View total conversations and message counts per category
 
 ### Smart Statistics
 - **Questions**: Counts only user questions (not total messages)
@@ -190,10 +195,12 @@ A modern web chat interface for Ollama models with advanced model management and
 - **Context detection**: Automatically detects custom context window sizes (e.g., 64K, 128K)
 
 ### Dashboard Features
+- **Category Organization**: Conversations grouped by learning topics (Javascript, English, etc.)
+- **Accordion Categories**: Click category headers to collapse/expand sections
 - **Conversation Grid**: Visual cards showing all saved conversations
 - **Search Functionality**: Real-time search through conversation names and content
 - **Bulk Operations**: Select multiple conversations for batch export or deletion
-- **Statistics Overview**: Total conversations, messages, and selection counts
+- **Statistics Overview**: Total conversations, messages, and selection counts per category
 - **Individual Management**: Rename, export, delete, or open any conversation
 - **Direct Loading**: Open conversations directly from dashboard to main chat
 

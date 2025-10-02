@@ -135,6 +135,20 @@
       background-color: #f8f9fa;
     }
 
+    .category-header {
+      background: #e9ecef;
+      padding: 8px 12px;
+      margin: 15px 0 5px 0;
+      border-radius: 5px;
+      font-weight: bold;
+      color: #495057;
+      border-left: 4px solid #007bff;
+    }
+
+    .category-header:first-child {
+      margin-top: 5px;
+    }
+
     .btn {
       padding: 8px 15px;
       border: none;
@@ -158,12 +172,46 @@
       color: white;
     }
 
-    #save-name {
+    #save-name, #save-category {
       width: 100%;
       padding: 10px;
       border: 1px solid #ddd;
       border-radius: 5px;
       margin: 10px 0;
+    }
+
+    .category-autocomplete {
+      position: relative;
+    }
+
+    .category-suggestions {
+      position: absolute;
+      top: 100%;
+      left: 0;
+      right: 0;
+      background: white;
+      border: 1px solid #ddd;
+      border-top: none;
+      border-radius: 0 0 5px 5px;
+      max-height: 150px;
+      overflow-y: auto;
+      z-index: 1000;
+      display: none;
+    }
+
+    .suggestion-item {
+      padding: 8px 12px;
+      cursor: pointer;
+      border-bottom: 1px solid #eee;
+    }
+
+    .suggestion-item:hover,
+    .suggestion-item.selected {
+      background: #f8f9fa;
+    }
+
+    .suggestion-item:last-child {
+      border-bottom: none;
     }
 
     #left-panel {
@@ -663,7 +711,11 @@
         <button class="close-btn" onclick="closeSaveModal()">&times;</button>
       </div>
       <input type="text" id="save-name" placeholder="Enter conversation name...">
-      <div>
+      <div class="category-autocomplete">
+        <input type="text" id="save-category" placeholder="Category (e.g., Javascript, English)..." autocomplete="off">
+        <div id="category-suggestions" class="category-suggestions"></div>
+      </div>
+      <div id="save-buttons">
         <button class="btn btn-primary" onclick="confirmSave()">Save</button>
         <button class="btn btn-secondary" onclick="closeSaveModal()">Cancel</button>
       </div>
@@ -796,6 +848,7 @@
     let responseTimer = null;
     let conversationMessages = [];
     let selectedCodeFiles = []; // Store accumulated code files
+    let currentConversationKey = null; // Track currently loaded conversation
 
     // Menu functionality
     document.getElementById('menu-btn').addEventListener('click', () => {
@@ -897,15 +950,67 @@
         alert('No conversation to save!');
         return;
       }
+      
+      const saveButtons = document.getElementById('save-buttons');
+      const saveNameInput = document.getElementById('save-name');
+      const saveCategoryInput = document.getElementById('save-category');
+      
+      if (currentConversationKey) {
+        // Show update option for loaded conversations
+        const currentData = loadFromStorage(currentConversationKey);
+        saveNameInput.value = currentData ? currentData.name : '';
+        saveCategoryInput.value = currentData ? (currentData.category || '') : '';
+        saveButtons.innerHTML = `
+          <button class="btn btn-primary" onclick="updateConversation()">Update</button>
+          <button class="btn btn-primary" onclick="confirmSave()">Save as New</button>
+          <button class="btn btn-secondary" onclick="closeSaveModal()">Cancel</button>
+        `;
+      } else {
+        // New conversation - show only save option
+        saveNameInput.value = '';
+        saveCategoryInput.value = '';
+        saveButtons.innerHTML = `
+          <button class="btn btn-primary" onclick="confirmSave()">Save</button>
+          <button class="btn btn-secondary" onclick="closeSaveModal()">Cancel</button>
+        `;
+      }
+      
       document.getElementById('save-modal').style.display = 'block';
-      document.getElementById('save-name').focus();
+      saveNameInput.focus();
     }
 
     function closeSaveModal() {
       document.getElementById('save-modal').style.display = 'none';
       document.getElementById('save-name').value = '';
+      document.getElementById('save-category').value = '';
+      hideCategorySuggestions();
     }
 
+    function updateConversation() {
+      if (!currentConversationKey) return;
+      
+      const currentData = loadFromStorage(currentConversationKey);
+      if (!currentData) {
+        alert('Original conversation not found!');
+        return;
+      }
+      
+      const category = document.getElementById('save-category').value.trim();
+      const updatedData = {
+        ...currentData,
+        selectedModel,
+        messages: conversationMessages,
+        questionCount,
+        tokenCount,
+        category: category || currentData.category || 'General',
+        updatedAt: new Date().toISOString()
+      };
+      
+      saveToStorage(currentConversationKey, updatedData);
+      closeSaveModal();
+      alert('Conversation updated successfully!');
+    }
+    
     function confirmSave() {
       const name = document.getElementById('save-name').value.trim();
       if (!name) {
@@ -913,9 +1018,11 @@
         return;
       }
       
+      const category = document.getElementById('save-category').value.trim();
       const conversationData = {
         id: Date.now(),
         name: name,
+        category: category || 'General',
         selectedModel,
         messages: conversationMessages,
         questionCount,
@@ -923,7 +1030,9 @@
         createdAt: new Date().toISOString()
       };
       
-      saveToStorage(`ollama-chat-saved-${conversationData.id}`, conversationData);
+      const newKey = `ollama-chat-saved-${conversationData.id}`;
+      saveToStorage(newKey, conversationData);
+      currentConversationKey = newKey; // Track new conversation
       closeSaveModal();
       alert('Conversation saved successfully!');
     }
@@ -942,18 +1051,33 @@
       if (savedConversations.length === 0) {
         listDiv.innerHTML = '<p>No saved conversations</p>';
       } else {
-        listDiv.innerHTML = savedConversations.map(conv => `
-          <div class="conversation-item">
-            <div>
-              <strong>${conv.name}</strong><br>
-              <small>${new Date(conv.createdAt).toLocaleString()} - ${calculateStatistics(conv.messages || []).questions} questions</small>
-            </div>
-            <div>
-              <button class="btn btn-primary" onclick="loadSpecificConversation('${conv.key}')">Load</button>
-              <button class="btn btn-danger" onclick="deleteConversation('${conv.key}')">Delete</button>
-            </div>
-          </div>
-        `).join('');
+        // Group by category
+        const grouped = {};
+        savedConversations.forEach(conv => {
+          const category = conv.category || 'General';
+          if (!grouped[category]) grouped[category] = [];
+          grouped[category].push(conv);
+        });
+        
+        let html = '';
+        Object.keys(grouped).sort().forEach(category => {
+          html += `<div class="category-header">${category}</div>`;
+          grouped[category].forEach(conv => {
+            html += `
+              <div class="conversation-item">
+                <div>
+                  <strong>${conv.name}</strong><br>
+                  <small>${new Date(conv.createdAt).toLocaleString()} - ${calculateStatistics(conv.messages || []).questions} questions</small>
+                </div>
+                <div>
+                  <button class="btn btn-primary" onclick="loadSpecificConversation('${conv.key}')">Load</button>
+                  <button class="btn btn-danger" onclick="deleteConversation('${conv.key}')">Delete</button>
+                </div>
+              </div>
+            `;
+          });
+        });
+        listDiv.innerHTML = html;
       }
       
       document.getElementById('load-modal').style.display = 'block';
@@ -980,6 +1104,7 @@
         
         selectedModel = data.selectedModel;
         conversationMessages = data.messages || [];
+        currentConversationKey = key; // Track loaded conversation
         
         // Calculate statistics from messages
         const stats = calculateStatistics(conversationMessages);
@@ -1030,6 +1155,7 @@
         conversationMessages = [];
         questionCount = 0;
         tokenCount = 0;
+        currentConversationKey = null; // Clear loaded conversation tracking
         messagesDiv.innerHTML = '';
         document.getElementById('question-count').textContent = '0';
         document.getElementById('token-count').textContent = '~0';
@@ -1068,6 +1194,7 @@
       if (backup) {
         selectedModel = backup.selectedModel;
         conversationMessages = backup.messages || [];
+        currentConversationKey = null; // Clear loaded conversation tracking
         
         // Calculate statistics from messages
         const stats = calculateStatistics(conversationMessages);
@@ -1309,6 +1436,115 @@
         }
       }
     }
+
+    // Category autocomplete functionality
+    let selectedSuggestionIndex = -1;
+    let availableCategories = [];
+
+    function getExistingCategories() {
+      const categories = new Set();
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key.startsWith('ollama-chat-saved-')) {
+          const data = loadFromStorage(key);
+          if (data && data.category) {
+            categories.add(data.category);
+          }
+        }
+      }
+      return Array.from(categories).sort();
+    }
+
+    function showCategorySuggestions(input, suggestions) {
+      const suggestionsDiv = document.getElementById('category-suggestions');
+      if (suggestions.length === 0) {
+        hideCategorySuggestions();
+        return;
+      }
+      
+      suggestionsDiv.innerHTML = suggestions.map((cat, index) => 
+        `<div class="suggestion-item" data-index="${index}" onclick="selectCategory('${cat}')">${cat}</div>`
+      ).join('');
+      
+      suggestionsDiv.style.display = 'block';
+      selectedSuggestionIndex = -1;
+    }
+
+    function hideCategorySuggestions() {
+      document.getElementById('category-suggestions').style.display = 'none';
+      selectedSuggestionIndex = -1;
+    }
+
+    function selectCategory(category) {
+      document.getElementById('save-category').value = category;
+      hideCategorySuggestions();
+    }
+
+    function updateSuggestionSelection() {
+      const items = document.querySelectorAll('.suggestion-item');
+      items.forEach((item, index) => {
+        item.classList.toggle('selected', index === selectedSuggestionIndex);
+      });
+    }
+
+    // Category input event listeners
+    document.addEventListener('DOMContentLoaded', () => {
+      const categoryInput = document.getElementById('save-category');
+      
+      categoryInput.addEventListener('input', (e) => {
+        const value = e.target.value.toLowerCase();
+        availableCategories = getExistingCategories();
+        
+        if (value) {
+          const filtered = availableCategories.filter(cat => 
+            cat.toLowerCase().includes(value)
+          );
+          showCategorySuggestions(categoryInput, filtered);
+        } else {
+          showCategorySuggestions(categoryInput, availableCategories);
+        }
+      });
+      
+      categoryInput.addEventListener('focus', () => {
+        availableCategories = getExistingCategories();
+        if (availableCategories.length > 0) {
+          showCategorySuggestions(categoryInput, availableCategories);
+        }
+      });
+      
+      categoryInput.addEventListener('blur', (e) => {
+        // Delay hiding to allow click on suggestions
+        setTimeout(() => hideCategorySuggestions(), 150);
+      });
+      
+      categoryInput.addEventListener('keydown', (e) => {
+        const suggestions = document.querySelectorAll('.suggestion-item');
+        
+        if (e.key === 'ArrowDown') {
+          e.preventDefault();
+          selectedSuggestionIndex = Math.min(selectedSuggestionIndex + 1, suggestions.length - 1);
+          updateSuggestionSelection();
+        } else if (e.key === 'ArrowUp') {
+          e.preventDefault();
+          selectedSuggestionIndex = Math.max(selectedSuggestionIndex - 1, -1);
+          updateSuggestionSelection();
+        } else if (e.key === 'Tab' || e.key === 'ArrowRight') {
+          if (selectedSuggestionIndex >= 0 && suggestions[selectedSuggestionIndex]) {
+            e.preventDefault();
+            const category = suggestions[selectedSuggestionIndex].textContent;
+            selectCategory(category);
+          }
+        } else if (e.key === 'Enter') {
+          if (selectedSuggestionIndex >= 0 && suggestions[selectedSuggestionIndex]) {
+            e.preventDefault();
+            const category = suggestions[selectedSuggestionIndex].textContent;
+            selectCategory(category);
+          }
+        } else if (e.key === 'Escape') {
+          hideCategorySuggestions();
+        }
+      });
+    });
 
     // Initialize app
     loadModels();
