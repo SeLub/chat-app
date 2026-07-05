@@ -1,2194 +1,1172 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Ollama Chat</title>
-  <style>
-    body {
-      font-family: Arial, sans-serif;
-      background-color: #f4f4f4;
-      margin: 0;
-      padding: 0;
-    }
-
-    #header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      padding: 10px 20px;
-      background-color: #2c3e50;
-      color: white;
-      border-bottom: 1px solid #34495e;
-    }
-
-    #logo {
-      font-size: 20px;
-      font-weight: bold;
-    }
-
-    #menu {
-      position: relative;
-    }
-
-    #menu-btn {
-      background: #3498db;
-      color: white;
-      border: none;
-      padding: 8px 15px;
-      border-radius: 5px;
-      cursor: pointer;
-    }
-
-    #menu-dropdown {
-      display: none;
-      position: absolute;
-      right: 0;
-      top: 100%;
-      background: white;
-      border: 1px solid #ddd;
-      border-radius: 5px;
-      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-      min-width: 200px;
-      z-index: 1000;
-    }
-
-    .menu-item {
-      padding: 10px 15px;
-      cursor: pointer;
-      color: #333;
-      border-bottom: 1px solid #eee;
-    }
-
-    .menu-item:hover {
-      background-color: #f8f9fa;
-    }
-
-    .menu-item:last-child {
-      border-bottom: none;
-    }
-
-    #chat-container {
-      display: flex;
-      height: calc(100vh - 60px);
-      width: 100vw;
-      background-color: #fff;
-      gap: 10px;
-      padding: 10px;
-      box-sizing: border-box;
-    }
-
-    .modal {
-      display: none;
-      position: fixed;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      background-color: rgba(0,0,0,0.5);
-      z-index: 2000;
-    }
-
-    .modal-content {
-      position: absolute;
-      top: 50%;
-      left: 50%;
-      transform: translate(-50%, -50%);
-      background: white;
-      padding: 20px;
-      border-radius: 8px;
-      min-width: 400px;
-      max-width: 600px;
-      max-height: 80vh;
-      overflow-y: auto;
-    }
-
-    .modal-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 20px;
-      border-bottom: 1px solid #eee;
-      padding-bottom: 10px;
-    }
-
-    .close-btn {
-      background: none;
-      border: none;
-      font-size: 24px;
-      cursor: pointer;
-      color: #999;
-    }
-
-    .conversation-item {
-      padding: 10px;
-      border: 1px solid #ddd;
-      border-radius: 5px;
-      margin: 5px 0;
-      cursor: pointer;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-    }
-
-    .conversation-item:hover {
-      background-color: #f8f9fa;
-    }
-
-    .category-header {
-      background: #e9ecef;
-      padding: 8px 12px;
-      margin: 15px 0 5px 0;
-      border-radius: 5px;
-      font-weight: bold;
-      color: #495057;
-      border-left: 4px solid #007bff;
-    }
-
-    .category-header:first-child {
-      margin-top: 5px;
-    }
-
-    .btn {
-      padding: 8px 15px;
-      border: none;
-      border-radius: 5px;
-      cursor: pointer;
-      margin: 5px;
-    }
-
-    .btn-primary {
-      background-color: #007bff;
-      color: white;
-    }
-
-    .btn-danger {
-      background-color: #dc3545;
-      color: white;
-    }
-
-    .btn-secondary {
-      background-color: #6c757d;
-      color: white;
-    }
-
-    #save-name, #save-category {
-      width: 100%;
-      padding: 10px;
-      border: 1px solid #ddd;
-      border-radius: 5px;
-      margin: 10px 0;
-    }
-
-    .category-autocomplete {
-      position: relative;
-    }
-
-    .category-suggestions {
-      position: absolute;
-      top: 100%;
-      left: 0;
-      right: 0;
-      background: white;
-      border: 1px solid #ddd;
-      border-top: none;
-      border-radius: 0 0 5px 5px;
-      max-height: 150px;
-      overflow-y: auto;
-      z-index: 1000;
-      display: none;
-    }
-
-    .suggestion-item {
-      padding: 8px 12px;
-      cursor: pointer;
-      border-bottom: 1px solid #eee;
-    }
-
-    .suggestion-item:hover,
-    .suggestion-item.selected {
-      background: #f8f9fa;
-    }
-
-    .suggestion-item:last-child {
-      border-bottom: none;
-    }
-
-    #left-panel {
-      width: 20%;
-      background-color: #f9f9f9;
-      border-radius: 8px;
-      padding: 15px;
-      border: 1px solid #ddd;
-      overflow-y: auto;
-    }
-
-    #questions-panel h3 {
-      margin: 0 0 10px 0;
-      color: #333;
-      font-size: 16px;
-    }
-
-    .question-item {
-      padding: 8px 12px;
-      margin: 5px 0;
-      border: 1px solid #ccc;
-      border-radius: 6px;
-      background-color: white;
-      cursor: pointer;
-      font-size: 13px;
-      line-height: 1.3;
-    }
-
-    .question-item:hover {
-      background-color: #f0f0f0;
-    }
-
-    .question-item.current {
-      background-color: #d4edda;
-      border-color: #28a745;
-    }
-
-    .question-text {
-      display: -webkit-box;
-      -webkit-line-clamp: 2;
-      -webkit-box-orient: vertical;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-
-    #middle-panel {
-      width: 70%;
-      display: flex;
-      flex-direction: column;
-      background-color: #fff;
-      border-radius: 8px;
-      padding: 15px;
-      border: 1px solid #ddd;
-    }
-
-    #right-panel {
-      width: 10%;
-      background-color: #f9f9f9;
-      border-radius: 8px;
-      padding: 15px;
-      border: 1px solid #ddd;
-      overflow-y: auto;
-      display: flex;
-      flex-direction: column;
-      gap: 15px;
-    }
-
-    #models-section {
-      flex-shrink: 0;
-    }
-
-    #models-section h3 {
-      margin: 0 0 10px 0;
-      color: #333;
-      font-size: 14px;
-    }
-
-    #models-section .model-item {
-      font-size: 11px;
-      padding: 6px 8px;
-      margin: 3px 0;
-    }
-
-    #models-section .model-status {
-      font-size: 10px;
-      padding: 2px 4px;
-    }
-
-    #messages {
-      flex: 1;
-      overflow-y: auto;
-      border: 1px solid #ccc;
-      padding: 10px;
-      margin-bottom: 15px;
-      background-color: #f9f9f9;
-      border-radius: 8px;
-    }
-
-    .message {
-      margin: 5px 0;
-      padding: 10px;
-      border-radius: 6px;
-      position: relative;
-    }
-
-    .message-content {
-      display: flex;
-      align-items: flex-start;
-      gap: 10px;
-    }
-
-    .message-text {
-      flex: 1;
-    }
-
-    .message-image {
-      flex-shrink: 0;
-    }
-
-    .image-thumbnail {
-      width: 80px;
-      height: 80px;
-      object-fit: cover;
-      border-radius: 8px;
-      cursor: pointer;
-      border: 2px solid #ddd;
-      transition: all 0.2s ease;
-    }
-
-    .image-thumbnail:hover {
-      border-color: #007bff;
-      transform: scale(1.05);
-    }
-
-    .image-modal {
-      display: none;
-      position: fixed;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      background-color: rgba(0,0,0,0.8);
-      z-index: 3000;
-      cursor: pointer;
-    }
-
-    .image-modal img {
-      position: absolute;
-      top: 50%;
-      left: 50%;
-      transform: translate(-50%, -50%);
-      max-width: 90%;
-      max-height: 90%;
-      border-radius: 8px;
-    }
-
-    .delete-btn {
-      position: absolute;
-      top: 5px;
-      right: 5px;
-      background: #dc3545;
-      color: white;
-      border: none;
-      border-radius: 3px;
-      padding: 2px 6px;
-      font-size: 10px;
-      cursor: pointer;
-      opacity: 0;
-      transition: opacity 0.2s;
-    }
-
-    .message:hover .delete-btn {
-      opacity: 1;
-    }
-
-    .delete-btn:hover {
-      background: #c82333;
-    }
-
-    .message-actions {
-      display: flex;
-      gap: 5px;
-      margin-top: 10px;
-      padding: 8px;
-      background: rgba(0,0,0,0.05);
-      border-radius: 5px;
-      border-top: 1px solid #ddd;
-    }
-
-    .action-btn {
-      padding: 4px 8px;
-      border: none;
-      border-radius: 3px;
-      font-size: 11px;
-      cursor: pointer;
-      transition: background 0.2s;
-    }
-
-    .btn-copy { background: #17a2b8; color: white; }
-    .btn-copy:hover { background: #138496; }
-    .btn-delete { background: #dc3545; color: white; }
-    .btn-delete:hover { background: #c82333; }
-    .btn-share { background: #28a745; color: white; }
-    .btn-share:hover { background: #218838; }
-    .btn-telegram { background: #0088cc; color: white; }
-    .btn-telegram:hover { background: #006699; }
-    .btn-notion { background: #000; color: white; }
-    .btn-notion:hover { background: #333; }
-
-    .user {
-      background-color: #dcf8c6;
-      align-self: flex-end;
-    }
-
-    .user code {
-      background-color: #c3e6cb;
-      padding: 2px 4px;
-      border-radius: 3px;
-      font-family: 'Courier New', monospace;
-      font-size: 0.9em;
-    }
-
-    .user pre {
-      background-color: #c3e6cb;
-      padding: 10px;
-      border-radius: 5px;
-      overflow-x: auto;
-      margin: 10px 0;
-    }
-
-    .user pre code {
-      background: none;
-      padding: 0;
-    }
-
-    .user h1, .user h2, .user h3 {
-      margin: 15px 0 10px 0;
-      color: #333;
-    }
-
-    .user strong {
-      font-weight: bold;
-    }
-
-    .user em {
-      font-style: italic;
-    }
-
-    .bot {
-      background-color: #f1f1f1;
-      align-self: flex-start;
-      line-height: 1.6;
-      position: relative;
-    }
-
-    .model-badge {
-      display: inline-block;
-      background-color: #007bff;
-      color: white;
-      font-size: 10px;
-      padding: 2px 6px;
-      border-radius: 10px;
-      margin-bottom: 5px;
-      font-weight: bold;
-    }
-
-    .bot h1, .bot h2, .bot h3 {
-      margin: 15px 0 10px 0;
-      color: #333;
-    }
-
-    .bot h1 { font-size: 1.3em; }
-    .bot h2 { font-size: 1.2em; }
-    .bot h3 { font-size: 1.1em; }
-
-    .bot p {
-      margin: 8px 0;
-    }
-
-    .bot code {
-      background-color: #f8f9fa;
-      padding: 2px 4px;
-      border-radius: 3px;
-      font-family: 'Courier New', monospace;
-      font-size: 0.9em;
-    }
-
-    .bot pre {
-      background-color: #f8f9fa;
-      padding: 10px;
-      border-radius: 5px;
-      overflow-x: auto;
-      margin: 10px 0;
-    }
-
-    .bot pre code {
-      background: none;
-      padding: 0;
-    }
-
-    .bot ul, .bot ol {
-      margin: 10px 0;
-      padding-left: 20px;
-    }
-
-    .bot li {
-      margin: 5px 0;
-    }
-
-    .bot blockquote {
-      border-left: 4px solid #ddd;
-      margin: 10px 0;
-      padding-left: 15px;
-      color: #666;
-      font-style: italic;
-    }
-
-    .bot table {
-      border-collapse: collapse;
-      width: 100%;
-      margin: 10px 0;
-    }
-
-    .bot th, .bot td {
-      border: 1px solid #ddd;
-      padding: 8px;
-      text-align: left;
-    }
-
-    .bot th {
-      background-color: #f2f2f2;
-      font-weight: bold;
-    }
-
-    .bot strong {
-      font-weight: bold;
-    }
-
-    .bot em {
-      font-style: italic;
-    }
-
-    #chat-form {
-      width: 100%;
-    }
-
-    #user-input {
-      padding: 10px;
-      font-size: 16px;
-      border: 1px solid #ccc;
-      border-radius: 6px;
-    }
-
-    #send-btn {
-      padding: 10px 15px;
-      font-size: 16px;
-      background-color: #28a745;
-      color: white;
-      border: none;
-      border-radius: 6px;
-      cursor: pointer;
-    }
-
-    #send-btn:hover {
-      background-color: #218838;
-    }
-
-    #status {
-      padding: 10px;
-      margin-bottom: 15px;
-      border-radius: 6px;
-      text-align: center;
-      font-weight: bold;
-      font-size: 12px;
-    }
-
-    #statistics {
-      margin-top: 20px;
-      padding: 10px;
-      background-color: #e9ecef;
-      border-radius: 6px;
-      font-size: 11px;
-    }
-
-    .stat-item {
-      margin: 8px 0;
-      padding: 5px;
-      background-color: white;
-      border-radius: 4px;
-    }
-
-    .stat-label {
-      font-weight: bold;
-      color: #666;
-    }
-
-    .stat-value {
-      color: #333;
-    }
-
-    .status-connected {
-      background-color: #d4edda;
-      color: #155724;
-    }
-
-    .status-disconnected {
-      background-color: #f8d7da;
-      color: #721c24;
-    }
-
-    #model-selector h3 {
-      margin: 0 0 10px 0;
-      color: #333;
-      font-size: 16px;
-    }
-
-    .model-item {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      padding: 8px 12px;
-      margin: 5px 0;
-      border: 1px solid #ccc;
-      border-radius: 6px;
-      background-color: white;
-      cursor: pointer;
-    }
-
-    .model-item:hover {
-      background-color: #f0f0f0;
-    }
-
-    .model-item.selected {
-      background-color: #d4edda;
-      border-color: #28a745;
-    }
-
-    .model-status {
-      font-size: 12px;
-      padding: 4px 8px;
-      border-radius: 4px;
-      font-weight: bold;
-    }
-
-    .status-running {
-      background-color: #d4edda;
-      color: #155724;
-    }
-
-    .status-available {
-      background-color: #fff3cd;
-      color: #856404;
-    }
-
-    #selected-model {
-      margin-bottom: 15px;
-      padding: 10px;
-      background-color: #e9ecef;
-      border-radius: 6px;
-      font-weight: bold;
-      border: 1px solid #ddd;
-    }
-
-    .start-command {
-      font-family: monospace;
-      background-color: #f8f9fa;
-      padding: 5px;
-      border-radius: 3px;
-      margin-top: 5px;
-      font-size: 12px;
-    }
-  </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ollama Chat</title>
+    <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <div id="header">
-    <div id="logo">🦙 Ollama Chat</div>
-    <div style="display: flex; align-items: center; gap: 15px;">
-      <a href="/dashboard.html" style="color: #3498db; text-decoration: none; padding: 8px 15px; border-radius: 5px; background: rgba(52, 152, 219, 0.1);">📊 Dashboard</a>
-      <div id="menu">
-        <button id="menu-btn">Menu ▼</button>
-        <div id="menu-dropdown">
-          <div class="menu-item" onclick="saveConversation()">💾 Save Conversation</div>
-          <div class="menu-item" onclick="loadConversation()">📂 Load Conversation</div>
-          <div class="menu-item" onclick="returnToCurrent()" id="return-current-item" style="display: none;">⬅️ Return to Current</div>
-          <div class="menu-item" onclick="clearConversation()">🗑️ Clear Current Chat</div>
-          <div class="menu-item" onclick="exportConversation()">📤 Export to File</div>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- Save Modal -->
-  <div id="save-modal" class="modal">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h3>Save Conversation</h3>
-        <button class="close-btn" onclick="closeSaveModal()">&times;</button>
-      </div>
-      <input type="text" id="save-name" placeholder="Enter conversation name...">
-      <div class="category-autocomplete">
-        <input type="text" id="save-category" placeholder="Category (e.g., Javascript, English)..." autocomplete="off">
-        <div id="category-suggestions" class="category-suggestions"></div>
-      </div>
-      <div id="save-buttons">
-        <button class="btn btn-primary" onclick="confirmSave()">Save</button>
-        <button class="btn btn-secondary" onclick="closeSaveModal()">Cancel</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- Load Modal -->
-  <div id="load-modal" class="modal">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h3>Load Conversation</h3>
-        <button class="close-btn" onclick="closeLoadModal()">&times;</button>
-      </div>
-      <div id="conversations-list">No saved conversations</div>
-    </div>
-  </div>
-
-  <!-- Multiline Input Modal -->
-  <div id="multiline-modal" class="modal">
-    <div class="modal-content" style="max-width: 800px;">
-      <div class="modal-header">
-        <h3>Multiline Message</h3>
-        <button class="close-btn" onclick="closeMultilineModal()">&times;</button>
-      </div>
-      <textarea id="multiline-input" placeholder="Type your multiline message here...\n\nYou can use markdown formatting:\n- **bold text**\n- *italic text*\n- \`inline code\`\n- ```code blocks```" style="width: 100%; height: 300px; padding: 10px; border: 1px solid #ddd; border-radius: 5px; font-family: 'Courier New', monospace; font-size: 14px; resize: vertical;"></textarea>
-      <div style="margin-top: 15px; display: flex; justify-content: space-between; align-items: center;">
-        <small style="color: #666;">Tip: Use Ctrl+Enter to send</small>
-        <div>
-          <button class="btn btn-secondary" onclick="closeMultilineModal()">Cancel</button>
-          <button class="btn btn-primary" onclick="sendMultilineMessage()">Send Message</button>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <div id="chat-container">
-    <!-- Left Panel: Questions (20%) -->
-    <div id="left-panel">
-      <div id="questions-panel">
-        <h3>Questions:</h3>
-        <div id="questions-list">No questions yet</div>
-      </div>
-    </div>
-
-    <!-- Middle Panel: Chat (70%) -->
-    <div id="middle-panel">
-      <div id="selected-model">No model selected</div>
-      <div id="messages"></div>
-      <form id="chat-form">
-        <div style="display: flex; gap: 10px; align-items: stretch; width: 100%;">
-          <input type="text" id="user-input" placeholder="Select a running model first..." disabled style="flex: 1; min-width: 0;" />
-          <input type="file" id="file-input" accept=".pdf,.doc,.docx,.xls,.xlsx,.csv" style="display: none;" />
-          <input type="file" id="image-input" accept=".jpg,.jpeg,.png,.gif,.bmp,.webp" style="display: none;" />
-          <input type="file" id="code-input" accept=".js,.ts,.jsx,.tsx,.py,.java,.html,.css,.scss,.json,.xml,.yaml,.yml,.md,.txt,.sql,.php,.rb,.go,.rs,.cpp,.c,.h,.cs,.swift,.kt,.scala,.sh,.bat,.dockerfile,.gitignore,.env" multiple style="display: none;" />
-          <button type="button" id="multiline-btn" onclick="openMultilineModal()" disabled style="padding: 10px; background: #6f42c1; color: white; border: none; border-radius: 6px; cursor: pointer; white-space: nowrap;">📝 MULTILINE</button>
-          <button type="button" id="file-btn" onclick="document.getElementById('file-input').click()" disabled style="padding: 10px; background: #6c757d; color: white; border: none; border-radius: 6px; cursor: pointer; white-space: nowrap;">📎 PDF,DOC,XLS</button>
-          <button type="button" id="image-btn" onclick="document.getElementById('image-input').click()" disabled style="padding: 10px; background: #17a2b8; color: white; border: none; border-radius: 6px; cursor: pointer; white-space: nowrap;">🖼️ IMG</button>
-          <button type="button" id="code-btn" onclick="document.getElementById('code-input').click()" disabled style="padding: 10px; background: #28a745; color: white; border: none; border-radius: 6px; cursor: pointer; white-space: nowrap;">📁 CODE</button>
-          <button type="submit" id="send-btn" disabled style="white-space: nowrap;">Send</button>
-        </div>
-        <div id="file-preview" style="margin-top: 5px; font-size: 12px; color: #666;"></div>
-        <div id="image-preview" style="margin-top: 5px; font-size: 12px; color: #666;"></div>
-        <div id="code-preview" style="margin-top: 5px; font-size: 12px; color: #666;"></div>
-        <div id="file-warning" style="margin-top: 5px; font-size: 11px; color: #856404; background: #fff3cd; padding: 5px; border-radius: 3px; display: none;">
-          ⚠️ Large documents may be truncated to fit the model's context window
-        </div>
-        <div id="vision-warning" style="margin-top: 5px; font-size: 11px; color: #721c24; background: #f8d7da; padding: 5px; border-radius: 3px; display: none;">
-          ⚠️ Images require vision models (llama3.2-vision, llava, gemma3, etc.)
-        </div>
-        <div id="code-warning" style="margin-top: 5px; font-size: 11px; color: #0c5460; background: #d1ecf1; padding: 5px; border-radius: 3px; display: none;">
-          💡 Code files will be analyzed for structure, patterns, and recommendations
-        </div>
-      </form>
-    </div>
-
-    <!-- Right Panel: Models & Stats (10%) -->
-    <div id="right-panel">
-      <div id="models-section">
-        <h3>Models:</h3>
-        <div id="models-list">Loading models...</div>
-      </div>
-      <div id="statistics">
-        <div class="stat-item">
-          <div class="stat-label">Model Size:</div>
-          <div class="stat-value" id="model-size">-</div>
-        </div>
-        <div class="stat-item">
-          <div class="stat-label">Context:</div>
-          <div class="stat-value" id="context-size">-</div>
-        </div>
-        <div class="stat-item">
-          <div class="stat-label">Questions:</div>
-          <div class="stat-value" id="question-count">0</div>
-        </div>
-        <div class="stat-item">
-          <div class="stat-label">Tokens:</div>
-          <div class="stat-value" id="token-count">~0</div>
-        </div>
-        <div class="stat-item">
-          <div class="stat-label">Response:</div>
-          <div class="stat-value" id="response-time">-</div>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <script>
-    const messagesDiv = document.getElementById('messages');
-    const modelsListDiv = document.getElementById('models-list');
-    const questionsListDiv = document.getElementById('questions-list');
-    const selectedModelDiv = document.getElementById('selected-model');
-    const userInput = document.getElementById('user-input');
-    const sendBtn = document.getElementById('send-btn');
-    const fileInput = document.getElementById('file-input');
-    const fileBtn = document.getElementById('file-btn');
-    const filePreview = document.getElementById('file-preview');
-    const imageInput = document.getElementById('image-input');
-    const imageBtn = document.getElementById('image-btn');
-    const imagePreview = document.getElementById('image-preview');
-    const codeInput = document.getElementById('code-input');
-    const codeBtn = document.getElementById('code-btn');
-    const codePreview = document.getElementById('code-preview');
-    const multilineBtn = document.getElementById('multiline-btn');
-    
-    let selectedModel = null;
-    let models = [];
-    let questionCount = 0;
-    let tokenCount = 0;
-    let requestStartTime = null;
-    let responseTimer = null;
-    let conversationMessages = [];
-    let selectedCodeFiles = []; // Store accumulated code files
-    let currentConversationKey = null; // Track currently loaded conversation
-
-    // Menu functionality
-    document.getElementById('menu-btn').addEventListener('click', () => {
-      const dropdown = document.getElementById('menu-dropdown');
-      dropdown.style.display = dropdown.style.display === 'block' ? 'none' : 'block';
-    });
-
-    // Close menu when clicking outside
-    document.addEventListener('click', (e) => {
-      if (!e.target.closest('#menu')) {
-        document.getElementById('menu-dropdown').style.display = 'none';
-      }
-    });
-
-    // Storage functions
-    function saveToStorage(key, data) {
-      try {
-        localStorage.setItem(key, JSON.stringify(data));
-      } catch (error) {
-        console.error('Failed to save to localStorage:', error);
-      }
-    }
-
-    function loadFromStorage(key) {
-      try {
-        const data = localStorage.getItem(key);
-        return data ? JSON.parse(data) : null;
-      } catch (error) {
-        console.error('Failed to load from localStorage:', error);
-        return null;
-      }
-    }
-
-    function calculateStatistics(messages) {
-      let questions = 0;
-      let tokens = 0;
-      
-      messages.forEach(msg => {
-        if (msg.sender === 'user') {
-          questions++;
-        }
-        tokens += Math.ceil(msg.text.length / 4);
-      });
-      
-      return { questions, tokens };
-    }
-
-    function autoSaveCurrentSession() {
-      const sessionData = {
-        selectedModel,
-        messages: conversationMessages,
-        questionCount,
-        tokenCount,
-        timestamp: Date.now()
-      };
-      saveToStorage('ollama-chat-current', sessionData);
-    }
-
-    function loadCurrentSession() {
-      const sessionData = loadFromStorage('ollama-chat-current');
-      if (sessionData) {
-        selectedModel = sessionData.selectedModel;
-        conversationMessages = sessionData.messages || [];
-        
-        // Calculate statistics from messages
-        const stats = calculateStatistics(conversationMessages);
-        questionCount = stats.questions;
-        tokenCount = stats.tokens;
-        
-        // Restore UI
-        if (selectedModel) {
-          selectedModelDiv.textContent = `Selected: ${selectedModel}`;
-          userInput.disabled = false;
-          userInput.placeholder = 'Type your message...';
-          sendBtn.disabled = false;
-          fileBtn.disabled = false;
-          imageBtn.disabled = false;
-        }
-        
-        // Restore messages - ensure IDs exist
-        messagesDiv.innerHTML = '';
-        conversationMessages.forEach(msg => {
-          if (!msg.id) {
-            msg.id = Date.now() + Math.random();
-          }
-          addMessageToUI(msg.text, msg.sender, msg.model, msg.id, msg.imageData);
-        });
-        
-        // Update statistics and questions list
-        document.getElementById('question-count').textContent = questionCount;
-        document.getElementById('token-count').textContent = `~${tokenCount}`;
-        updateQuestionsList();
-      }
-    }
-
-    // Modal functions
-    function saveConversation() {
-      if (conversationMessages.length === 0) {
-        alert('No conversation to save!');
-        return;
-      }
-      
-      const saveButtons = document.getElementById('save-buttons');
-      const saveNameInput = document.getElementById('save-name');
-      const saveCategoryInput = document.getElementById('save-category');
-      
-      if (currentConversationKey) {
-        // Show update option for loaded conversations
-        const currentData = loadFromStorage(currentConversationKey);
-        saveNameInput.value = currentData ? currentData.name : '';
-        saveCategoryInput.value = currentData ? (currentData.category || '') : '';
-        saveButtons.innerHTML = `
-          <button class="btn btn-primary" onclick="updateConversation()">Update</button>
-          <button class="btn btn-primary" onclick="confirmSave()">Save as New</button>
-          <button class="btn btn-secondary" onclick="closeSaveModal()">Cancel</button>
-        `;
-      } else {
-        // New conversation - show only save option
-        saveNameInput.value = '';
-        saveCategoryInput.value = '';
-        saveButtons.innerHTML = `
-          <button class="btn btn-primary" onclick="confirmSave()">Save</button>
-          <button class="btn btn-secondary" onclick="closeSaveModal()">Cancel</button>
-        `;
-      }
-      
-      document.getElementById('save-modal').style.display = 'block';
-      saveNameInput.focus();
-    }
-
-    function closeSaveModal() {
-      document.getElementById('save-modal').style.display = 'none';
-      document.getElementById('save-name').value = '';
-      document.getElementById('save-category').value = '';
-      hideCategorySuggestions();
-    }
-
-    function updateConversation() {
-      if (!currentConversationKey) return;
-      
-      const currentData = loadFromStorage(currentConversationKey);
-      if (!currentData) {
-        alert('Original conversation not found!');
-        return;
-      }
-      
-      const category = document.getElementById('save-category').value.trim();
-      const updatedData = {
-        ...currentData,
-        selectedModel,
-        messages: conversationMessages,
-        questionCount,
-        tokenCount,
-        category: category || currentData.category || 'General',
-        updatedAt: new Date().toISOString()
-      };
-      
-      saveToStorage(currentConversationKey, updatedData);
-      closeSaveModal();
-      alert('Conversation updated successfully!');
-    }
-    
-    function confirmSave() {
-      const name = document.getElementById('save-name').value.trim();
-      if (!name) {
-        alert('Please enter a conversation name');
-        return;
-      }
-      
-      const category = document.getElementById('save-category').value.trim();
-      const conversationData = {
-        id: Date.now(),
-        name: name,
-        category: category || 'General',
-        selectedModel,
-        messages: conversationMessages,
-        questionCount,
-        tokenCount,
-        createdAt: new Date().toISOString()
-      };
-      
-      const newKey = `ollama-chat-saved-${conversationData.id}`;
-      saveToStorage(newKey, conversationData);
-      currentConversationKey = newKey; // Track new conversation
-      closeSaveModal();
-      alert('Conversation saved successfully!');
-    }
-
-    function loadConversation() {
-      const savedConversations = [];
-      for (let i = 0; i < localStorage.length; i++) {
-        const key = localStorage.key(i);
-        if (key.startsWith('ollama-chat-saved-')) {
-          const data = loadFromStorage(key);
-          if (data) savedConversations.push({ key, ...data });
-        }
-      }
-      
-      const listDiv = document.getElementById('conversations-list');
-      if (savedConversations.length === 0) {
-        listDiv.innerHTML = '<p>No saved conversations</p>';
-      } else {
-        // Group by category
-        const grouped = {};
-        savedConversations.forEach(conv => {
-          const category = conv.category || 'General';
-          if (!grouped[category]) grouped[category] = [];
-          grouped[category].push(conv);
-        });
-        
-        let html = '';
-        Object.keys(grouped).sort().forEach(category => {
-          html += `<div class="category-header">${category}</div>`;
-          grouped[category].forEach(conv => {
-            html += `
-              <div class="conversation-item">
-                <div>
-                  <strong>${conv.name}</strong><br>
-                  <small>${new Date(conv.createdAt).toLocaleString()} - ${calculateStatistics(conv.messages || []).questions} questions</small>
+    <div class="container">
+        <!-- Left Panel: Questions -->
+        <div class="left-panel">
+            <div class="panel-header">
+                <span>📋</span>
+                <span>Questions</span>
+            </div>
+            <div class="panel-content">
+                <div class="questions-section" id="questionsList">
+                    <div style="text-align: center; color: #6c757d; padding: 20px;">
+                        No questions yet
+                    </div>
                 </div>
-                <div>
-                  <button class="btn btn-primary" onclick="loadSpecificConversation('${conv.key}')">Load</button>
-                  <button class="btn btn-danger" onclick="deleteConversation('${conv.key}')">Delete</button>
+            </div>
+        </div>
+
+        <!-- Middle Panel: Chat -->
+        <div class="middle-panel">
+            <div class="chat-header">
+                <div class="selected-model-indicator">
+                    <span class="model-icon">🦙</span>
+                    <span class="model-name" id="selectedModelName">No model selected</span>
+                    <div class="model-info-inline">
+                        <span class="info-badge"><span class="badge-label">Size:</span> <span id="modelSize">-</span></span>
+                        <span class="info-separator">•</span>
+                        <span class="info-badge"><span class="badge-label">Ctx:</span> <span id="contextSize">-</span></span>
+                    </div>
                 </div>
-              </div>
-            `;
-          });
-        });
-        listDiv.innerHTML = html;
-      }
-      
-      document.getElementById('load-modal').style.display = 'block';
-    }
+                <div class="chat-actions">
+                    <a href="/dashboard.html" class="action-btn dashboard-btn">📊 Dashboard</a>
+                    <div class="dropdown">
+                        <button class="action-btn" onclick="toggleMenu()">Menu ▼</button>
+                        <div class="dropdown-content" id="menuDropdown">
+                            <button class="dropdown-item" onclick="saveConversation()">💾 Save Conversation</button>
+                            <button class="dropdown-item" onclick="showLoadModal()">📂 Load Conversation</button>
+                            <button class="dropdown-item" onclick="returnToCurrent()">⬅️ Return to Current</button>
+                            <button class="dropdown-item" onclick="clearChat()">🗑️ Clear Current Chat</button>
+                            <button class="dropdown-item" onclick="exportConversation()">📤 Export to File</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="chat-messages" id="chatMessages">
+                <div style="text-align: center; color: #6c757d; padding: 40px;">
+                    <div style="font-size: 3em; margin-bottom: 20px;">🦙</div>
+                    <div style="font-size: 1.2em; margin-bottom: 10px;">Welcome to Ollama Chat</div>
+                    <div>Select a model and start chatting!</div>
+                </div>
+            </div>
+            <div class="chat-input-container">
+                <div class="input-wrapper">
+                    <textarea 
+                        class="chat-input" 
+                        id="chatInput" 
+                        placeholder="Type your message... (Ctrl+Enter to send)"
+                        rows="1"
+                    ></textarea>
+                    <button class="send-btn" id="sendBtn" onclick="sendMessage()">Send</button>
+                </div>
+                <div class="input-actions">
+                    <button class="input-action-btn" onclick="openMultilineModal()">📝 MULTILINE</button>
+                    <button class="input-action-btn" onclick="document.getElementById('fileInput').click()">📎 PDF,DOC,XLS</button>
+                    <button class="input-action-btn" onclick="document.getElementById('imageInput').click()">🖼️ IMG</button>
+                    <button class="input-action-btn" onclick="document.getElementById('codeInput').click()">📁 CODE</button>
+                </div>
+                <div class="file-preview" id="filePreview"></div>
+                <input type="file" id="fileInput" style="display: none;" accept=".pdf,.doc,.docx,.xls,.xlsx,.csv">
+                <input type="file" id="imageInput" style="display: none;" accept="image/*">
+                <input type="file" id="codeInput" style="display: none;" accept=".js,.ts,.jsx,.tsx,.py,.java,.html,.css,.scss,.json,.xml,.yaml,.yml,.md,.txt,.sql,.php,.rb,.go,.rs,.cpp,.c,.h,.cs,.swift,.kt,.scala,.sh,.bat" multiple>
+                <div style="margin-top: 10px; font-size: 0.75em; color: #6c757d;">
+                    ⚠️ Large documents may be truncated to fit the model's context window<br>
+                    ⚠️ Images require vision models (llama3.2-vision, llava, gemma3, etc.)<br>
+                    💡 Code files will be analyzed for structure, patterns, and recommendations
+                </div>
+            </div>
+        </div>
 
-    function closeLoadModal() {
-      document.getElementById('load-modal').style.display = 'none';
-    }
+        <!-- Right Panel: Models & Stats -->
+        <div class="right-panel">
+            <div class="panel-header">
+                <span>📊</span>
+                <span>Dashboard</span>
+            </div>
+            <div class="panel-content">
+                <div class="models-section">
+                    <div style="font-weight: 600; margin-bottom: 10px; font-size: 0.9em;">Models:</div>
+                    <div id="modelsList">
+                        <div style="color: #6c757d; font-size: 0.85em;">Loading models...</div>
+                    </div>
+                </div>
+                
+                <div class="stats-section">
+                    <h3>Model Info</h3>
+                    <div class="stat-item">
+                        <span class="stat-label">Size:</span>
+                        <span class="stat-value" id="modelSizeRight">-</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Context:</span>
+                        <span class="stat-value" id="contextSizeRight">-</span>
+                    </div>
+                    
+                    <h3>Session Stats</h3>
+                    <div class="stat-item">
+                        <span class="stat-label">Questions:</span>
+                        <span class="stat-value" id="questionCount">0</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Input Tokens:</span>
+                        <span class="stat-value" id="inputTokens">~0</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Output Tokens:</span>
+                        <span class="stat-value" id="outputTokens">~0</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Context Load:</span>
+                        <span class="stat-value" id="contextLoad">0%</span>
+                    </div>
+                    
+                    <h3>Last Response</h3>
+                    <div class="stat-item">
+                        <span class="stat-label">TPS:</span>
+                        <span class="stat-value" id="tps">-</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Prompt Speed:</span>
+                        <span class="stat-value" id="promptSpeed">-</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">TTFT:</span>
+                        <span class="stat-value" id="ttft">-</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Load Time:</span>
+                        <span class="stat-value" id="loadTime">-</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Total Time:</span>
+                        <span class="stat-value" id="responseTime">-</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
 
-    function loadSpecificConversation(key) {
-      const data = loadFromStorage(key);
-      if (data) {
-        // Backup current conversation before loading saved one
-        if (conversationMessages.length > 0) {
-          const currentBackup = {
-            selectedModel,
-            messages: conversationMessages,
-            questionCount,
-            tokenCount,
-            timestamp: Date.now()
-          };
-          saveToStorage('ollama-chat-current-backup', currentBackup);
-        }
-        
-        selectedModel = data.selectedModel;
-        conversationMessages = data.messages || [];
-        currentConversationKey = key; // Track loaded conversation
-        
-        // Calculate statistics from messages
-        const stats = calculateStatistics(conversationMessages);
-        questionCount = stats.questions;
-        tokenCount = stats.tokens;
-        
-        // Clear and restore UI - ensure IDs exist
-        messagesDiv.innerHTML = '';
-        conversationMessages.forEach(msg => {
-          if (!msg.id) {
-            msg.id = Date.now() + Math.random();
-          }
-          addMessageToUI(msg.text, msg.sender, msg.model, msg.id, msg.imageData);
-        });
-        
-        // Update UI state
-        if (selectedModel) {
-          selectedModelDiv.textContent = `Selected: ${selectedModel}`;
-          userInput.disabled = false;
-          userInput.placeholder = 'Type your message...';
-          sendBtn.disabled = false;
-          fileBtn.disabled = false;
-          imageBtn.disabled = false;
-        }
-        
-        // Update statistics and questions list
-        document.getElementById('question-count').textContent = questionCount;
-        document.getElementById('token-count').textContent = `~${tokenCount}`;
-        updateQuestionsList();
-        
-        autoSaveCurrentSession();
-        closeLoadModal();
-        
-        // Show return to current button
-        document.getElementById('return-current-item').style.display = 'block';
-      }
-    }
+    <!-- Save Conversation Modal -->
+    <div class="modal" id="saveModal">
+        <div class="modal-content">
+            <div class="modal-header">Save Conversation</div>
+            <input type="text" class="modal-input" id="conversationName" placeholder="Conversation name">
+            <input type="text" class="modal-input" id="conversationCategory" placeholder="Category (e.g., Javascript, English, Python)" list="categorySuggestions">
+            <datalist id="categorySuggestions"></datalist>
+            <div class="modal-actions">
+                <button class="action-btn" onclick="closeSaveModal()">Cancel</button>
+                <button class="action-btn" onclick="confirmSave()">Save</button>
+            </div>
+        </div>
+    </div>
 
-    function deleteConversation(key) {
-      if (confirm('Are you sure you want to delete this conversation?')) {
-        localStorage.removeItem(key);
-        loadConversation(); // Refresh the list
-      }
-    }
+    <!-- Load Conversation Modal -->
+    <div class="modal" id="loadModal">
+        <div class="modal-content">
+            <div class="modal-header">Load Conversation</div>
+            <div id="savedConversationsList" style="max-height: 400px; overflow-y: auto;">
+                <div style="text-align: center; color: #6c757d; padding: 20px;">No saved conversations</div>
+            </div>
+            <div class="modal-actions">
+                <button class="action-btn" onclick="closeLoadModal()">Close</button>
+            </div>
+        </div>
+    </div>
 
-    function clearConversation() {
-      if (confirm('Are you sure you want to clear the current conversation?')) {
-        conversationMessages = [];
-        questionCount = 0;
-        tokenCount = 0;
-        currentConversationKey = null; // Clear loaded conversation tracking
-        messagesDiv.innerHTML = '';
-        document.getElementById('question-count').textContent = '0';
-        document.getElementById('token-count').textContent = '~0';
-        document.getElementById('response-time').textContent = '-';
-        updateQuestionsList();
-        localStorage.removeItem('ollama-chat-current');
-      }
-    }
+    <!-- Multiline Modal -->
+    <div class="modal" id="multilineModal">
+        <div class="modal-content">
+            <div class="modal-header">Multiline Message</div>
+            <textarea class="modal-textarea" id="multilineInput" placeholder="Type your message here..."></textarea>
+            <div class="modal-actions">
+                <button class="action-btn" onclick="closeMultilineModal()">Cancel</button>
+                <button class="action-btn" onclick="sendMultilineMessage()">Send Message</button>
+            </div>
+            <div style="margin-top: 10px; font-size: 0.85em; color: #6c757d;">
+                💡 Tip: Use Ctrl+Enter to send
+            </div>
+        </div>
+    </div>
 
-    function exportConversation() {
-      if (conversationMessages.length === 0) {
-        alert('No conversation to export!');
-        return;
-      }
-      
-      const exportData = {
-        name: `Ollama Chat Export - ${new Date().toISOString()}`,
-        selectedModel,
-        messages: conversationMessages,
-        questionCount,
-        tokenCount,
-        exportedAt: new Date().toISOString()
-      };
-      
-      const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `ollama-chat-${Date.now()}.json`;
-      a.click();
-      URL.revokeObjectURL(url);
-    }
-    
-    function returnToCurrent() {
-      const backup = loadFromStorage('ollama-chat-current-backup');
-      if (backup) {
-        selectedModel = backup.selectedModel;
-        conversationMessages = backup.messages || [];
-        currentConversationKey = null; // Clear loaded conversation tracking
-        
-        // Calculate statistics from messages
-        const stats = calculateStatistics(conversationMessages);
-        questionCount = stats.questions;
-        tokenCount = stats.tokens;
-        
-        // Clear and restore UI
-        messagesDiv.innerHTML = '';
-        conversationMessages.forEach(msg => {
-          if (!msg.id) {
-            msg.id = Date.now() + Math.random();
-          }
-          addMessageToUI(msg.text, msg.sender, msg.model, msg.id, msg.imageData);
-        });
-        
-        // Update UI state
-        if (selectedModel) {
-          selectedModelDiv.textContent = `Selected: ${selectedModel}`;
-          userInput.disabled = false;
-          userInput.placeholder = 'Type your message...';
-          sendBtn.disabled = false;
-          fileBtn.disabled = false;
-          imageBtn.disabled = false;
-          codeBtn.disabled = false;
-          multilineBtn.disabled = false;
-        }
-        
-        // Update statistics and questions list
-        document.getElementById('question-count').textContent = questionCount;
-        document.getElementById('token-count').textContent = `~${tokenCount}`;
-        updateQuestionsList();
-        
-        // Save as current and remove backup
-        autoSaveCurrentSession();
-        localStorage.removeItem('ollama-chat-current-backup');
-        
-        // Hide the return button
-        document.getElementById('return-current-item').style.display = 'none';
-      }
-    }
-    
-    function checkReturnButtonVisibility() {
-      const backup = loadFromStorage('ollama-chat-current-backup');
-      const returnItem = document.getElementById('return-current-item');
-      if (backup && backup.messages && backup.messages.length > 0) {
-        returnItem.style.display = 'block';
-      } else {
-        returnItem.style.display = 'none';
-      }
-    }
+    <!-- Toast -->
+    <div class="toast" id="toast"></div>
 
+    <script>
+        // Global state
+        let selectedModel = null;
+        let messages = [];
+        let questions = [];
+        let uploadedFile = null;
+        let uploadedImage = null;
+        let uploadedCodeFiles = [];
+        let currentContextSize = 0;
+        let currentConversationId = null;
 
+        // Session statistics
+        let sessionStats = {
+            totalInputTokens: 0,
+            totalOutputTokens: 0,
+            questionsCount: 0
+        };
 
-    async function loadModels() {
-      console.log('Loading models...');
-      try {
-        const response = await fetch('/api/models');
-        const data = await response.json();
-        console.log('Models response:', data);
-        models = data.models || [];
-        renderModels(data.connected);
-      } catch (error) {
-        console.log('Models fetch error:', error);
-        renderModels(false);
-      }
-    }
-
-    function renderModels(connected = true) {
-      console.log('Rendering models, connected:', connected, 'models count:', models.length);
-      
-      if (!connected) {
-        modelsListDiv.innerHTML = `
-          <div style="background: #f8d7da; color: #721c24; padding: 15px; border-radius: 6px; text-align: center; font-size: 12px;">
-            <div style="font-weight: bold;">⚠️ Server is not accessible</div>
-          </div>
-        `;
-        return;
-      }
-
-      if (models.length === 0) {
-        modelsListDiv.textContent = 'No models found';
-        return;
-      }
-
-      modelsListDiv.innerHTML = '';
-      models.forEach(model => {
-        const modelDiv = document.createElement('div');
-        modelDiv.className = 'model-item';
-        if (selectedModel === model.name) {
-          modelDiv.classList.add('selected');
-        }
-
-        const statusClass = model.status === 'running' ? 'status-running' : 'status-available';
-        const statusText = model.status === 'running' ? 'Running' : 'Available';
-        
-        // Check if it's a vision model
-        const isVisionModel = model.name.includes('vision') || model.name.includes('llava') || model.name.includes('gemma3');
-        const visionIcon = isVisionModel ? ' 👁️' : '';
-        
-        modelDiv.innerHTML = `
-          <div>
-            <strong>${model.name}${visionIcon}</strong>
-          </div>
-          <span class="model-status ${statusClass}">${statusText}</span>
-        `;
-
-        modelDiv.addEventListener('click', () => selectModel(model));
-        modelsListDiv.appendChild(modelDiv);
-      });
-    }
-
-    function selectModel(model) {
-      selectedModel = model.name;
-      selectedModelDiv.textContent = `Selected: ${model.name}`;
-      userInput.disabled = false;
-      userInput.placeholder = 'Type your message...';
-      sendBtn.disabled = false;
-      fileBtn.disabled = false;
-      imageBtn.disabled = false;
-      codeBtn.disabled = false;
-      multilineBtn.disabled = false;
-      renderModels();
-      updateStatistics(model);
-    }
-
-    async function updateStatistics(model) {
-      document.getElementById('model-size').textContent = formatBytes(model.size);
-      document.getElementById('question-count').textContent = questionCount;
-      document.getElementById('token-count').textContent = `~${tokenCount}`;
-      
-      // Try to get context window size
-      try {
-        const contextSize = await getModelContextSize(model.name);
-        document.getElementById('context-size').textContent = contextSize;
-      } catch (error) {
-        console.log('Could not get context size for', model.name);
-        document.getElementById('context-size').textContent = 'Unknown';
-      }
-    }
-    
-    async function getModelContextSize(modelName) {
-      try {
-        const response = await fetch('/api/show', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: modelName })
-        });
-        
-        if (!response.ok) {
-          throw new Error('Failed to get model info');
-        }
-        
-        const data = await response.json();
-        
-        // Try to extract context size from parameters
-        if (data.parameters) {
-          const numCtxMatch = data.parameters.match(/num_ctx\s+(\d+)/);
-          if (numCtxMatch) {
-            const tokens = parseInt(numCtxMatch[1]);
-            return formatTokens(tokens);
-          }
-        }
-        
-        // Try to extract from modelfile
-        if (data.modelfile) {
-          const numCtxMatch = data.modelfile.match(/PARAMETER num_ctx (\d+)/);
-          if (numCtxMatch) {
-            const tokens = parseInt(numCtxMatch[1]);
-            return formatTokens(tokens);
-          }
-        }
-        
-        // Fallback to default based on model name
-        return getDefaultContextSize(modelName);
-      } catch (error) {
-        console.error('Error getting model context size:', error);
-        return getDefaultContextSize(modelName);
-      }
-    }
-    
-    function getDefaultContextSize(modelName) {
-      // Common defaults based on model families
-      if (modelName.includes('phi4')) return '16K';
-      if (modelName.includes('mistral-nemo')) return '128K';
-      if (modelName.includes('qwen')) return '32K';
-      if (modelName.includes('llama3.2')) return '128K';
-      if (modelName.includes('llama')) return '8K';
-      return '4K'; // Conservative default
-    }
-    
-    function formatTokens(tokens) {
-      if (tokens >= 1024) {
-        return Math.round(tokens / 1024) + 'K';
-      }
-      return tokens.toString();
-    }
-
-    function updateResponseTime(duration) {
-      document.getElementById('response-time').textContent = `${duration}s`;
-    }
-
-    function startResponseTimer() {
-      requestStartTime = Date.now();
-      document.getElementById('response-time').textContent = '0.0s';
-      
-      responseTimer = setInterval(() => {
-        if (requestStartTime) {
-          const elapsed = ((Date.now() - requestStartTime) / 1000).toFixed(1);
-          document.getElementById('response-time').textContent = `${elapsed}s`;
-        }
-      }, 100);
-    }
-
-    function stopResponseTimer() {
-      if (responseTimer) {
-        clearInterval(responseTimer);
-        responseTimer = null;
-      }
-    }
-
-    function formatBytes(bytes) {
-      if (bytes === 0) return '0 B';
-      const k = 1024;
-      const sizes = ['B', 'KB', 'MB', 'GB'];
-      const i = Math.floor(Math.log(bytes) / Math.log(k));
-      return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
-    }
-
-    // Check for URL parameters to load specific conversation
-    function checkUrlParams() {
-      const urlParams = new URLSearchParams(window.location.search);
-      const loadKey = urlParams.get('load');
-      if (loadKey) {
-        const data = loadFromStorage(loadKey);
-        if (data) {
-          loadSpecificConversation(loadKey);
-          // Clear URL parameter
-          window.history.replaceState({}, document.title, window.location.pathname);
-        }
-      }
-    }
-
-    // Category autocomplete functionality
-    let selectedSuggestionIndex = -1;
-    let availableCategories = [];
-
-    function getExistingCategories() {
-      const categories = new Set();
-      for (let i = 0; i < localStorage.length; i++) {
-        const key = localStorage.key(i);
-        if (key.startsWith('ollama-chat-saved-')) {
-          const data = loadFromStorage(key);
-          if (data && data.category) {
-            categories.add(data.category);
-          }
-        }
-      }
-      return Array.from(categories).sort();
-    }
-
-    function showCategorySuggestions(input, suggestions) {
-      const suggestionsDiv = document.getElementById('category-suggestions');
-      if (suggestions.length === 0) {
-        hideCategorySuggestions();
-        return;
-      }
-      
-      suggestionsDiv.innerHTML = suggestions.map((cat, index) => 
-        `<div class="suggestion-item" data-index="${index}" onclick="selectCategory('${cat}')">${cat}</div>`
-      ).join('');
-      
-      suggestionsDiv.style.display = 'block';
-      selectedSuggestionIndex = -1;
-    }
-
-    function hideCategorySuggestions() {
-      document.getElementById('category-suggestions').style.display = 'none';
-      selectedSuggestionIndex = -1;
-    }
-
-    function selectCategory(category) {
-      document.getElementById('save-category').value = category;
-      hideCategorySuggestions();
-    }
-
-    function updateSuggestionSelection() {
-      const items = document.querySelectorAll('.suggestion-item');
-      items.forEach((item, index) => {
-        item.classList.toggle('selected', index === selectedSuggestionIndex);
-      });
-    }
-
-    // Category input event listeners
-    document.addEventListener('DOMContentLoaded', () => {
-      const categoryInput = document.getElementById('save-category');
-      
-      categoryInput.addEventListener('input', (e) => {
-        const value = e.target.value.toLowerCase();
-        availableCategories = getExistingCategories();
-        
-        if (value) {
-          const filtered = availableCategories.filter(cat => 
-            cat.toLowerCase().includes(value)
-          );
-          showCategorySuggestions(categoryInput, filtered);
-        } else {
-          showCategorySuggestions(categoryInput, availableCategories);
-        }
-      });
-      
-      categoryInput.addEventListener('focus', () => {
-        availableCategories = getExistingCategories();
-        if (availableCategories.length > 0) {
-          showCategorySuggestions(categoryInput, availableCategories);
-        }
-      });
-      
-      categoryInput.addEventListener('blur', (e) => {
-        // Delay hiding to allow click on suggestions
-        setTimeout(() => hideCategorySuggestions(), 150);
-      });
-      
-      categoryInput.addEventListener('keydown', (e) => {
-        const suggestions = document.querySelectorAll('.suggestion-item');
-        
-        if (e.key === 'ArrowDown') {
-          e.preventDefault();
-          selectedSuggestionIndex = Math.min(selectedSuggestionIndex + 1, suggestions.length - 1);
-          updateSuggestionSelection();
-        } else if (e.key === 'ArrowUp') {
-          e.preventDefault();
-          selectedSuggestionIndex = Math.max(selectedSuggestionIndex - 1, -1);
-          updateSuggestionSelection();
-        } else if (e.key === 'Tab' || e.key === 'ArrowRight') {
-          if (selectedSuggestionIndex >= 0 && suggestions[selectedSuggestionIndex]) {
-            e.preventDefault();
-            const category = suggestions[selectedSuggestionIndex].textContent;
-            selectCategory(category);
-          }
-        } else if (e.key === 'Enter') {
-          if (selectedSuggestionIndex >= 0 && suggestions[selectedSuggestionIndex]) {
-            e.preventDefault();
-            const category = suggestions[selectedSuggestionIndex].textContent;
-            selectCategory(category);
-          }
-        } else if (e.key === 'Escape') {
-          hideCategorySuggestions();
-        }
-      });
-    });
-
-    // Initialize app
-    loadModels();
-    loadCurrentSession();
-    checkUrlParams();
-    checkReturnButtonVisibility();
-    
-    // Clear previews on page load
-    filePreview.textContent = '';
-    imagePreview.textContent = '';
-    codePreview.textContent = '';
-    
-    setInterval(() => {
-      loadModels();
-    }, 5000);
-
-    function parseMarkdown(text) {
-      return text
-        // Headers
-        .replace(/^### (.*$)/gm, '<h3>$1</h3>')
-        .replace(/^## (.*$)/gm, '<h2>$1</h2>')
-        .replace(/^# (.*$)/gm, '<h1>$1</h1>')
-        // Code blocks (escape HTML inside)
-        .replace(/```([\s\S]*?)```/g, (match, code) => {
-          const escapedCode = code
-            .replace(/&/g, '&amp;')
-            .replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;')
-            .replace(/"/g, '&quot;')
-            .replace(/'/g, '&#39;');
-          return `<pre><code>${escapedCode}</code></pre>`;
-        })
-        // Inline code (escape HTML inside)
-        .replace(/`([^`]+)`/g, (match, code) => {
-          const escapedCode = code
-            .replace(/&/g, '&amp;')
-            .replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;')
-            .replace(/"/g, '&quot;')
-            .replace(/'/g, '&#39;');
-          return `<code>${escapedCode}</code>`;
-        })
-        // Bold
-        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-        // Italic
-        .replace(/\*(.*?)\*/g, '<em>$1</em>')
-        // Tables
-        .replace(/\|(.*)\|/g, (match, content) => {
-          const cells = content.split('|').map(cell => cell.trim());
-          return '<tr>' + cells.map(cell => `<td>${cell}</td>`).join('') + '</tr>';
-        })
-        // Blockquotes
-        .replace(/^> (.*$)/gm, '<blockquote>$1</blockquote>')
-        // Line breaks
-        .replace(/\n\n/g, '</p><p>')
-        .replace(/\n/g, '<br>');
-    }
-
-    function addMessageToUI(text, sender, modelName = null, messageId = null, imageData = null) {
-      const div = document.createElement('div');
-      div.className = `message ${sender}`;
-      
-      if (messageId !== null) {
-        div.setAttribute('data-message-id', messageId);
-        if (sender === 'user') {
-          div.id = `question-${messageId}`; // Add anchor for questions
-        }
-      }
-      
-      if (sender === 'bot') {
-        const formatted = parseMarkdown(text);
-        const modelBadge = modelName ? `<div class="model-badge">${modelName}</div>` : '';
-        div.innerHTML = modelBadge + '<p>' + formatted + '</p>';
-        
-        // Add actions panel for bot messages
-        const actionsDiv = document.createElement('div');
-        actionsDiv.className = 'message-actions';
-        actionsDiv.innerHTML = `
-          <button class="action-btn btn-copy" onclick="copyMessage('${messageId}', 'answer')" title="Copy answer">📋 Copy</button>
-          <button class="action-btn btn-copy" onclick="jumpToQuestion('${messageId}')" title="Jump to question">⬆️ Question</button>
-          <button class="action-btn btn-delete" onclick="deleteMessagePair('${messageId}')" title="Delete Q&A pair">🗑️ Delete</button>
-          <button class="action-btn btn-share" onclick="shareMessage('${messageId}')" title="Share (Coming soon)" disabled>📤 Share</button>
-          <button class="action-btn btn-telegram" onclick="sendToTelegram('${messageId}')" title="Send to Telegram (Coming soon)" disabled>📱 Telegram</button>
-          <button class="action-btn btn-notion" onclick="shareToNotion('${messageId}')" title="Share to Notion (Coming soon)" disabled>📝 Notion</button>
-        `;
-        div.appendChild(actionsDiv);
-      } else {
-        // Extract text without image indicator
-        const cleanText = text.replace(/\s*\[🖼️[^\]]+\]\s*$/, '');
-        
-        // Create message content container
-        const contentDiv = document.createElement('div');
-        contentDiv.className = 'message-content';
-        
-        // Create text container
-        const textDiv = document.createElement('div');
-        textDiv.className = 'message-text';
-        contentDiv.appendChild(textDiv);
-        
-        // Add image thumbnail if present
-        if (imageData) {
-          const imageDiv = document.createElement('div');
-          imageDiv.className = 'message-image';
-          
-          const img = document.createElement('img');
-          img.src = imageData.thumbnailUrl;
-          img.className = 'image-thumbnail';
-          img.title = `Click to view full image: ${imageData.filename}`;
-          img.onclick = () => showImageModal(imageData.fullUrl);
-          
-          imageDiv.appendChild(img);
-          contentDiv.appendChild(imageDiv);
-        }
-        
-        // Apply markdown parsing to user messages too
-        const cleanUserText = text.replace(/\s*\[🖼️[^\]]+\]\s*$/, '');
-        const formattedText = parseMarkdown(cleanUserText);
-        textDiv.innerHTML = formattedText;
-        
-        div.appendChild(contentDiv);
-        
-        // Add image filename on new line if present
-        if (imageData) {
-          const filenameDiv = document.createElement('div');
-          filenameDiv.style.fontSize = '12px';
-          filenameDiv.style.color = '#666';
-          filenameDiv.style.marginTop = '5px';
-          filenameDiv.style.textAlign = 'right';
-          filenameDiv.textContent = `🖼️ ${imageData.filename}`;
-          div.appendChild(filenameDiv);
-        }
-        
-        // Add copy button to user messages
-        const copyBtn = document.createElement('button');
-        copyBtn.className = 'delete-btn';
-        copyBtn.style.right = '35px';
-        copyBtn.style.background = '#17a2b8';
-        copyBtn.textContent = '📋';
-        copyBtn.title = 'Copy question';
-        copyBtn.onclick = () => copyMessage(messageId, 'question');
-        copyBtn.onmouseover = () => copyBtn.style.background = '#138496';
-        copyBtn.onmouseout = () => copyBtn.style.background = '#17a2b8';
-        div.appendChild(copyBtn);
-        
-        // Add delete button to user messages
-        const deleteBtn = document.createElement('button');
-        deleteBtn.className = 'delete-btn';
-        deleteBtn.textContent = '✕';
-        deleteBtn.title = 'Delete this question and answer';
-        deleteBtn.onclick = () => deleteMessagePair(messageId);
-        div.appendChild(deleteBtn);
-      }
-      
-      messagesDiv.appendChild(div);
-      messagesDiv.scrollTop = messagesDiv.scrollHeight;
-    }
-    
-    function showImageModal(imageUrl) {
-      const modal = document.createElement('div');
-      modal.className = 'image-modal';
-      modal.innerHTML = `<img src="${imageUrl}" alt="Full size image">`;
-      modal.onclick = () => document.body.removeChild(modal);
-      document.body.appendChild(modal);
-      modal.style.display = 'block';
-    }
-
-    function copyMessage(messageId, type) {
-      const message = conversationMessages.find(msg => msg.id == messageId);
-      if (!message) return;
-      
-      let textToCopy = '';
-      if (type === 'question') {
-        textToCopy = message.text;
-      } else if (type === 'answer') {
-        // Find the bot message and its preceding user message
-        const botIndex = conversationMessages.findIndex(msg => msg.id == messageId);
-        const botMessage = conversationMessages[botIndex];
-        const userMessage = conversationMessages[botIndex - 1];
-        
-        if (botMessage && userMessage && userMessage.sender === 'user') {
-          textToCopy = `Q: ${userMessage.text}\n\nA: ${botMessage.text}`;
-        } else {
-          textToCopy = botMessage ? botMessage.text : 'Message not found';
-        }
-      }
-      
-      // Try modern clipboard API first, fallback to older method
-      if (navigator.clipboard && window.isSecureContext) {
-        navigator.clipboard.writeText(textToCopy).then(() => {
-          showCopySuccess(event.target);
-        }).catch(() => {
-          fallbackCopy(textToCopy, event.target);
-        });
-      } else {
-        fallbackCopy(textToCopy, event.target);
-      }
-    }
-    
-    function showCopySuccess(btn) {
-      const originalText = btn.textContent;
-      btn.textContent = '✓ Copied!';
-      setTimeout(() => {
-        btn.textContent = originalText;
-      }, 1000);
-    }
-    
-    function fallbackCopy(text, btn) {
-      const textArea = document.createElement('textarea');
-      textArea.value = text;
-      textArea.style.position = 'fixed';
-      textArea.style.opacity = '0';
-      document.body.appendChild(textArea);
-      textArea.select();
-      
-      try {
-        document.execCommand('copy');
-        showCopySuccess(btn);
-      } catch (err) {
-        console.error('Fallback copy failed:', err);
-        alert('Copy failed. Please copy manually.');
-      } finally {
-        document.body.removeChild(textArea);
-      }
-    }
-    
-    // Scaffold functions for future features
-    function shareMessage(messageId) {
-      alert('Share feature coming soon!');
-    }
-    
-    function sendToTelegram(messageId) {
-      alert('Telegram integration coming soon!');
-    }
-    
-    function shareToNotion(messageId) {
-      alert('Notion integration coming soon!');
-    }
-    
-    // Multiline modal functions
-    function openMultilineModal() {
-      console.log('Opening multiline modal');
-      const modal = document.getElementById('multiline-modal');
-      if (modal) {
-        modal.style.display = 'block';
-        const input = document.getElementById('multiline-input');
-        if (input) {
-          input.focus();
-        }
-      } else {
-        console.error('Multiline modal not found');
-      }
-    }
-    
-    function closeMultilineModal() {
-      document.getElementById('multiline-modal').style.display = 'none';
-      document.getElementById('multiline-input').value = '';
-    }
-    
-    function sendMultilineMessage() {
-      const multilineText = document.getElementById('multiline-input').value.trim();
-      if (!multilineText) return;
-      
-      // Close modal first
-      closeMultilineModal();
-      
-      // Send the multiline message directly
-      sendMessage(multilineText);
-    }
-    
-    async function sendMessage(messageText) {
-      const file = fileInput.files[0];
-      const image = imageInput.files[0];
-      const codeFiles = selectedCodeFiles;
-      
-      if (!messageText && !file && !image && codeFiles.length === 0) return;
-
-      // Display user message
-      let displayMessage = messageText;
-      if (file) displayMessage += ` [📄 ${file.name}]`;
-      if (image) displayMessage += ` [🖼️ ${image.name}]`;
-      if (codeFiles.length > 0) displayMessage += ` [📁 ${codeFiles.length} code files]`;
-      
-      addMessage(displayMessage, 'user');
-      
-      // Clear inputs
-      fileInput.value = '';
-      imageInput.value = '';
-      selectedCodeFiles = [];
-      filePreview.textContent = '';
-      imagePreview.textContent = '';
-      codePreview.textContent = '';
-      document.getElementById('code-warning').style.display = 'none';
-
-      if (!selectedModel) {
-        alert('Please select a running model first');
-        return;
-      }
-
-      try {
-        startResponseTimer();
-        
-        const formData = new FormData();
-        let defaultMessage = messageText;
-        if (!defaultMessage) {
-          if (image) defaultMessage = 'What is in this image?';
-          else if (codeFiles.length > 0) defaultMessage = 'Please analyze these code files and provide recommendations.';
-          else defaultMessage = 'Please analyze this document.';
-        }
-        formData.append('message', defaultMessage);
-        formData.append('model', selectedModel);
-        if (file) {
-          formData.append('file', file);
-        }
-        if (image) {
-          formData.append('file', image);
-        }
-        if (codeFiles.length > 0) {
-          codeFiles.forEach(codeFile => {
-            formData.append('codeFiles', codeFile);
-          });
-        }
-
-        const response = await fetch('/api/chat', {
-          method: 'POST',
-          body: formData,
-        });
-
-        stopResponseTimer();
-        const responseTime = ((Date.now() - requestStartTime) / 1000).toFixed(1);
-        updateResponseTime(responseTime);
-
-        const data = await response.json();
-        
-        if (!response.ok) {
-          addMessage(`Error: ${data.error}`, 'bot');
-          return;
-        }
-
-        if (data.response) {
-          addMessage(data.response, 'bot', data.model);
-          
-          // If this was an image upload, update the user message with image data
-          if (data.imageData && conversationMessages.length > 0) {
-            const lastUserMessage = conversationMessages[conversationMessages.length - 2];
-            if (lastUserMessage && lastUserMessage.sender === 'user') {
-              lastUserMessage.imageData = data.imageData;
-              autoSaveCurrentSession();
-              
-              // Refresh UI to show thumbnail
-              messagesDiv.innerHTML = '';
-              conversationMessages.forEach(msg => {
-                if (!msg.id) {
-                  msg.id = Date.now() + Math.random();
-                }
-                addMessageToUI(msg.text, msg.sender, msg.model, msg.id, msg.imageData);
-              });
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            loadModels();
+            setupEventListeners();
+            loadCurrentConversation();
+            updateCategorySuggestions();
+            
+            // Check if we need to load a conversation from dashboard
+            const loadId = localStorage.getItem('loadConversationId');
+            if (loadId) {
+                localStorage.removeItem('loadConversationId');
+                setTimeout(() => loadConversation(loadId), 500);
             }
-          }
-        }
-      } catch (error) {
-        stopResponseTimer();
-        addMessage('Connection failed', 'bot');
-      }
-    }
-    
-    // Add Ctrl+Enter shortcut for multiline modal
-    document.addEventListener('keydown', (e) => {
-      if (e.ctrlKey && e.key === 'Enter') {
-        const modal = document.getElementById('multiline-modal');
-        if (modal.style.display === 'block') {
-          sendMultilineMessage();
-        }
-      }
-    });
-    
-    function jumpToQuestion(messageId, isDirectQuestion = false) {
-      let targetId;
-      
-      if (isDirectQuestion) {
-        // Direct question click from questions panel
-        targetId = messageId;
-      } else {
-        // Find the user message that comes before this bot message
-        const botIndex = conversationMessages.findIndex(msg => msg.id == messageId && msg.sender === 'bot');
-        if (botIndex > 0) {
-          const userMessage = conversationMessages[botIndex - 1];
-          if (userMessage && userMessage.sender === 'user') {
-            targetId = userMessage.id;
-          }
-        }
-      }
-      
-      if (targetId) {
-        const questionElement = document.getElementById(`question-${targetId}`);
-        if (questionElement) {
-          questionElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
-          // Highlight briefly
-          questionElement.style.backgroundColor = '#fff3cd';
-          setTimeout(() => {
-            questionElement.style.backgroundColor = '';
-          }, 2000);
-          
-          // Update questions panel to show current question
-          updateQuestionsHighlight(targetId);
-        }
-      }
-    }
-    
-    function updateQuestionsHighlight(currentQuestionId) {
-      const questionItems = document.querySelectorAll('.question-item');
-      questionItems.forEach(item => {
-        item.classList.remove('current');
-      });
-      
-      // Find and highlight current question
-      const userQuestions = conversationMessages.filter(msg => msg.sender === 'user');
-      const currentIndex = userQuestions.findIndex(q => q.id == currentQuestionId);
-      if (currentIndex >= 0 && questionItems[currentIndex]) {
-        questionItems[currentIndex].classList.add('current');
-      }
-    }
+        });
 
-    function deleteMessagePair(messageId) {
-      if (!confirm('Delete this question and answer?')) return;
-      
-      console.log('Deleting message with ID:', messageId);
-      console.log('Current messages:', conversationMessages.map(m => ({id: m.id, sender: m.sender, text: m.text.substring(0, 50)})));
-      
-      // Find the message index (could be user or bot)
-      const messageIndex = conversationMessages.findIndex(msg => msg.id == messageId);
-      console.log('Found message at index:', messageIndex);
-      
-      if (messageIndex === -1) {
-        console.log('Message not found!');
-        return;
-      }
-      
-      let userIndex;
-      if (conversationMessages[messageIndex].sender === 'user') {
-        // If it's a user message, use it directly
-        userIndex = messageIndex;
-      } else {
-        // If it's a bot message, find the preceding user message
-        userIndex = messageIndex - 1;
-        if (userIndex < 0 || conversationMessages[userIndex].sender !== 'user') {
-          console.log('No corresponding user message found!');
-          return;
+        function setupEventListeners() {
+            const chatInput = document.getElementById('chatInput');
+            
+            chatInput.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' && e.ctrlKey) {
+                    e.preventDefault();
+                    sendMessage();
+                }
+            });
+
+            chatInput.addEventListener('input', () => {
+                chatInput.style.height = 'auto';
+                chatInput.style.height = chatInput.scrollHeight + 'px';
+            });
+
+            document.getElementById('fileInput').addEventListener('change', handleFileSelect);
+            document.getElementById('imageInput').addEventListener('change', handleImageSelect);
+            document.getElementById('codeInput').addEventListener('change', handleCodeFilesSelect);
+
+            // Close dropdown when clicking outside
+            document.addEventListener('click', (e) => {
+                if (!e.target.closest('.dropdown')) {
+                    document.getElementById('menuDropdown').classList.remove('show');
+                }
+            });
         }
-      }
-      
-      // Remove user message and following bot message (if exists)
-      const messagesToRemove = [userIndex];
-      if (userIndex + 1 < conversationMessages.length && conversationMessages[userIndex + 1].sender === 'bot') {
-        messagesToRemove.push(userIndex + 1);
-      }
-      
-      console.log('Removing messages at indices:', messagesToRemove);
-      
-      console.log('Removing messages at indices:', messagesToRemove);
-      
-      // Remove from array (reverse order to maintain indices)
-      messagesToRemove.reverse().forEach(index => {
-        const removedMsg = conversationMessages.splice(index, 1)[0];
-        if (removedMsg.sender === 'user') questionCount--;
-        tokenCount -= Math.ceil(removedMsg.text.length / 4);
-      });
-      
-      // Store current scroll position
-      const scrollTop = messagesDiv.scrollTop;
-      const scrollHeight = messagesDiv.scrollHeight;
-      const clientHeight = messagesDiv.clientHeight;
-      const wasAtBottom = scrollTop + clientHeight >= scrollHeight - 10;
-      
-      // Refresh UI
-      messagesDiv.innerHTML = '';
-      conversationMessages.forEach(msg => {
-        addMessageToUI(msg.text, msg.sender, msg.model, msg.id, msg.imageData);
-      });
-      
-      // Restore scroll position (don't jump to bottom unless user was already there)
-      if (!wasAtBottom) {
-        messagesDiv.scrollTop = scrollTop;
-      } else {
-        messagesDiv.scrollTop = messagesDiv.scrollHeight;
-      }
-      
-      // Update statistics and questions list
-      document.getElementById('question-count').textContent = questionCount;
-      document.getElementById('token-count').textContent = `~${tokenCount}`;
-      updateQuestionsList();
-      
-      autoSaveCurrentSession();
-    }
 
-    function addMessage(text, sender, modelName = null, imageData = null) {
-      // Generate unique message ID
-      const messageId = Date.now() + Math.random();
-      
-      // Add to UI
-      addMessageToUI(text, sender, modelName, messageId, imageData);
-      
-      // Add to conversation data
-      conversationMessages.push({
-        id: messageId,
-        text,
-        sender,
-        model: modelName,
-        imageData: imageData,
-        timestamp: Date.now()
-      });
-      
-      // Update counters
-      tokenCount += Math.ceil(text.length / 4);
-      if (sender === 'user') {
-        questionCount++;
-        updateQuestionsList();
-      }
-      
-      // Update statistics display
-      document.getElementById('question-count').textContent = questionCount;
-      document.getElementById('token-count').textContent = `~${tokenCount}`;
-      
-      // Auto-save current session
-      autoSaveCurrentSession();
-    }
-
-    function updateQuestionsList() {
-      const userQuestions = conversationMessages.filter(msg => msg.sender === 'user');
-      
-      if (userQuestions.length === 0) {
-        questionsListDiv.innerHTML = '<div style="color: #666; font-size: 12px; text-align: center; padding: 10px;">No questions yet</div>';
-        return;
-      }
-      
-      questionsListDiv.innerHTML = '';
-      userQuestions.forEach((question, index) => {
-        const questionDiv = document.createElement('div');
-        questionDiv.className = 'question-item';
-        questionDiv.onclick = () => jumpToQuestion(question.id, true);
-        
-        const questionText = document.createElement('div');
-        questionText.className = 'question-text';
-        questionText.textContent = question.text.replace(/\s*\[🖼️[^\]]+\]\s*$/, '').replace(/\s*\[📄[^\]]+\]\s*$/, '').replace(/\s*\[📁[^\]]+\]\s*$/, '');
-        questionText.title = questionText.textContent;
-        
-        // Find the corresponding bot answer to get the model name
-        const questionIndex = conversationMessages.findIndex(msg => msg.id === question.id);
-        const botAnswer = questionIndex >= 0 && questionIndex + 1 < conversationMessages.length ? 
-          conversationMessages[questionIndex + 1] : null;
-        const modelName = botAnswer && botAnswer.sender === 'bot' && botAnswer.model ? 
-          botAnswer.model : 'Unknown';
-        
-        const questionNumber = document.createElement('div');
-        questionNumber.style.fontSize = '10px';
-        questionNumber.style.color = '#666';
-        questionNumber.style.marginTop = '3px';
-        questionNumber.textContent = `Q${index + 1} (${modelName})`;
-        
-        questionDiv.appendChild(questionText);
-        questionDiv.appendChild(questionNumber);
-        questionsListDiv.appendChild(questionDiv);
-      });
-    }
-
-    // File input handler
-    fileInput.addEventListener('change', (e) => {
-      const file = e.target.files[0];
-      const fileWarning = document.getElementById('file-warning');
-      
-      if (file) {
-        filePreview.textContent = `📄 ${file.name} (${formatBytes(file.size)})`;
-        imagePreview.textContent = ''; // Clear image preview
-        codePreview.textContent = ''; // Clear code preview
-        
-        // Show warning for files larger than 5MB
-        if (file.size > 5 * 1024 * 1024) {
-          fileWarning.style.display = 'block';
-        } else {
-          fileWarning.style.display = 'none';
+        async function loadModels() {
+            try {
+                const response = await fetch('/api/models');
+                const data = await response.json();
+                
+                if (data.connected && data.models.length > 0) {
+                    displayModels(data.models);
+                } else {
+                    document.getElementById('modelsList').innerHTML = 
+                        '<div style="color: #ef4444; font-size: 0.85em;">No models found</div>';
+                }
+            } catch (error) {
+                console.error('Error loading models:', error);
+                document.getElementById('modelsList').innerHTML = 
+                    '<div style="color: #ef4444; font-size: 0.85em;">Connection error</div>';
+            }
         }
-      } else {
-        filePreview.textContent = '';
-        fileWarning.style.display = 'none';
-      }
-    });
 
-    // Image input handler
-    imageInput.addEventListener('change', (e) => {
-      const file = e.target.files[0];
-      const visionWarning = document.getElementById('vision-warning');
-      
-      if (file) {
-        imagePreview.textContent = `🖼️ ${file.name} (${formatBytes(file.size)})`;
-        filePreview.textContent = ''; // Clear document preview
-        codePreview.textContent = ''; // Clear code preview
-        
-        // Show warning if not a vision model
-        const isVisionModel = selectedModel && (selectedModel.includes('vision') || selectedModel.includes('llava') || selectedModel.includes('gemma3'));
-        if (!isVisionModel) {
-          visionWarning.style.display = 'block';
-        } else {
-          visionWarning.style.display = 'none';
+        function displayModels(models) {
+            const modelsList = document.getElementById('modelsList');
+            modelsList.innerHTML = '';
+            
+            models.forEach(model => {
+                const modelDiv = document.createElement('div');
+                modelDiv.className = 'model-item';
+                modelDiv.onclick = () => selectModel(model.name, modelDiv);
+                
+                const isVision = model.name.includes('vision') || model.name.includes('llava') || model.name.includes('gemma3');
+                const visionIcon = isVision ? ' 👁️' : '';
+                
+                modelDiv.innerHTML = `
+                    <div class="model-name">${model.name}${visionIcon}</div>
+                    <div class="model-status ${model.status}">${model.status}</div>
+                `;
+                
+                modelsList.appendChild(modelDiv);
+            });
         }
-      } else {
-        imagePreview.textContent = '';
-        visionWarning.style.display = 'none';
-      }
-    });
 
-    // Code input handler
-    codeInput.addEventListener('change', (e) => {
-      const newFiles = Array.from(e.target.files);
-      const codeWarning = document.getElementById('code-warning');
-      
-      if (newFiles.length > 0) {
-        // Add new files to existing selection
-        selectedCodeFiles = [...selectedCodeFiles, ...newFiles];
-        
-        const totalSize = selectedCodeFiles.reduce((sum, file) => sum + file.size, 0);
-        codePreview.textContent = `📁 ${selectedCodeFiles.length} code files (${formatBytes(totalSize)})`;
-        filePreview.textContent = ''; // Clear document preview
-        imagePreview.textContent = ''; // Clear image preview
-        codeWarning.style.display = 'block';
-        
-        console.log('Code files selected:', selectedCodeFiles.map(f => f.name));
-      } else if (selectedCodeFiles.length === 0) {
-        codePreview.textContent = '';
-        codeWarning.style.display = 'none';
-      }
-      
-      // Clear the input to allow selecting same files again
-      e.target.value = '';
-    });
+        async function selectModel(modelName, element) {
+            document.querySelectorAll('.model-item').forEach(el => el.classList.remove('selected'));
+            element.classList.add('selected');
+            selectedModel = modelName;
+            
+            // Update header indicator
+            document.getElementById('selectedModelName').textContent = modelName;
+            
+            await loadModelInfo(modelName);
+            saveCurrentConversation();
+        }
 
-    document.getElementById('chat-form').addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const input = document.getElementById('user-input');
-      const message = input.value.trim();
-      
-      if (!message) return;
-      
-      input.value = '';
-      await sendMessage(message);
-    });
-  </script>
+        async function loadModelInfo(modelName) {
+        try {
+            const response = await fetch('/api/show', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: modelName })
+            });
+            
+            const data = await response.json();
+            console.log('📊 Model info keys:', Object.keys(data.model_info || {})); // Логирование для отладки
+            
+            // 1. Parse model size
+            let sizeText = '-';
+            if (data.details && data.details.parameter_size) {
+            sizeText = data.details.parameter_size;
+            }
+            document.getElementById('modelSize').textContent = sizeText;
+            document.getElementById('modelSizeRight').textContent = sizeText;
+            
+            // 2. Parse context size — пробуем все возможные ключи
+            const contextLength = extractContextLength(data.model_info || {});
+            
+            if (contextLength) {
+            currentContextSize = contextLength;
+            const ctxText = formatContextSize(contextLength);
+            document.getElementById('contextSize').textContent = ctxText;
+            document.getElementById('contextSizeRight').textContent = ctxText;
+            console.log(`✅ Context for ${modelName}: ${contextLength} tokens`);
+            } else {
+            // Fallback: используем стандартный контекст Ollama
+            currentContextSize = 4096;
+            document.getElementById('contextSize').textContent = '4K (default)';
+            document.getElementById('contextSizeRight').textContent = '4K (default)';
+            console.log(`⚠️ Context not found for ${modelName}, using default 4096`);
+            }
+        } catch (error) {
+            console.error('Error loading model info:', error);
+        }
+        }
+
+        // Новая функция: ищет контекст во всех возможных ключах
+        function extractContextLength(modelInfo) {
+        if (!modelInfo || typeof modelInfo !== 'object') return null;
+        
+        // Точные ключи (по приоритету)
+        const exactKeys = [
+            'general.context_length',
+            'general.context_size',
+            'llama.context_length',
+            'llama.context_size',
+            'gpt.context_length',
+            'mpt.context_length',
+            'qwen.context_length',
+            'context_length',
+            'context_size'
+        ];
+        
+        for (const key of exactKeys) {
+            if (modelInfo[key] !== undefined && typeof modelInfo[key] === 'number') {
+            return modelInfo[key];
+            }
+        }
+        
+        // Fallback: ищем любой ключ, содержащий "context"
+        for (const [key, value] of Object.entries(modelInfo)) {
+            if (key.toLowerCase().includes('context') && typeof value === 'number') {
+            return value;
+            }
+        }
+        
+        return null;
+        }
+
+        function formatContextSize(tokens) {
+            if (tokens >= 1000000) {
+                return `${(tokens / 1000000).toFixed(1)}M`;
+            } else if (tokens >= 1000) {
+                return `${(tokens / 1000).toFixed(0)}K`;
+            }
+            return tokens.toString();
+        }
+
+        async function sendMessage() {
+            const input = document.getElementById('chatInput');
+            const message = input.value.trim();
+            
+            if (!message || !selectedModel) {
+                if (!selectedModel) {
+                    alert('Please select a model first');
+                }
+                return;
+            }
+
+            input.value = '';
+            input.style.height = 'auto';
+            
+            await processMessage(message);
+        }
+
+        async function processMessage(message) {
+            const sendBtn = document.getElementById('sendBtn');
+            sendBtn.disabled = true;
+            sendBtn.innerHTML = '<span class="loading"></span>';
+
+            const questionIndex = questions.length > 0 
+                ? Math.max(...questions.map(q => q.number)) + 1 
+                : 1;
+            const questionAnchor = `question-${questionIndex}`;
+            
+            // Add user message with current model
+            addUserMessage(message, questionAnchor, questionIndex, selectedModel);
+            
+            // Prepare form data
+            const formData = new FormData();
+            formData.append('message', message);
+            formData.append('model', selectedModel);
+            
+            if (uploadedFile) {
+                formData.append('file', uploadedFile);
+            }
+            
+            if (uploadedImage) {
+                formData.append('file', uploadedImage);
+            }
+            
+            uploadedCodeFiles.forEach((file, index) => {
+                formData.append('codeFiles', file);
+            });
+
+            try {
+                const response = await fetch('/api/chat', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    // Process metrics from server
+                    if (data.metrics) {
+                        updateLastResponseMetrics(data.metrics);
+                        accumulateSessionStats(data.metrics);
+                    }
+
+                    // Update question count
+                    sessionStats.questionsCount++;
+                    document.getElementById('questionCount').textContent = sessionStats.questionsCount;
+
+                    // Add bot response
+                    addBotMessage(data.response, data.model, questionAnchor, questionIndex, data.imageData);
+                    
+                    // Add to questions list
+                    addQuestionToList(questionIndex, selectedModel, questionAnchor, message);
+                    
+                    // Save conversation
+                    saveCurrentConversation();
+                } else {
+                    addBotMessage(`Error: ${data.error}`, selectedModel, questionAnchor, questionIndex);
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                addBotMessage('Connection error. Please try again.', selectedModel, questionAnchor, questionIndex);
+            } finally {
+                sendBtn.disabled = false;
+                sendBtn.textContent = 'Send';
+                clearFileInputs();
+            }
+        }
+
+        function addUserMessage(message, anchor, index, model = null) {
+            const chatMessages = document.getElementById('chatMessages');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'message user-message';
+            messageDiv.id = anchor;
+            
+            const displayModel = model || selectedModel || 'Unknown';
+            
+            // Check if there's a next question
+            const hasNext = questions.some(q => q.number > index) || messages.some(m => m.role === 'user' && m.index > index);
+            const nextBtnClass = hasNext ? 'next-btn' : 'next-btn disabled';
+            const nextBtnTitle = hasNext ? 'Go to next question' : 'No next question';
+            
+            messageDiv.innerHTML = `
+                <div class="message-header">
+                    <div class="message-model">
+                        <span>Q${index} • 🦙 ${escapeHtml(displayModel)}</span>
+                        <button class="${nextBtnClass}" onclick="goToNextQuestion(${index})" title="${nextBtnTitle}">Next Question →</button>
+                    </div>
+                    <div class="message-actions">
+                        <button class="message-action-btn" onclick="copyQuestion(${index})">Copy</button>
+                        <button class="message-action-btn" onclick="deleteMessage(${index})">Delete</button>
+                    </div>
+                </div>
+                <div class="message-text">${formatMarkdown(message)}</div>
+            `;
+            
+            chatMessages.appendChild(messageDiv);
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+            
+            messages.push({ role: 'user', content: message, index: index, model: displayModel });
+        }
+
+        function addBotMessage(message, model, anchor, index, imageData = null) {
+            const chatMessages = document.getElementById('chatMessages');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'message bot-message';
+            messageDiv.dataset.questionIndex = index;
+            
+            let imageHtml = '';
+            if (imageData) {
+                imageHtml = `
+                    <img src="${imageData.thumbnailUrl}" class="image-preview" onclick="showFullImage('${imageData.fullUrl}')" alt="${escapeAttr(imageData.filename)}">
+                    <div class="image-filename">${escapeHtml(imageData.filename)}</div>
+                `;
+            }
+            
+            messageDiv.innerHTML = `
+                <div class="message-header">
+                    <div class="message-model">🦙 ${escapeHtml(model || 'Unknown')}</div>
+                </div>
+                ${imageHtml}
+                <div class="message-text">${formatMarkdown(message)}</div>
+                <div class="message-actions">
+                    <button class="message-action-btn" onclick="copyBoth(${index})">Copy</button>
+                    <button class="message-action-btn" onclick="jumpToQuestion('${anchor}')">Question</button>
+                    <button class="message-action-btn" onclick="deleteMessage(${index})">Delete</button>
+                    <button class="message-action-btn coming-soon" title="Coming Soon">Share</button>
+                    <button class="message-action-btn coming-soon" title="Coming Soon">Telegram</button>
+                    <button class="message-action-btn coming-soon" title="Coming Soon">Notion</button>
+                </div>
+            `;
+            
+            chatMessages.appendChild(messageDiv);
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+            
+            messages.push({ role: 'assistant', content: message, model: model, index: index, imageData: imageData });
+        }
+
+        function addQuestionToList(number, model, anchor, questionText) {
+            const questionsList = document.getElementById('questionsList');
+            
+            if (questions.length === 0) {
+                questionsList.innerHTML = '';
+            }
+            
+            // Truncate question text for display
+            let displayText = questionText || '';
+            if (displayText.length > 250) {
+                displayText = displayText.substring(0, 250) + '...';
+            }
+            // Normalize whitespace for compact display
+            displayText = displayText.replace(/\s+/g, ' ').trim();
+            
+            const questionDiv = document.createElement('div');
+            questionDiv.className = 'question-item';
+            questionDiv.onclick = () => jumpToQuestion(anchor);
+            questionDiv.innerHTML = `
+                <div class="question-number">Q${number} • 🦙 ${escapeHtml(model || 'Unknown')}</div>
+                <div class="question-text">${escapeHtml(displayText)}</div>
+            `;
+            
+            questionsList.appendChild(questionDiv);
+            questions.push({ number, model, anchor, text: questionText });
+        }
+
+        function jumpToQuestion(anchor) {
+            const element = document.getElementById(anchor);
+            if (element) {
+                element.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                // Highlight effect
+                element.style.transition = 'background 0.3s';
+                const originalBg = element.querySelector('.message-content')?.style.background || '';
+                const contentEl = element.querySelector('.message-content') || element;
+                contentEl.style.background = '#fff3cd';
+                setTimeout(() => {
+                    contentEl.style.background = originalBg || '';
+                }, 1500);
+            }
+        }
+
+        function goToNextQuestion(currentIndex) {
+            // Find the next question after currentIndex
+            const nextQuestion = questions.find(q => q.number > currentIndex);
+            if (nextQuestion) {
+                jumpToQuestion(nextQuestion.anchor);
+            } else {
+                showToast('No next question available', '');
+            }
+        }
+
+        function copyQuestion(index) {
+            const question = messages.find(m => m.role === 'user' && m.index === index);
+            if (question) {
+                navigator.clipboard.writeText(question.content);
+                showToast('Question copied to clipboard', 'success');
+            }
+        }
+
+        function copyBoth(index) {
+            const question = messages.find(m => m.role === 'user' && m.index === index);
+            const answer = messages.find(m => m.role === 'assistant' && m.index === index);
+            if (question && answer) {
+                const text = `Question:\n${question.content}\n\nAnswer:\n${answer.content}`;
+                navigator.clipboard.writeText(text);
+                showToast('Q&A copied to clipboard', 'success');
+            }
+        }
+
+        function deleteMessage(index) {
+            if (!confirm('Delete this Q&A pair?')) return;
+            
+            // Remove from DOM
+            const questionEl = document.getElementById(`question-${index}`);
+            const answerEl = document.querySelector(`.bot-message[data-question-index="${index}"]`);
+            
+            if (questionEl) questionEl.remove();
+            if (answerEl) answerEl.remove();
+            
+            // Remove from arrays
+            messages = messages.filter(m => m.index !== index);
+            questions = questions.filter(q => q.number !== index);
+            
+            // Update questions list
+            updateQuestionsList();
+            
+            // Update Next Question buttons
+            updateNextQuestionButtons();
+            
+            // Update stats
+            sessionStats.questionsCount = questions.length;
+            document.getElementById('questionCount').textContent = sessionStats.questionsCount;
+            
+            // Save conversation
+            saveCurrentConversation();
+        }
+
+        function updateNextQuestionButtons() {
+            // Update all "Next Question" buttons in user messages
+            document.querySelectorAll('.user-message').forEach(msgEl => {
+                const id = msgEl.id;
+                if (!id || !id.startsWith('question-')) return;
+                const index = parseInt(id.replace('question-', ''));
+                const btn = msgEl.querySelector('.next-btn');
+                if (!btn) return;
+                
+                const hasNext = questions.some(q => q.number > index);
+                if (hasNext) {
+                    btn.classList.remove('disabled');
+                    btn.title = 'Go to next question';
+                } else {
+                    btn.classList.add('disabled');
+                    btn.title = 'No next question';
+                }
+            });
+        }
+
+        function updateQuestionsList() {
+            const questionsList = document.getElementById('questionsList');
+            questionsList.innerHTML = '';
+            
+            if (questions.length === 0) {
+                questionsList.innerHTML = '<div style="text-align: center; color: #6c757d; padding: 20px;">No questions yet</div>';
+                return;
+            }
+            
+            questions.forEach(q => {
+                let displayText = q.text || '';
+                if (displayText.length > 250) {
+                    displayText = displayText.substring(0, 250) + '...';
+                }
+                displayText = displayText.replace(/\s+/g, ' ').trim();
+                
+                const questionDiv = document.createElement('div');
+                questionDiv.className = 'question-item';
+                questionDiv.onclick = () => jumpToQuestion(q.anchor);
+                questionDiv.innerHTML = `
+                    <div class="question-number">Q${q.number} • 🦙 ${escapeHtml(q.model || 'Unknown')}</div>
+                    <div class="question-text">${escapeHtml(displayText)}</div>
+                `;
+                questionsList.appendChild(questionDiv);
+            });
+        }
+
+        function showFullImage(url) {
+            window.open(url, '_blank');
+        }
+
+        function updateLastResponseMetrics(metrics) {
+            // Generation speed (TPS)
+            document.getElementById('tps').textContent = `${metrics.tps} tok/s`;
+            updateTPSIndicator(metrics.tps);
+            
+            // Prompt reading speed
+            document.getElementById('promptSpeed').textContent = `${metrics.promptTps} tok/s`;
+            
+            // Time to first token
+            document.getElementById('ttft').textContent = `${metrics.ttft}s`;
+            
+            // Model load time
+            document.getElementById('loadTime').textContent = metrics.loadTime > 0 ? `${metrics.loadTime}s` : '-';
+            
+            // Total response time
+            document.getElementById('responseTime').textContent = `${metrics.totalTime}s`;
+        }
+
+        function accumulateSessionStats(metrics) {
+            // Accumulate tokens
+            sessionStats.totalInputTokens += metrics.inputTokens || 0;
+            sessionStats.totalOutputTokens += metrics.outputTokens || 0;
+            
+            // Update display
+            document.getElementById('inputTokens').textContent = `~${sessionStats.totalInputTokens}`;
+            document.getElementById('outputTokens').textContent = `~${sessionStats.totalOutputTokens}`;
+            
+            // Calculate context load
+            if (currentContextSize && currentContextSize > 0) {
+                const loadPercent = Math.round((sessionStats.totalInputTokens / currentContextSize) * 100);
+                const contextLoadEl = document.getElementById('contextLoad');
+                contextLoadEl.textContent = `${loadPercent}%`;
+                
+                // Warning colors
+                contextLoadEl.className = 'stat-value';
+                if (loadPercent > 80) {
+                    contextLoadEl.classList.add('danger');
+                } else if (loadPercent > 60) {
+                    contextLoadEl.classList.add('warning');
+                }
+            }
+        }
+
+        function updateTPSIndicator(tps) {
+            const tpsElement = document.getElementById('tps');
+            
+            if (tps >= 30) {
+                tpsElement.style.color = '#10b981'; // Green - excellent
+            } else if (tps >= 15) {
+                tpsElement.style.color = '#f59e0b'; // Yellow - normal
+            } else {
+                tpsElement.style.color = '#ef4444'; // Red - slow
+            }
+        }
+
+        // Menu functions
+        function toggleMenu() {
+            document.getElementById('menuDropdown').classList.toggle('show');
+        }
+
+        function saveConversation() {
+            document.getElementById('saveModal').classList.add('active');
+            document.getElementById('conversationName').focus();
+        }
+
+        function closeSaveModal() {
+            document.getElementById('saveModal').classList.remove('active');
+            document.getElementById('conversationName').value = '';
+            document.getElementById('conversationCategory').value = '';
+        }
+
+        function confirmSave() {
+            const name = document.getElementById('conversationName').value.trim();
+            const category = document.getElementById('conversationCategory').value.trim() || 'General';
+            
+            if (!name) {
+                alert('Please enter a conversation name');
+                return;
+            }
+            
+            const conversation = {
+                id: currentConversationId || Date.now().toString(),
+                name: name,
+                category: category,
+                messages: messages,
+                questions: questions,
+                model: selectedModel,
+                sessionStats: sessionStats,
+                timestamp: new Date().toISOString()
+            };
+            
+            const savedConversations = JSON.parse(localStorage.getItem('savedConversations') || '[]');
+            
+            if (currentConversationId) {
+                const index = savedConversations.findIndex(c => c.id === currentConversationId);
+                if (index !== -1) {
+                    savedConversations[index] = conversation;
+                } else {
+                    savedConversations.push(conversation);
+                }
+            } else {
+                savedConversations.push(conversation);
+            }
+            
+            localStorage.setItem('savedConversations', JSON.stringify(savedConversations));
+            currentConversationId = conversation.id;
+            
+            closeSaveModal();
+            updateCategorySuggestions();
+            showToast('Conversation saved!', 'success');
+        }
+
+        function showLoadModal() {
+            const savedConversations = JSON.parse(localStorage.getItem('savedConversations') || '[]');
+            const list = document.getElementById('savedConversationsList');
+            
+            if (savedConversations.length === 0) {
+                list.innerHTML = '<div style="text-align: center; color: #6c757d; padding: 20px;">No saved conversations</div>';
+            } else {
+                list.innerHTML = savedConversations.map(conv => `
+                    <div style="padding: 12px; background: #f8f9fa; border-radius: 6px; margin-bottom: 8px; cursor: pointer; transition: all 0.2s;" 
+                         onclick="loadConversation('${conv.id}')"
+                         onmouseover="this.style.background='#e9ecef'"
+                         onmouseout="this.style.background='#f8f9fa'">
+                        <div style="font-weight: 600;">${escapeHtml(conv.name)}</div>
+                        <div style="font-size: 0.8em; color: #6c757d;">${escapeHtml(conv.category)} • ${new Date(conv.timestamp).toLocaleDateString()} • ${(conv.messages || []).filter(m => m.role === 'user').length} questions</div>
+                    </div>
+                `).join('');
+            }
+            
+            document.getElementById('loadModal').classList.add('active');
+        }
+
+        function closeLoadModal() {
+            document.getElementById('loadModal').classList.remove('active');
+        }
+
+        function loadConversation(id) {
+            const savedConversations = JSON.parse(localStorage.getItem('savedConversations') || '[]');
+            const conversation = savedConversations.find(c => c.id === id);
+            
+            if (!conversation) return;
+            
+            // Save current conversation as backup
+            if (messages.length > 0) {
+                localStorage.setItem('currentConversationBackup', JSON.stringify({
+                    messages, questions, selectedModel, sessionStats, currentConversationId
+                }));
+            }
+            
+            // Load conversation
+            messages = conversation.messages || [];
+            questions = conversation.questions || [];
+            selectedModel = conversation.model;
+            sessionStats = conversation.sessionStats || {
+                totalInputTokens: 0,
+                totalOutputTokens: 0,
+                questionsCount: questions.length
+            };
+            currentConversationId = conversation.id;
+            
+            // Update UI
+            renderConversation();
+            closeLoadModal();
+        }
+
+        function returnToCurrent() {
+            const backup = localStorage.getItem('currentConversationBackup');
+            if (backup) {
+                const data = JSON.parse(backup);
+                messages = data.messages || [];
+                questions = data.questions || [];
+                selectedModel = data.selectedModel;
+                sessionStats = data.sessionStats || {
+                    totalInputTokens: 0,
+                    totalOutputTokens: 0,
+                    questionsCount: questions.length
+                };
+                currentConversationId = data.currentConversationId || null;
+                
+                renderConversation();
+                localStorage.removeItem('currentConversationBackup');
+                showToast('Returned to current conversation', 'success');
+            } else {
+                showToast('No backup conversation available', 'error');
+            }
+        }
+
+        function renderConversation() {
+            const chatMessages = document.getElementById('chatMessages');
+            chatMessages.innerHTML = '';
+            
+            // Reset questions list and array
+            questions = [];
+            document.getElementById('questionsList').innerHTML = '';
+            
+            if (messages.length === 0) {
+                chatMessages.innerHTML = `
+                    <div style="text-align: center; color: #6c757d; padding: 40px;">
+                        <div style="font-size: 3em; margin-bottom: 20px;">🦙</div>
+                        <div style="font-size: 1.2em; margin-bottom: 10px;">Welcome to Ollama Chat</div>
+                        <div>Select a model and start chatting!</div>
+                    </div>
+                `;
+                // Reset stats display
+                document.getElementById('questionCount').textContent = '0';
+                return;
+            }
+            
+            // Render all messages and rebuild questions list
+            messages.forEach(msg => {
+                if (msg.role === 'user') {
+                    const anchor = `question-${msg.index}`;
+                    addUserMessage(msg.content, anchor, msg.index, msg.model);
+                    addQuestionToList(msg.index, msg.model || selectedModel || 'Unknown', anchor, msg.content);
+                } else {
+                    const anchor = `question-${msg.index}`;
+                    addBotMessage(msg.content, msg.model, anchor, msg.index, msg.imageData);
+                }
+            });
+            
+            // Update stats display
+            document.getElementById('questionCount').textContent = sessionStats.questionsCount || questions.length;
+            document.getElementById('inputTokens').textContent = `~${sessionStats.totalInputTokens || 0}`;
+            document.getElementById('outputTokens').textContent = `~${sessionStats.totalOutputTokens || 0}`;
+            
+            // Update model selection
+            if (selectedModel) {
+                document.getElementById('selectedModelName').textContent = selectedModel;
+                
+                const modelItems = document.querySelectorAll('.model-item');
+                modelItems.forEach(item => {
+                    const nameEl = item.querySelector('.model-name');
+                    if (nameEl && nameEl.textContent.trim().replace(' 👁️', '') === selectedModel) {
+                        item.classList.add('selected');
+                    } else {
+                        item.classList.remove('selected');
+                    }
+                });
+                
+                // Load model info
+                loadModelInfo(selectedModel);
+            }
+            
+            // Update Next Question buttons
+            updateNextQuestionButtons();
+        }
+
+        function clearChat() {
+            if (!confirm('Clear current chat?')) return;
+            
+            document.getElementById('chatMessages').innerHTML = `
+                <div style="text-align: center; color: #6c757d; padding: 40px;">
+                    <div style="font-size: 3em; margin-bottom: 20px;">🦙</div>
+                    <div style="font-size: 1.2em; margin-bottom: 10px;">Welcome to Ollama Chat</div>
+                    <div>Select a model and start chatting!</div>
+                </div>
+            `;
+            
+            document.getElementById('questionsList').innerHTML = `
+                <div style="text-align: center; color: #6c757d; padding: 20px;">
+                    No questions yet
+                </div>
+            `;
+            
+            messages = [];
+            questions = [];
+            currentConversationId = null;
+            
+            // Reset session statistics
+            sessionStats = {
+                totalInputTokens: 0,
+                totalOutputTokens: 0,
+                questionsCount: 0
+            };
+            
+            // Reset display
+            document.getElementById('questionCount').textContent = '0';
+            document.getElementById('inputTokens').textContent = '~0';
+            document.getElementById('outputTokens').textContent = '~0';
+            document.getElementById('contextLoad').textContent = '0%';
+            document.getElementById('contextLoad').className = 'stat-value';
+            document.getElementById('tps').textContent = '-';
+            document.getElementById('promptSpeed').textContent = '-';
+            document.getElementById('ttft').textContent = '-';
+            document.getElementById('loadTime').textContent = '-';
+            document.getElementById('responseTime').textContent = '-';
+            
+            localStorage.removeItem('currentConversation');
+        }
+
+        function exportConversation() {
+            if (messages.length === 0) {
+                alert('No messages to export');
+                return;
+            }
+            
+            const exportData = {
+                messages: messages,
+                questions: questions,
+                model: selectedModel,
+                sessionStats: sessionStats,
+                timestamp: new Date().toISOString()
+            };
+            
+            const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `conversation-${Date.now()}.json`;
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+
+        function saveCurrentConversation() {
+            if (messages.length > 0) {
+                localStorage.setItem('currentConversation', JSON.stringify({
+                    messages, questions, selectedModel, sessionStats, currentConversationId
+                }));
+            }
+        }
+
+        function loadCurrentConversation() {
+            const saved = localStorage.getItem('currentConversation');
+            if (saved) {
+                try {
+                    const data = JSON.parse(saved);
+                    messages = data.messages || [];
+                    questions = data.questions || [];
+                    selectedModel = data.selectedModel;
+                    sessionStats = data.sessionStats || sessionStats;
+                    currentConversationId = data.currentConversationId || null;
+                    
+                    renderConversation();
+                } catch (e) {
+                    console.error('Error loading current conversation:', e);
+                }
+            }
+        }
+
+        function updateCategorySuggestions() {
+            const savedConversations = JSON.parse(localStorage.getItem('savedConversations') || '[]');
+            const categories = [...new Set(savedConversations.map(c => c.category).filter(Boolean))];
+            const datalist = document.getElementById('categorySuggestions');
+            datalist.innerHTML = categories.map(cat => `<option value="${escapeAttr(cat)}">`).join('');
+        }
+
+        // File handling functions
+        function handleFileSelect(e) {
+            const file = e.target.files[0];
+            if (file) {
+                uploadedFile = file;
+                showFilePreview(file.name, file.size);
+            }
+        }
+
+        function handleImageSelect(e) {
+            const file = e.target.files[0];
+            if (file) {
+                uploadedImage = file;
+                showFilePreview(file.name, file.size);
+            }
+        }
+
+        function handleCodeFilesSelect(e) {
+            const files = Array.from(e.target.files);
+            uploadedCodeFiles = [...uploadedCodeFiles, ...files];
+            showFilePreview(`${uploadedCodeFiles.length} code file(s)`, null);
+        }
+
+        function showFilePreview(name, size) {
+            const preview = document.getElementById('filePreview');
+            preview.className = 'file-preview active';
+            preview.innerHTML = `📎 ${escapeHtml(name)}${size ? ` (${formatFileSize(size)})` : ''} <button onclick="clearFileInputs()" style="margin-left: 10px; background: none; border: none; color: #ef4444; cursor: pointer;">✕</button>`;
+        }
+
+        function clearFileInputs() {
+            uploadedFile = null;
+            uploadedImage = null;
+            uploadedCodeFiles = [];
+            document.getElementById('fileInput').value = '';
+            document.getElementById('imageInput').value = '';
+            document.getElementById('codeInput').value = '';
+            document.getElementById('filePreview').className = 'file-preview';
+        }
+
+        function formatFileSize(bytes) {
+            if (bytes < 1024) return bytes + ' B';
+            if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+            return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+        }
+
+        function openMultilineModal() {
+            document.getElementById('multilineModal').classList.add('active');
+            document.getElementById('multilineInput').focus();
+        }
+
+        function closeMultilineModal() {
+            document.getElementById('multilineModal').classList.remove('active');
+            document.getElementById('multilineInput').value = '';
+        }
+
+        function sendMultilineMessage() {
+            const message = document.getElementById('multilineInput').value.trim();
+            if (message && selectedModel) {
+                closeMultilineModal();
+                processMessage(message);
+            } else if (!selectedModel) {
+                alert('Please select a model first');
+            }
+        }
+
+        // Toast notification
+        function showToast(message, type = '') {
+            const toast = document.getElementById('toast');
+            toast.textContent = message;
+            toast.className = 'toast show ' + type;
+            setTimeout(() => {
+                toast.className = 'toast ' + type;
+            }, 2500);
+        }
+
+        // Utility functions
+        function escapeHtml(text) {
+            if (text == null) return '';
+            const div = document.createElement('div');
+            div.textContent = String(text);
+            return div.innerHTML;
+        }
+
+        function escapeAttr(text) {
+            if (text == null) return '';
+            return String(text).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/'/g, '&#39;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        }
+
+        function formatMarkdown(text) {
+            if (!text) return '';
+            let formatted = escapeHtml(text);
+            
+            // Extract code blocks first to preserve them
+            const codeBlocks = [];
+            formatted = formatted.replace(/```(\w*)\n?([\s\S]*?)```/g, (match, lang, code) => {
+                const placeholder = `__CODE_BLOCK_${codeBlocks.length}__`;
+                codeBlocks.push(`<pre><code class="language-${lang}">${code.trim()}</code></pre>`);
+                return placeholder;
+            });
+            
+            // Inline code
+            formatted = formatted.replace(/`([^`\n]+)`/g, '<code>$1</code>');
+            
+            // Headers
+            formatted = formatted.replace(/^### (.*$)/gim, '<h3>$1</h3>');
+            formatted = formatted.replace(/^## (.*$)/gim, '<h2>$1</h2>');
+            formatted = formatted.replace(/^# (.*$)/gim, '<h1>$1</h1>');
+            
+            // Bold
+            formatted = formatted.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+            
+            // Italic
+            formatted = formatted.replace(/(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)/g, '<em>$1</em>');
+            
+            // Line breaks (code blocks already extracted)
+            formatted = formatted.replace(/\n/g, '<br>');
+            
+            // Restore code blocks
+            codeBlocks.forEach((block, i) => {
+                formatted = formatted.replace(`__CODE_BLOCK_${i}__`, block);
+            });
+            
+            return formatted;
+        }
+    </script>
 </body>
 </html>

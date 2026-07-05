@@ -1,23 +1,39 @@
 services:
   ollama:
-    image: ollama/ollama:0.12.3
-    container_name: ollama
+    image: ollama/ollama:latest
+    container_name: ollama-chat
     ports:
       - "11434:11434"
     volumes:
-      - ollama_data:/root/.ollama
+      - ollama_data:/root/.ollama  # Use named volume for persistence
     environment:
-      - OLLAMA_HOST=0.0.0.0:11434
-      - OLLAMA_NUM_GPU=20
-      - OLLAMA_NUM_CTX=16384
+      # Контекст: ставим 32768, но готовимся к спиллу на 16 ГБ
+      - OLLAMA_CONTEXT_LENGTH=32768
+      
+      # Управление моделями
+      - OLLAMA_MAX_LOADED_MODELS=1  # Только одна модель с полным контекстом
+      - OLLAMA_KEEP_ALIVE=15m
+      
+      # Оптимизация памяти
+      - OLLAMA_FLASH_ATTENTION=true
+      - OLLAMA_NUM_PARALLEL=2 # Allows 2 concurrent requests (good for Kilo Code)
     deploy:
       resources:
+        limits:
+          memory: 48G  # Increased from 32G to 48G to better utilize your 64GB system RAM
+          # GPUs are handled separately below
         reservations:
           devices:
             - driver: nvidia
               count: 1
               capabilities: [gpu]
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "/bin/ollama", "list"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
 
 volumes:
   ollama_data:
