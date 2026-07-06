@@ -1,28 +1,37 @@
-# Ollama Chat App
+# Multi-Provider AI Chat App
 
-![Chat](ScreenshotMain.png)
-![Dashboard](ScreenshotDashboard.png)
-
-A modern web chat interface for Ollama models with advanced model management and real-time statistics.
+A modern web chat interface for local LLM providers with advanced model management, real-time statistics, and multi-provider support (Ollama, llama.cpp).
 
 ## Features
 
-### Three-Panel Layout
-- **Left Panel (20%)**: Questions navigation panel with model indicators
-- **Middle Panel (70%)**: Chat interface with markdown-formatted responses
-- **Right Panel (10%)**: Available models list and live statistics
+### 🎯 Multi-Provider Architecture
 
-### Model Management
-- Automatic detection of installed Ollama models
+- **Unified interface** for multiple LLM providers
+- **Ollama** — full-featured integration with model management
+- **llama.cpp** — support for GGUF models via llama-server
+- **Provider switching** via radio buttons in UI (selection persists in localStorage)
+- **Extensible** — add new providers by implementing `BaseProvider` interface
+- **Automatic detection** of provider status and available models
+
+### 🖥️ Three-Panel Layout
+
+- **Left Panel (20%)**: Questions navigation panel with model indicators
+- **Middle Panel (60%)**: Chat interface with markdown-formatted responses
+- **Right Panel (20%)**: Provider selection, model dropdown, and live statistics
+
+### 🦙 Model Management
+
+- Automatic detection of installed models across providers
 - Real-time status monitoring (Running/Available)
 - Visual indicators for model types (vision models marked with 👁️)
 - Easy model switching without restart
-- Support for any Ollama model
+- **Size** and **Context window** display in chat header
+- Support for any Ollama or llama.cpp compatible model
 
-### Enhanced Chat Experience
+### 💬 Enhanced Chat Experience
+
 - Markdown formatting for both user questions and bot responses (headers, code blocks, tables, etc.)
 - Model badges showing which model answered each question
-- Real-time response timer with live counter
 - Question and token counting
 - Responsive full-screen design
 - Document and image processing with AI analysis
@@ -30,10 +39,12 @@ A modern web chat interface for Ollama models with advanced model management and
 - Message deletion for conversation curation
 - Professional image message layout with thumbnails
 - Multiline input modal for complex messages with code
-- Message actions: copy, jump to question, delete Q&A pairs
+- **Message actions**: copy question, copy Q&A (as Markdown), jump between Q&A pairs, delete Q&A pairs
+- **Navigation buttons**: Previous/Next question jumps
 - Questions navigation panel with model names for easy conversation browsing
 
-### Conversation Persistence
+### 💾 Conversation Persistence
+
 - Auto-save current session (survives page reload)
 - Save named conversations with custom titles and categories
 - Category autocomplete with Tab/Arrow key navigation
@@ -43,7 +54,8 @@ A modern web chat interface for Ollama models with advanced model management and
 - Clear current chat functionality
 - Dedicated dashboard for conversation management
 
-### Document Processing
+### 📄 Document Processing
+
 - PDF file upload and text extraction
 - Word document processing (DOC/DOCX)
 - Excel spreadsheet analysis (XLS/XLSX/CSV)
@@ -51,14 +63,16 @@ A modern web chat interface for Ollama models with advanced model management and
 - File preview with name and size display
 - Support for document-based conversations
 
-### Code File Processing
+### 💻 Code File Processing
+
 - Multiple code file upload (up to 50 files)
 - Support for all major programming languages (.js, .py, .java, .html, .css, etc.)
 - Cumulative file selection across different folders
 - Structured code analysis and recommendations
 - Project-wide code review capabilities
 
-### Image Processing
+### 🖼️ Image Processing
+
 - Image upload and analysis with vision models
 - Support for JPG, PNG, GIF, BMP, WEBP formats
 - Visual recognition and image reasoning
@@ -67,111 +81,291 @@ A modern web chat interface for Ollama models with advanced model management and
 - Professional message layout with image thumbnails and filename display
 - Click thumbnails to view full-size images in modal
 
-### Web Content Processing
+### 🌐 Web Content Processing
+
 - Automatic URL detection in messages
 - Web page content extraction and analysis
 - Clean article text extraction using Mozilla Readability
 - Support for news articles, blogs, and documentation
 - Rate limiting (max 3 URLs per message) with timeout protection
 
-### Statistics Dashboard
+### 📊 Statistics Dashboard
+
 - Model size display
-- Context window size
+- Context window size (dynamic detection)
 - Live question count (user questions only)
 - Estimated token usage
 - Real-time response time tracking
+- TPS, Prompt Speed, TTFT, Load Time, Total Time
+
+---
 
 ## Setup
 
 ### Option 1: Docker Setup (Recommended)
 
-1. **Run Ollama in Docker:**
-   ```bash
-   # Make script executable and run
-   chmod +x run-ollama-docker.sh
-   ./run-ollama-docker.sh
-   ```
-   This script will:
-   - Install Docker if not present
-   - Install NVIDIA Container Toolkit for GPU support
-   - Stop local Ollama service
-   - Start Ollama in Docker container with GPU access
+Run Ollama in Docker:
 
-2. **Download models:**
-   ```bash
-   # Download models inside Docker container
-   docker exec -it ollama ollama pull phi4:latest
-   docker exec -it ollama ollama pull llama3.2
-   docker exec -it ollama ollama pull qwen2.5-coder
-   ```
+```bash
+# Make script executable and run
+chmod +x run-ollama-docker.sh
+./run-ollama-docker.sh
+```
 
-3. **Install app dependencies:**
-   ```bash
-   npm install
-   ```
+This script will:
+- Install Docker if not present
+- Install NVIDIA Container Toolkit for GPU support
+- Stop local Ollama service
+- Start Ollama in Docker container with GPU access
 
-4. **Start the server:**
-   ```bash
-   node server.js
-   ```
+Download models:
 
-5. **Open in browser:**
-   ```
-   http://localhost:3000
-   ```
+```bash
+# Download models inside Docker container
+docker exec -it ollama ollama pull phi4:latest
+docker exec -it ollama ollama pull llama3.2
+docker exec -it ollama ollama pull qwen2.5-coder
+```
+
+Install app dependencies:
+
+```bash
+npm install
+```
+
+Start the server:
+
+```bash
+npm start
+```
+
+Open in browser:
+```
+http://localhost:3000
+```
 
 ### Option 2: Local Installation
 
-1. **Install Ollama:**
-   - Go to [ollama.com](https://ollama.com)
-   - Download and install for your operating system
-   - Follow the installation prompts
+Install Ollama:
+- Go to [ollama.com](https://ollama.com)
+- Download and install for your operating system
+- Follow the installation prompts
 
-2. **Download models:**
-   ```bash
-   # Download models (choose any you prefer)
-   ollama pull phi4:latest
-   ollama pull llama3.2
-   ollama pull qwen2.5-coder
-   ```
+Download models:
 
-3. **Install app dependencies:**
-   ```bash
-   npm install
-   ```
+```bash
+ollama pull phi4:latest
+ollama pull llama3.2
+ollama pull qwen2.5-coder
+```
 
-4. **Start the server:**
-   ```bash
-   node server.js
-   ```
+Install app dependencies and start:
 
-5. **Open in browser:**
-   ```
-   http://localhost:3000
-   ```
+```bash
+npm install
+npm start
+```
+
+Open in browser:
+```
+http://localhost:3000
+```
+
+---
+
+## Configuration
+
+The application uses environment variables for provider configuration. Create a `.env` file or pass variables at startup:
+
+```bash
+# Default provider (ollama | llama_cpp)
+DEFAULT_PROVIDER=ollama
+
+# Ollama configuration
+OLLAMA_URL=http://localhost:11434
+OLLAMA_ENABLED=true
+
+# llama.cpp configuration
+LLAMA_CPP_URL=http://localhost:8080
+LLAMA_CPP_ENABLED=false
+
+# Server configuration
+PORT=3000
+```
+
+### Example: Enable both providers
+
+```bash
+LLAMA_CPP_ENABLED=true npm start
+```
+
+### Example: Use llama.cpp by default
+
+```bash
+DEFAULT_PROVIDER=llama_cpp LLAMA_CPP_ENABLED=true npm start
+```
+
+---
 
 ## Usage
 
-1. The app will automatically detect all your installed Ollama models
-2. Models currently loaded in memory will show as "Running"
-3. Click on any model to select it for chat
+1. The app will automatically detect all installed models from enabled providers
+2. Select a provider using the radio buttons in the right panel (Ollama / llama.cpp)
+3. Choose a model from the dropdown list
 4. Start chatting! Responses are formatted with markdown for better readability
-5. Use 📝 MULTILINE button for complex messages with code blocks and formatting
-6. Upload documents using the 📎 PDF,DOC,XLS button or images using the 🖼️ IMG button
-7. Upload code files using the 📁 CODE button (supports multiple files and cumulative selection)
+5. Use **📝 MULTILINE** button for complex messages with code blocks and formatting
+6. Upload documents using **📎 PDF,DOC,XLS** button or images using **🖼️ IMG** button
+7. Upload code files using **📁 CODE** button (supports multiple files)
 8. Include URLs in messages for automatic web content analysis
 9. Use message actions: copy questions/answers, jump between Q&A pairs, delete unwanted pairs
 10. View uploaded images as clean thumbnails with filenames displayed below
 11. Monitor your usage with real-time statistics in the right panel
 12. Use the menu to save, load, or export conversations
-13. Return to your working conversation after loading saved ones (preserves your progress)
-14. Navigate through your conversation using the Questions panel (shows Q1, Q2, etc. with model names)
-15. Access the Dashboard to manage all saved conversations with search, bulk operations, and statistics
-16. Your current conversation auto-saves and restores on page reload
+13. Navigate through your conversation using the Questions panel
+
+Your current conversation auto-saves and restores on page reload.
+
+---
+
+## API Endpoints
+
+### Provider Management
+- `GET /api/providers` — List all configured providers and default provider
+
+### Models
+- `GET /api/models` — List all available models from active provider (requires `X-Provider` header)
+- `POST /api/show` — Get detailed model information including context window size
+
+### Chat
+- `POST /api/chat` — Send message to selected model (multipart/form-data, requires `X-Provider` header)
+
+### Images
+- `GET /api/images/:imageId/:type` — Serve uploaded images (full/thumb)
+- `DELETE /api/conversation-images` — Delete images from conversation
+
+### Headers
+
+All provider-specific endpoints accept the `X-Provider` header to select the active provider:
+
+```bash
+curl -H "X-Provider: ollama" http://localhost:3000/api/models
+curl -H "X-Provider: llama_cpp" http://localhost:3000/api/models
+```
+
+If header is not provided, `DEFAULT_PROVIDER` from config is used.
+
+---
+
+## Project Structure
+
+```
+server/
+├── server.js                       # Entry point (starts src/server.js)
+├── package.json
+├── docker-compose.yml
+├── run-ollama-docker.sh
+│
+├── src/
+│   ├── server.js                   # Server bootstrap
+│   ├── app.js                      # Express initialization
+│   │
+│   ├── config/
+│   │   └── providers.js            # Provider configuration (from ENV)
+│   │
+│   ├── providers/                  # Multi-provider core
+│   │   ├── BaseProvider.js         # Abstract base class
+│   │   ├── OllamaProvider.js       # Ollama implementation
+│   │   ├── LlamaCppProvider.js     # llama.cpp implementation
+│   │   └── providerManager.js      # Factory/provider registry
+│   │
+│   ├── controllers/                # HTTP request handlers
+│   │   ├── chatController.js
+│   │   ├── modelController.js
+│   │   └── imageController.js
+│   │
+│   ├── services/                   # Provider-agnostic business logic
+│   │   ├── fileService.js          # PDF/DOC/XLS/code processing
+│   │   ├── imageService.js         # Image save/delete
+│   │   ├── webService.js           # URL content extraction
+│   │   └── metricsService.js       # Metrics normalization
+│   │
+│   ├── routes/
+│   │   ├── chatRoutes.js
+│   │   ├── modelRoutes.js
+│   │   └── imageRoutes.js
+│   │
+│   ├── middleware/
+│   │   ├── uploadMiddleware.js     # Multer configuration
+│   │   ├── providerMiddleware.js   # Provider selection from request
+│   │   └── errorHandler.js
+│   │
+│   └── utils/
+│       ├── fileUtils.js
+│       ├── urlUtils.js
+│       └── imageUtils.js
+│
+├── uploads/
+│   └── images/
+│       └── thumbnails/
+│
+└── public/                         # Frontend
+    ├── index.html
+    ├── style.css
+    ├── script.js
+    └── dashboard.html
+```
+
+---
+
+## Adding a New Provider
+
+To add a third provider (e.g., vLLM, LocalAI, OpenAI-compatible):
+
+### 1. Create provider class
+
+```javascript
+// src/providers/VllmProvider.js
+import { BaseProvider } from './BaseProvider.js';
+
+export class VllmProvider extends BaseProvider {
+  async getModels() { /* ... */ }
+  async showModel(name) { /* ... */ }
+  async generate({ model, prompt, stream }) { /* ... */ }
+  async chat({ model, messages, stream }) { /* ... */ }
+  async healthCheck() { /* ... */ }
+  normalizeMetrics(raw) { /* ... */ }
+}
+```
+
+### 2. Register in providerManager.js
+
+```javascript
+const registry = {
+  ollama: () => import('./OllamaProvider.js').then(m => m.OllamaProvider),
+  llama_cpp: () => import('./LlamaCppProvider.js').then(m => m.LlamaCppProvider),
+  vllm: () => import('./VllmProvider.js').then(m => m.VllmProvider),
+};
+```
+
+### 3. Add configuration
+
+```javascript
+// src/config/providers.js
+vllm: {
+  type: 'vllm',
+  url: process.env.VLLM_URL || 'http://localhost:8000',
+  enabled: process.env.VLLM_ENABLED === 'true',
+}
+```
+
+That's it — no changes to controllers, services, or routes needed.
+
+---
 
 ## Features in Detail
 
 ### Conversation Management
+
 - **Auto-save**: Current conversation automatically saved to localStorage
 - **Named saves**: Save important conversations with custom names and categories
 - **Category system**: Organize conversations by topics (Javascript, English, Python, etc.)
@@ -188,14 +382,17 @@ A modern web chat interface for Ollama models with advanced model management and
 - **Statistics**: View total conversations and message counts per category
 
 ### Smart Statistics
+
 - **Questions**: Counts only user questions (not total messages)
 - **Response time**: Live timer showing model response speed
 - **Tokens**: Estimated token usage for cost tracking
 - **Model info**: Size and dynamic context window detection for each model
 - **Context detection**: Automatically detects custom context window sizes (e.g., 64K, 128K)
+- **Unified metrics**: Normalized across all providers (TPS, TTFT, Load Time)
 
 ### Dashboard Features
-- **Category Organization**: Conversations grouped by learning topics (Javascript, English, etc.)
+
+- **Category Organization**: Conversations grouped by learning topics
 - **Accordion Categories**: Click category headers to collapse/expand sections
 - **Conversation Grid**: Visual cards showing all saved conversations
 - **Search Functionality**: Real-time search through conversation names and content
@@ -205,51 +402,65 @@ A modern web chat interface for Ollama models with advanced model management and
 - **Direct Loading**: Open conversations directly from dashboard to main chat
 
 ### Model Support
+
 - **Text models**: Full chat support with document and code processing (phi4, llama, qwen, etc.)
-- **Vision models**: Image analysis and visual reasoning (llama3.2-vision, llava, gemma3, etc.) - marked with 👁️ eye icon
+- **Vision models**: Image analysis and visual reasoning (llama3.2-vision, llava, gemma3, etc.) — marked with 👁️ eye icon
 - **Embedding models**: Detected and marked as unavailable for chat
 - **Document analysis**: All text models can process PDF, DOC, DOCX, XLS, XLSX, CSV files
 - **Code analysis**: All text models can analyze multiple code files for reviews and recommendations
-- **Image analysis**: Vision models (llama3.2-vision, llava, gemma3) can analyze JPG, PNG, GIF, BMP, WEBP images
+- **Image analysis**: Vision models can analyze JPG, PNG, GIF, BMP, WEBP images
 - **Web content**: All text models can analyze content from URLs automatically
 - **Alphabetical sorting**: Models displayed in alphabetical order for easy navigation
 
-## API Endpoints
-
-- `GET /api/models` - List all available models with status
-- `GET /api/status` - Check Ollama connection status
-- `POST /api/chat` - Send message to selected model
-- `POST /api/show` - Get detailed model information including context window size
+---
 
 ## Requirements
 
 ### For Docker Setup:
-- Node.js
+- Node.js 18+
 - Docker and Docker Compose
 - NVIDIA GPU (optional, for GPU acceleration)
 - NVIDIA Container Toolkit (for GPU support)
 
 ### For Local Setup:
-- Node.js
-- Ollama installed and running
-- At least one Ollama model downloaded
+- Node.js 18+
+- Ollama installed and running, OR
+- llama.cpp server with a loaded model
+- At least one model downloaded
+
+---
 
 ## Docker Configuration
 
 The `docker-compose.yml` includes:
 - GPU support with NVIDIA runtime
 - Persistent model storage
-- Optimized memory and context settings
+- Optimized memory and context settings (32K context, flash attention)
 - Port mapping to localhost:11434
+- Health checks and auto-restart
+
+---
 
 ## Dependencies
 
-- `express` - Web server framework
-- `node-fetch` - HTTP client for Ollama API
-- `multer` - File upload handling
-- `pdfjs-dist` - PDF text extraction
-- `word-extractor` - DOC/DOCX text extraction
-- `xlsx` - Excel spreadsheet processing
-- `@mozilla/readability` - Web content extraction
-- `jsdom` - Server-side DOM parsing
-- `cheerio` - HTML parsing utilities
+### Core
+- `express` — Web server framework
+- `node-fetch` — HTTP client for provider APIs
+- `multer` — File upload handling
+- `sharp` — Image processing and thumbnail generation
+
+### Document Processing
+- `pdfjs-dist` — PDF text extraction
+- `word-extractor` — DOC/DOCX text extraction
+- `xlsx` — Excel spreadsheet processing
+
+### Web Content
+- `@mozilla/readability` — Web content extraction
+- `jsdom` — Server-side DOM parsing
+- `cheerio` — HTML parsing utilities
+
+---
+
+## License
+
+MIT

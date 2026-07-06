@@ -1,0 +1,1172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ollama Chat</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Left Panel: Questions -->
+        <div class="left-panel">
+            <div class="panel-header">
+                <span>📋</span>
+                <span>Questions</span>
+            </div>
+            <div class="panel-content">
+                <div class="questions-section" id="questionsList">
+                    <div style="text-align: center; color: #6c757d; padding: 20px;">
+                        No questions yet
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Middle Panel: Chat -->
+        <div class="middle-panel">
+            <div class="chat-header">
+                <div class="selected-model-indicator">
+                    <span class="model-icon">🦙</span>
+                    <span class="model-name" id="selectedModelName">No model selected</span>
+                    <div class="model-info-inline">
+                        <span class="info-badge"><span class="badge-label">Size:</span> <span id="modelSize">-</span></span>
+                        <span class="info-separator">•</span>
+                        <span class="info-badge"><span class="badge-label">Ctx:</span> <span id="contextSize">-</span></span>
+                    </div>
+                </div>
+                <div class="chat-actions">
+                    <a href="/dashboard.html" class="action-btn dashboard-btn">📊 Dashboard</a>
+                    <div class="dropdown">
+                        <button class="action-btn" onclick="toggleMenu()">Menu ▼</button>
+                        <div class="dropdown-content" id="menuDropdown">
+                            <button class="dropdown-item" onclick="saveConversation()">💾 Save Conversation</button>
+                            <button class="dropdown-item" onclick="showLoadModal()">📂 Load Conversation</button>
+                            <button class="dropdown-item" onclick="returnToCurrent()">⬅️ Return to Current</button>
+                            <button class="dropdown-item" onclick="clearChat()">🗑️ Clear Current Chat</button>
+                            <button class="dropdown-item" onclick="exportConversation()">📤 Export to File</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="chat-messages" id="chatMessages">
+                <div style="text-align: center; color: #6c757d; padding: 40px;">
+                    <div style="font-size: 3em; margin-bottom: 20px;">🦙</div>
+                    <div style="font-size: 1.2em; margin-bottom: 10px;">Welcome to Ollama Chat</div>
+                    <div>Select a model and start chatting!</div>
+                </div>
+            </div>
+            <div class="chat-input-container">
+                <div class="input-wrapper">
+                    <textarea 
+                        class="chat-input" 
+                        id="chatInput" 
+                        placeholder="Type your message... (Ctrl+Enter to send)"
+                        rows="1"
+                    ></textarea>
+                    <button class="send-btn" id="sendBtn" onclick="sendMessage()">Send</button>
+                </div>
+                <div class="input-actions">
+                    <button class="input-action-btn" onclick="openMultilineModal()">📝 MULTILINE</button>
+                    <button class="input-action-btn" onclick="document.getElementById('fileInput').click()">📎 PDF,DOC,XLS</button>
+                    <button class="input-action-btn" onclick="document.getElementById('imageInput').click()">🖼️ IMG</button>
+                    <button class="input-action-btn" onclick="document.getElementById('codeInput').click()">📁 CODE</button>
+                </div>
+                <div class="file-preview" id="filePreview"></div>
+                <input type="file" id="fileInput" style="display: none;" accept=".pdf,.doc,.docx,.xls,.xlsx,.csv">
+                <input type="file" id="imageInput" style="display: none;" accept="image/*">
+                <input type="file" id="codeInput" style="display: none;" accept=".js,.ts,.jsx,.tsx,.py,.java,.html,.css,.scss,.json,.xml,.yaml,.yml,.md,.txt,.sql,.php,.rb,.go,.rs,.cpp,.c,.h,.cs,.swift,.kt,.scala,.sh,.bat" multiple>
+                <div style="margin-top: 10px; font-size: 0.75em; color: #6c757d;">
+                    ⚠️ Large documents may be truncated to fit the model's context window<br>
+                    ⚠️ Images require vision models (llama3.2-vision, llava, gemma3, etc.)<br>
+                    💡 Code files will be analyzed for structure, patterns, and recommendations
+                </div>
+            </div>
+        </div>
+
+        <!-- Right Panel: Models & Stats -->
+        <div class="right-panel">
+            <div class="panel-header">
+                <span>📊</span>
+                <span>Dashboard</span>
+            </div>
+            <div class="panel-content">
+                <div class="models-section">
+                    <div style="font-weight: 600; margin-bottom: 10px; font-size: 0.9em;">Models:</div>
+                    <div id="modelsList">
+                        <div style="color: #6c757d; font-size: 0.85em;">Loading models...</div>
+                    </div>
+                </div>
+                
+                <div class="stats-section">
+                    <h3>Model Info</h3>
+                    <div class="stat-item">
+                        <span class="stat-label">Size:</span>
+                        <span class="stat-value" id="modelSizeRight">-</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Context:</span>
+                        <span class="stat-value" id="contextSizeRight">-</span>
+                    </div>
+                    
+                    <h3>Session Stats</h3>
+                    <div class="stat-item">
+                        <span class="stat-label">Questions:</span>
+                        <span class="stat-value" id="questionCount">0</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Input Tokens:</span>
+                        <span class="stat-value" id="inputTokens">~0</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Output Tokens:</span>
+                        <span class="stat-value" id="outputTokens">~0</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Context Load:</span>
+                        <span class="stat-value" id="contextLoad">0%</span>
+                    </div>
+                    
+                    <h3>Last Response</h3>
+                    <div class="stat-item">
+                        <span class="stat-label">TPS:</span>
+                        <span class="stat-value" id="tps">-</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Prompt Speed:</span>
+                        <span class="stat-value" id="promptSpeed">-</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">TTFT:</span>
+                        <span class="stat-value" id="ttft">-</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Load Time:</span>
+                        <span class="stat-value" id="loadTime">-</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Total Time:</span>
+                        <span class="stat-value" id="responseTime">-</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Save Conversation Modal -->
+    <div class="modal" id="saveModal">
+        <div class="modal-content">
+            <div class="modal-header">Save Conversation</div>
+            <input type="text" class="modal-input" id="conversationName" placeholder="Conversation name">
+            <input type="text" class="modal-input" id="conversationCategory" placeholder="Category (e.g., Javascript, English, Python)" list="categorySuggestions">
+            <datalist id="categorySuggestions"></datalist>
+            <div class="modal-actions">
+                <button class="action-btn" onclick="closeSaveModal()">Cancel</button>
+                <button class="action-btn" onclick="confirmSave()">Save</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Load Conversation Modal -->
+    <div class="modal" id="loadModal">
+        <div class="modal-content">
+            <div class="modal-header">Load Conversation</div>
+            <div id="savedConversationsList" style="max-height: 400px; overflow-y: auto;">
+                <div style="text-align: center; color: #6c757d; padding: 20px;">No saved conversations</div>
+            </div>
+            <div class="modal-actions">
+                <button class="action-btn" onclick="closeLoadModal()">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Multiline Modal -->
+    <div class="modal" id="multilineModal">
+        <div class="modal-content">
+            <div class="modal-header">Multiline Message</div>
+            <textarea class="modal-textarea" id="multilineInput" placeholder="Type your message here..."></textarea>
+            <div class="modal-actions">
+                <button class="action-btn" onclick="closeMultilineModal()">Cancel</button>
+                <button class="action-btn" onclick="sendMultilineMessage()">Send Message</button>
+            </div>
+            <div style="margin-top: 10px; font-size: 0.85em; color: #6c757d;">
+                💡 Tip: Use Ctrl+Enter to send
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast -->
+    <div class="toast" id="toast"></div>
+
+    <script>
+        // Global state
+        let selectedModel = null;
+        let messages = [];
+        let questions = [];
+        let uploadedFile = null;
+        let uploadedImage = null;
+        let uploadedCodeFiles = [];
+        let currentContextSize = 0;
+        let currentConversationId = null;
+
+        // Session statistics
+        let sessionStats = {
+            totalInputTokens: 0,
+            totalOutputTokens: 0,
+            questionsCount: 0
+        };
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            loadModels();
+            setupEventListeners();
+            loadCurrentConversation();
+            updateCategorySuggestions();
+            
+            // Check if we need to load a conversation from dashboard
+            const loadId = localStorage.getItem('loadConversationId');
+            if (loadId) {
+                localStorage.removeItem('loadConversationId');
+                setTimeout(() => loadConversation(loadId), 500);
+            }
+        });
+
+        function setupEventListeners() {
+            const chatInput = document.getElementById('chatInput');
+            
+            chatInput.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' && e.ctrlKey) {
+                    e.preventDefault();
+                    sendMessage();
+                }
+            });
+
+            chatInput.addEventListener('input', () => {
+                chatInput.style.height = 'auto';
+                chatInput.style.height = chatInput.scrollHeight + 'px';
+            });
+
+            document.getElementById('fileInput').addEventListener('change', handleFileSelect);
+            document.getElementById('imageInput').addEventListener('change', handleImageSelect);
+            document.getElementById('codeInput').addEventListener('change', handleCodeFilesSelect);
+
+            // Close dropdown when clicking outside
+            document.addEventListener('click', (e) => {
+                if (!e.target.closest('.dropdown')) {
+                    document.getElementById('menuDropdown').classList.remove('show');
+                }
+            });
+        }
+
+        async function loadModels() {
+            try {
+                const response = await fetch('/api/models');
+                const data = await response.json();
+                
+                if (data.connected && data.models.length > 0) {
+                    displayModels(data.models);
+                } else {
+                    document.getElementById('modelsList').innerHTML = 
+                        '<div style="color: #ef4444; font-size: 0.85em;">No models found</div>';
+                }
+            } catch (error) {
+                console.error('Error loading models:', error);
+                document.getElementById('modelsList').innerHTML = 
+                    '<div style="color: #ef4444; font-size: 0.85em;">Connection error</div>';
+            }
+        }
+
+        function displayModels(models) {
+            const modelsList = document.getElementById('modelsList');
+            modelsList.innerHTML = '';
+            
+            models.forEach(model => {
+                const modelDiv = document.createElement('div');
+                modelDiv.className = 'model-item';
+                modelDiv.onclick = () => selectModel(model.name, modelDiv);
+                
+                const isVision = model.name.includes('vision') || model.name.includes('llava') || model.name.includes('gemma3');
+                const visionIcon = isVision ? ' 👁️' : '';
+                
+                modelDiv.innerHTML = `
+                    <div class="model-name">${model.name}${visionIcon}</div>
+                    <div class="model-status ${model.status}">${model.status}</div>
+                `;
+                
+                modelsList.appendChild(modelDiv);
+            });
+        }
+
+        async function selectModel(modelName, element) {
+            document.querySelectorAll('.model-item').forEach(el => el.classList.remove('selected'));
+            element.classList.add('selected');
+            selectedModel = modelName;
+            
+            // Update header indicator
+            document.getElementById('selectedModelName').textContent = modelName;
+            
+            await loadModelInfo(modelName);
+            saveCurrentConversation();
+        }
+
+        async function loadModelInfo(modelName) {
+        try {
+            const response = await fetch('/api/show', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: modelName })
+            });
+            
+            const data = await response.json();
+            console.log('📊 Model info keys:', Object.keys(data.model_info || {})); // Логирование для отладки
+            
+            // 1. Parse model size
+            let sizeText = '-';
+            if (data.details && data.details.parameter_size) {
+            sizeText = data.details.parameter_size;
+            }
+            document.getElementById('modelSize').textContent = sizeText;
+            document.getElementById('modelSizeRight').textContent = sizeText;
+            
+            // 2. Parse context size — пробуем все возможные ключи
+            const contextLength = extractContextLength(data.model_info || {});
+            
+            if (contextLength) {
+            currentContextSize = contextLength;
+            const ctxText = formatContextSize(contextLength);
+            document.getElementById('contextSize').textContent = ctxText;
+            document.getElementById('contextSizeRight').textContent = ctxText;
+            console.log(`✅ Context for ${modelName}: ${contextLength} tokens`);
+            } else {
+            // Fallback: используем стандартный контекст Ollama
+            currentContextSize = 4096;
+            document.getElementById('contextSize').textContent = '4K (default)';
+            document.getElementById('contextSizeRight').textContent = '4K (default)';
+            console.log(`⚠️ Context not found for ${modelName}, using default 4096`);
+            }
+        } catch (error) {
+            console.error('Error loading model info:', error);
+        }
+        }
+
+        // Новая функция: ищет контекст во всех возможных ключах
+        function extractContextLength(modelInfo) {
+        if (!modelInfo || typeof modelInfo !== 'object') return null;
+        
+        // Точные ключи (по приоритету)
+        const exactKeys = [
+            'general.context_length',
+            'general.context_size',
+            'llama.context_length',
+            'llama.context_size',
+            'gpt.context_length',
+            'mpt.context_length',
+            'qwen.context_length',
+            'context_length',
+            'context_size'
+        ];
+        
+        for (const key of exactKeys) {
+            if (modelInfo[key] !== undefined && typeof modelInfo[key] === 'number') {
+            return modelInfo[key];
+            }
+        }
+        
+        // Fallback: ищем любой ключ, содержащий "context"
+        for (const [key, value] of Object.entries(modelInfo)) {
+            if (key.toLowerCase().includes('context') && typeof value === 'number') {
+            return value;
+            }
+        }
+        
+        return null;
+        }
+
+        function formatContextSize(tokens) {
+            if (tokens >= 1000000) {
+                return `${(tokens / 1000000).toFixed(1)}M`;
+            } else if (tokens >= 1000) {
+                return `${(tokens / 1000).toFixed(0)}K`;
+            }
+            return tokens.toString();
+        }
+
+        async function sendMessage() {
+            const input = document.getElementById('chatInput');
+            const message = input.value.trim();
+            
+            if (!message || !selectedModel) {
+                if (!selectedModel) {
+                    alert('Please select a model first');
+                }
+                return;
+            }
+
+            input.value = '';
+            input.style.height = 'auto';
+            
+            await processMessage(message);
+        }
+
+        async function processMessage(message) {
+            const sendBtn = document.getElementById('sendBtn');
+            sendBtn.disabled = true;
+            sendBtn.innerHTML = '<span class="loading"></span>';
+
+            const questionIndex = questions.length > 0 
+                ? Math.max(...questions.map(q => q.number)) + 1 
+                : 1;
+            const questionAnchor = `question-${questionIndex}`;
+            
+            // Add user message with current model
+            addUserMessage(message, questionAnchor, questionIndex, selectedModel);
+            
+            // Prepare form data
+            const formData = new FormData();
+            formData.append('message', message);
+            formData.append('model', selectedModel);
+            
+            if (uploadedFile) {
+                formData.append('file', uploadedFile);
+            }
+            
+            if (uploadedImage) {
+                formData.append('file', uploadedImage);
+            }
+            
+            uploadedCodeFiles.forEach((file, index) => {
+                formData.append('codeFiles', file);
+            });
+
+            try {
+                const response = await fetch('/api/chat', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    // Process metrics from server
+                    if (data.metrics) {
+                        updateLastResponseMetrics(data.metrics);
+                        accumulateSessionStats(data.metrics);
+                    }
+
+                    // Update question count
+                    sessionStats.questionsCount++;
+                    document.getElementById('questionCount').textContent = sessionStats.questionsCount;
+
+                    // Add bot response
+                    addBotMessage(data.response, data.model, questionAnchor, questionIndex, data.imageData);
+                    
+                    // Add to questions list
+                    addQuestionToList(questionIndex, selectedModel, questionAnchor, message);
+                    
+                    // Save conversation
+                    saveCurrentConversation();
+                } else {
+                    addBotMessage(`Error: ${data.error}`, selectedModel, questionAnchor, questionIndex);
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                addBotMessage('Connection error. Please try again.', selectedModel, questionAnchor, questionIndex);
+            } finally {
+                sendBtn.disabled = false;
+                sendBtn.textContent = 'Send';
+                clearFileInputs();
+            }
+        }
+
+        function addUserMessage(message, anchor, index, model = null) {
+            const chatMessages = document.getElementById('chatMessages');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'message user-message';
+            messageDiv.id = anchor;
+            
+            const displayModel = model || selectedModel || 'Unknown';
+            
+            // Check if there's a next question
+            const hasNext = questions.some(q => q.number > index) || messages.some(m => m.role === 'user' && m.index > index);
+            const nextBtnClass = hasNext ? 'next-btn' : 'next-btn disabled';
+            const nextBtnTitle = hasNext ? 'Go to next question' : 'No next question';
+            
+            messageDiv.innerHTML = `
+                <div class="message-header">
+                    <div class="message-model">
+                        <span>Q${index} • 🦙 ${escapeHtml(displayModel)}</span>
+                        <button class="${nextBtnClass}" onclick="goToNextQuestion(${index})" title="${nextBtnTitle}">Next Question →</button>
+                    </div>
+                    <div class="message-actions">
+                        <button class="message-action-btn" onclick="copyQuestion(${index})">Copy</button>
+                        <button class="message-action-btn" onclick="deleteMessage(${index})">Delete</button>
+                    </div>
+                </div>
+                <div class="message-text">${formatMarkdown(message)}</div>
+            `;
+            
+            chatMessages.appendChild(messageDiv);
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+            
+            messages.push({ role: 'user', content: message, index: index, model: displayModel });
+        }
+
+        function addBotMessage(message, model, anchor, index, imageData = null) {
+            const chatMessages = document.getElementById('chatMessages');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'message bot-message';
+            messageDiv.dataset.questionIndex = index;
+            
+            let imageHtml = '';
+            if (imageData) {
+                imageHtml = `
+                    <img src="${imageData.thumbnailUrl}" class="image-preview" onclick="showFullImage('${imageData.fullUrl}')" alt="${escapeAttr(imageData.filename)}">
+                    <div class="image-filename">${escapeHtml(imageData.filename)}</div>
+                `;
+            }
+            
+            messageDiv.innerHTML = `
+                <div class="message-header">
+                    <div class="message-model">🦙 ${escapeHtml(model || 'Unknown')}</div>
+                </div>
+                ${imageHtml}
+                <div class="message-text">${formatMarkdown(message)}</div>
+                <div class="message-actions">
+                    <button class="message-action-btn" onclick="copyBoth(${index})">Copy</button>
+                    <button class="message-action-btn" onclick="jumpToQuestion('${anchor}')">Question</button>
+                    <button class="message-action-btn" onclick="deleteMessage(${index})">Delete</button>
+                    <button class="message-action-btn coming-soon" title="Coming Soon">Share</button>
+                    <button class="message-action-btn coming-soon" title="Coming Soon">Telegram</button>
+                    <button class="message-action-btn coming-soon" title="Coming Soon">Notion</button>
+                </div>
+            `;
+            
+            chatMessages.appendChild(messageDiv);
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+            
+            messages.push({ role: 'assistant', content: message, model: model, index: index, imageData: imageData });
+        }
+
+        function addQuestionToList(number, model, anchor, questionText) {
+            const questionsList = document.getElementById('questionsList');
+            
+            if (questions.length === 0) {
+                questionsList.innerHTML = '';
+            }
+            
+            // Truncate question text for display
+            let displayText = questionText || '';
+            if (displayText.length > 250) {
+                displayText = displayText.substring(0, 250) + '...';
+            }
+            // Normalize whitespace for compact display
+            displayText = displayText.replace(/\s+/g, ' ').trim();
+            
+            const questionDiv = document.createElement('div');
+            questionDiv.className = 'question-item';
+            questionDiv.onclick = () => jumpToQuestion(anchor);
+            questionDiv.innerHTML = `
+                <div class="question-number">Q${number} • 🦙 ${escapeHtml(model || 'Unknown')}</div>
+                <div class="question-text">${escapeHtml(displayText)}</div>
+            `;
+            
+            questionsList.appendChild(questionDiv);
+            questions.push({ number, model, anchor, text: questionText });
+        }
+
+        function jumpToQuestion(anchor) {
+            const element = document.getElementById(anchor);
+            if (element) {
+                element.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                // Highlight effect
+                element.style.transition = 'background 0.3s';
+                const originalBg = element.querySelector('.message-content')?.style.background || '';
+                const contentEl = element.querySelector('.message-content') || element;
+                contentEl.style.background = '#fff3cd';
+                setTimeout(() => {
+                    contentEl.style.background = originalBg || '';
+                }, 1500);
+            }
+        }
+
+        function goToNextQuestion(currentIndex) {
+            // Find the next question after currentIndex
+            const nextQuestion = questions.find(q => q.number > currentIndex);
+            if (nextQuestion) {
+                jumpToQuestion(nextQuestion.anchor);
+            } else {
+                showToast('No next question available', '');
+            }
+        }
+
+        function copyQuestion(index) {
+            const question = messages.find(m => m.role === 'user' && m.index === index);
+            if (question) {
+                navigator.clipboard.writeText(question.content);
+                showToast('Question copied to clipboard', 'success');
+            }
+        }
+
+        function copyBoth(index) {
+            const question = messages.find(m => m.role === 'user' && m.index === index);
+            const answer = messages.find(m => m.role === 'assistant' && m.index === index);
+            if (question && answer) {
+                const text = `Question:\n${question.content}\n\nAnswer:\n${answer.content}`;
+                navigator.clipboard.writeText(text);
+                showToast('Q&A copied to clipboard', 'success');
+            }
+        }
+
+        function deleteMessage(index) {
+            if (!confirm('Delete this Q&A pair?')) return;
+            
+            // Remove from DOM
+            const questionEl = document.getElementById(`question-${index}`);
+            const answerEl = document.querySelector(`.bot-message[data-question-index="${index}"]`);
+            
+            if (questionEl) questionEl.remove();
+            if (answerEl) answerEl.remove();
+            
+            // Remove from arrays
+            messages = messages.filter(m => m.index !== index);
+            questions = questions.filter(q => q.number !== index);
+            
+            // Update questions list
+            updateQuestionsList();
+            
+            // Update Next Question buttons
+            updateNextQuestionButtons();
+            
+            // Update stats
+            sessionStats.questionsCount = questions.length;
+            document.getElementById('questionCount').textContent = sessionStats.questionsCount;
+            
+            // Save conversation
+            saveCurrentConversation();
+        }
+
+        function updateNextQuestionButtons() {
+            // Update all "Next Question" buttons in user messages
+            document.querySelectorAll('.user-message').forEach(msgEl => {
+                const id = msgEl.id;
+                if (!id || !id.startsWith('question-')) return;
+                const index = parseInt(id.replace('question-', ''));
+                const btn = msgEl.querySelector('.next-btn');
+                if (!btn) return;
+                
+                const hasNext = questions.some(q => q.number > index);
+                if (hasNext) {
+                    btn.classList.remove('disabled');
+                    btn.title = 'Go to next question';
+                } else {
+                    btn.classList.add('disabled');
+                    btn.title = 'No next question';
+                }
+            });
+        }
+
+        function updateQuestionsList() {
+            const questionsList = document.getElementById('questionsList');
+            questionsList.innerHTML = '';
+            
+            if (questions.length === 0) {
+                questionsList.innerHTML = '<div style="text-align: center; color: #6c757d; padding: 20px;">No questions yet</div>';
+                return;
+            }
+            
+            questions.forEach(q => {
+                let displayText = q.text || '';
+                if (displayText.length > 250) {
+                    displayText = displayText.substring(0, 250) + '...';
+                }
+                displayText = displayText.replace(/\s+/g, ' ').trim();
+                
+                const questionDiv = document.createElement('div');
+                questionDiv.className = 'question-item';
+                questionDiv.onclick = () => jumpToQuestion(q.anchor);
+                questionDiv.innerHTML = `
+                    <div class="question-number">Q${q.number} • 🦙 ${escapeHtml(q.model || 'Unknown')}</div>
+                    <div class="question-text">${escapeHtml(displayText)}</div>
+                `;
+                questionsList.appendChild(questionDiv);
+            });
+        }
+
+        function showFullImage(url) {
+            window.open(url, '_blank');
+        }
+
+        function updateLastResponseMetrics(metrics) {
+            // Generation speed (TPS)
+            document.getElementById('tps').textContent = `${metrics.tps} tok/s`;
+            updateTPSIndicator(metrics.tps);
+            
+            // Prompt reading speed
+            document.getElementById('promptSpeed').textContent = `${metrics.promptTps} tok/s`;
+            
+            // Time to first token
+            document.getElementById('ttft').textContent = `${metrics.ttft}s`;
+            
+            // Model load time
+            document.getElementById('loadTime').textContent = metrics.loadTime > 0 ? `${metrics.loadTime}s` : '-';
+            
+            // Total response time
+            document.getElementById('responseTime').textContent = `${metrics.totalTime}s`;
+        }
+
+        function accumulateSessionStats(metrics) {
+            // Accumulate tokens
+            sessionStats.totalInputTokens += metrics.inputTokens || 0;
+            sessionStats.totalOutputTokens += metrics.outputTokens || 0;
+            
+            // Update display
+            document.getElementById('inputTokens').textContent = `~${sessionStats.totalInputTokens}`;
+            document.getElementById('outputTokens').textContent = `~${sessionStats.totalOutputTokens}`;
+            
+            // Calculate context load
+            if (currentContextSize && currentContextSize > 0) {
+                const loadPercent = Math.round((sessionStats.totalInputTokens / currentContextSize) * 100);
+                const contextLoadEl = document.getElementById('contextLoad');
+                contextLoadEl.textContent = `${loadPercent}%`;
+                
+                // Warning colors
+                contextLoadEl.className = 'stat-value';
+                if (loadPercent > 80) {
+                    contextLoadEl.classList.add('danger');
+                } else if (loadPercent > 60) {
+                    contextLoadEl.classList.add('warning');
+                }
+            }
+        }
+
+        function updateTPSIndicator(tps) {
+            const tpsElement = document.getElementById('tps');
+            
+            if (tps >= 30) {
+                tpsElement.style.color = '#10b981'; // Green - excellent
+            } else if (tps >= 15) {
+                tpsElement.style.color = '#f59e0b'; // Yellow - normal
+            } else {
+                tpsElement.style.color = '#ef4444'; // Red - slow
+            }
+        }
+
+        // Menu functions
+        function toggleMenu() {
+            document.getElementById('menuDropdown').classList.toggle('show');
+        }
+
+        function saveConversation() {
+            document.getElementById('saveModal').classList.add('active');
+            document.getElementById('conversationName').focus();
+        }
+
+        function closeSaveModal() {
+            document.getElementById('saveModal').classList.remove('active');
+            document.getElementById('conversationName').value = '';
+            document.getElementById('conversationCategory').value = '';
+        }
+
+        function confirmSave() {
+            const name = document.getElementById('conversationName').value.trim();
+            const category = document.getElementById('conversationCategory').value.trim() || 'General';
+            
+            if (!name) {
+                alert('Please enter a conversation name');
+                return;
+            }
+            
+            const conversation = {
+                id: currentConversationId || Date.now().toString(),
+                name: name,
+                category: category,
+                messages: messages,
+                questions: questions,
+                model: selectedModel,
+                sessionStats: sessionStats,
+                timestamp: new Date().toISOString()
+            };
+            
+            const savedConversations = JSON.parse(localStorage.getItem('savedConversations') || '[]');
+            
+            if (currentConversationId) {
+                const index = savedConversations.findIndex(c => c.id === currentConversationId);
+                if (index !== -1) {
+                    savedConversations[index] = conversation;
+                } else {
+                    savedConversations.push(conversation);
+                }
+            } else {
+                savedConversations.push(conversation);
+            }
+            
+            localStorage.setItem('savedConversations', JSON.stringify(savedConversations));
+            currentConversationId = conversation.id;
+            
+            closeSaveModal();
+            updateCategorySuggestions();
+            showToast('Conversation saved!', 'success');
+        }
+
+        function showLoadModal() {
+            const savedConversations = JSON.parse(localStorage.getItem('savedConversations') || '[]');
+            const list = document.getElementById('savedConversationsList');
+            
+            if (savedConversations.length === 0) {
+                list.innerHTML = '<div style="text-align: center; color: #6c757d; padding: 20px;">No saved conversations</div>';
+            } else {
+                list.innerHTML = savedConversations.map(conv => `
+                    <div style="padding: 12px; background: #f8f9fa; border-radius: 6px; margin-bottom: 8px; cursor: pointer; transition: all 0.2s;" 
+                         onclick="loadConversation('${conv.id}')"
+                         onmouseover="this.style.background='#e9ecef'"
+                         onmouseout="this.style.background='#f8f9fa'">
+                        <div style="font-weight: 600;">${escapeHtml(conv.name)}</div>
+                        <div style="font-size: 0.8em; color: #6c757d;">${escapeHtml(conv.category)} • ${new Date(conv.timestamp).toLocaleDateString()} • ${(conv.messages || []).filter(m => m.role === 'user').length} questions</div>
+                    </div>
+                `).join('');
+            }
+            
+            document.getElementById('loadModal').classList.add('active');
+        }
+
+        function closeLoadModal() {
+            document.getElementById('loadModal').classList.remove('active');
+        }
+
+        function loadConversation(id) {
+            const savedConversations = JSON.parse(localStorage.getItem('savedConversations') || '[]');
+            const conversation = savedConversations.find(c => c.id === id);
+            
+            if (!conversation) return;
+            
+            // Save current conversation as backup
+            if (messages.length > 0) {
+                localStorage.setItem('currentConversationBackup', JSON.stringify({
+                    messages, questions, selectedModel, sessionStats, currentConversationId
+                }));
+            }
+            
+            // Load conversation
+            messages = conversation.messages || [];
+            questions = conversation.questions || [];
+            selectedModel = conversation.model;
+            sessionStats = conversation.sessionStats || {
+                totalInputTokens: 0,
+                totalOutputTokens: 0,
+                questionsCount: questions.length
+            };
+            currentConversationId = conversation.id;
+            
+            // Update UI
+            renderConversation();
+            closeLoadModal();
+        }
+
+        function returnToCurrent() {
+            const backup = localStorage.getItem('currentConversationBackup');
+            if (backup) {
+                const data = JSON.parse(backup);
+                messages = data.messages || [];
+                questions = data.questions || [];
+                selectedModel = data.selectedModel;
+                sessionStats = data.sessionStats || {
+                    totalInputTokens: 0,
+                    totalOutputTokens: 0,
+                    questionsCount: questions.length
+                };
+                currentConversationId = data.currentConversationId || null;
+                
+                renderConversation();
+                localStorage.removeItem('currentConversationBackup');
+                showToast('Returned to current conversation', 'success');
+            } else {
+                showToast('No backup conversation available', 'error');
+            }
+        }
+
+        function renderConversation() {
+            const chatMessages = document.getElementById('chatMessages');
+            chatMessages.innerHTML = '';
+            
+            // Reset questions list and array
+            questions = [];
+            document.getElementById('questionsList').innerHTML = '';
+            
+            if (messages.length === 0) {
+                chatMessages.innerHTML = `
+                    <div style="text-align: center; color: #6c757d; padding: 40px;">
+                        <div style="font-size: 3em; margin-bottom: 20px;">🦙</div>
+                        <div style="font-size: 1.2em; margin-bottom: 10px;">Welcome to Ollama Chat</div>
+                        <div>Select a model and start chatting!</div>
+                    </div>
+                `;
+                // Reset stats display
+                document.getElementById('questionCount').textContent = '0';
+                return;
+            }
+            
+            // Render all messages and rebuild questions list
+            messages.forEach(msg => {
+                if (msg.role === 'user') {
+                    const anchor = `question-${msg.index}`;
+                    addUserMessage(msg.content, anchor, msg.index, msg.model);
+                    addQuestionToList(msg.index, msg.model || selectedModel || 'Unknown', anchor, msg.content);
+                } else {
+                    const anchor = `question-${msg.index}`;
+                    addBotMessage(msg.content, msg.model, anchor, msg.index, msg.imageData);
+                }
+            });
+            
+            // Update stats display
+            document.getElementById('questionCount').textContent = sessionStats.questionsCount || questions.length;
+            document.getElementById('inputTokens').textContent = `~${sessionStats.totalInputTokens || 0}`;
+            document.getElementById('outputTokens').textContent = `~${sessionStats.totalOutputTokens || 0}`;
+            
+            // Update model selection
+            if (selectedModel) {
+                document.getElementById('selectedModelName').textContent = selectedModel;
+                
+                const modelItems = document.querySelectorAll('.model-item');
+                modelItems.forEach(item => {
+                    const nameEl = item.querySelector('.model-name');
+                    if (nameEl && nameEl.textContent.trim().replace(' 👁️', '') === selectedModel) {
+                        item.classList.add('selected');
+                    } else {
+                        item.classList.remove('selected');
+                    }
+                });
+                
+                // Load model info
+                loadModelInfo(selectedModel);
+            }
+            
+            // Update Next Question buttons
+            updateNextQuestionButtons();
+        }
+
+        function clearChat() {
+            if (!confirm('Clear current chat?')) return;
+            
+            document.getElementById('chatMessages').innerHTML = `
+                <div style="text-align: center; color: #6c757d; padding: 40px;">
+                    <div style="font-size: 3em; margin-bottom: 20px;">🦙</div>
+                    <div style="font-size: 1.2em; margin-bottom: 10px;">Welcome to Ollama Chat</div>
+                    <div>Select a model and start chatting!</div>
+                </div>
+            `;
+            
+            document.getElementById('questionsList').innerHTML = `
+                <div style="text-align: center; color: #6c757d; padding: 20px;">
+                    No questions yet
+                </div>
+            `;
+            
+            messages = [];
+            questions = [];
+            currentConversationId = null;
+            
+            // Reset session statistics
+            sessionStats = {
+                totalInputTokens: 0,
+                totalOutputTokens: 0,
+                questionsCount: 0
+            };
+            
+            // Reset display
+            document.getElementById('questionCount').textContent = '0';
+            document.getElementById('inputTokens').textContent = '~0';
+            document.getElementById('outputTokens').textContent = '~0';
+            document.getElementById('contextLoad').textContent = '0%';
+            document.getElementById('contextLoad').className = 'stat-value';
+            document.getElementById('tps').textContent = '-';
+            document.getElementById('promptSpeed').textContent = '-';
+            document.getElementById('ttft').textContent = '-';
+            document.getElementById('loadTime').textContent = '-';
+            document.getElementById('responseTime').textContent = '-';
+            
+            localStorage.removeItem('currentConversation');
+        }
+
+        function exportConversation() {
+            if (messages.length === 0) {
+                alert('No messages to export');
+                return;
+            }
+            
+            const exportData = {
+                messages: messages,
+                questions: questions,
+                model: selectedModel,
+                sessionStats: sessionStats,
+                timestamp: new Date().toISOString()
+            };
+            
+            const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `conversation-${Date.now()}.json`;
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+
+        function saveCurrentConversation() {
+            if (messages.length > 0) {
+                localStorage.setItem('currentConversation', JSON.stringify({
+                    messages, questions, selectedModel, sessionStats, currentConversationId
+                }));
+            }
+        }
+
+        function loadCurrentConversation() {
+            const saved = localStorage.getItem('currentConversation');
+            if (saved) {
+                try {
+                    const data = JSON.parse(saved);
+                    messages = data.messages || [];
+                    questions = data.questions || [];
+                    selectedModel = data.selectedModel;
+                    sessionStats = data.sessionStats || sessionStats;
+                    currentConversationId = data.currentConversationId || null;
+                    
+                    renderConversation();
+                } catch (e) {
+                    console.error('Error loading current conversation:', e);
+                }
+            }
+        }
+
+        function updateCategorySuggestions() {
+            const savedConversations = JSON.parse(localStorage.getItem('savedConversations') || '[]');
+            const categories = [...new Set(savedConversations.map(c => c.category).filter(Boolean))];
+            const datalist = document.getElementById('categorySuggestions');
+            datalist.innerHTML = categories.map(cat => `<option value="${escapeAttr(cat)}">`).join('');
+        }
+
+        // File handling functions
+        function handleFileSelect(e) {
+            const file = e.target.files[0];
+            if (file) {
+                uploadedFile = file;
+                showFilePreview(file.name, file.size);
+            }
+        }
+
+        function handleImageSelect(e) {
+            const file = e.target.files[0];
+            if (file) {
+                uploadedImage = file;
+                showFilePreview(file.name, file.size);
+            }
+        }
+
+        function handleCodeFilesSelect(e) {
+            const files = Array.from(e.target.files);
+            uploadedCodeFiles = [...uploadedCodeFiles, ...files];
+            showFilePreview(`${uploadedCodeFiles.length} code file(s)`, null);
+        }
+
+        function showFilePreview(name, size) {
+            const preview = document.getElementById('filePreview');
+            preview.className = 'file-preview active';
+            preview.innerHTML = `📎 ${escapeHtml(name)}${size ? ` (${formatFileSize(size)})` : ''} <button onclick="clearFileInputs()" style="margin-left: 10px; background: none; border: none; color: #ef4444; cursor: pointer;">✕</button>`;
+        }
+
+        function clearFileInputs() {
+            uploadedFile = null;
+            uploadedImage = null;
+            uploadedCodeFiles = [];
+            document.getElementById('fileInput').value = '';
+            document.getElementById('imageInput').value = '';
+            document.getElementById('codeInput').value = '';
+            document.getElementById('filePreview').className = 'file-preview';
+        }
+
+        function formatFileSize(bytes) {
+            if (bytes < 1024) return bytes + ' B';
+            if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+            return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+        }
+
+        function openMultilineModal() {
+            document.getElementById('multilineModal').classList.add('active');
+            document.getElementById('multilineInput').focus();
+        }
+
+        function closeMultilineModal() {
+            document.getElementById('multilineModal').classList.remove('active');
+            document.getElementById('multilineInput').value = '';
+        }
+
+        function sendMultilineMessage() {
+            const message = document.getElementById('multilineInput').value.trim();
+            if (message && selectedModel) {
+                closeMultilineModal();
+                processMessage(message);
+            } else if (!selectedModel) {
+                alert('Please select a model first');
+            }
+        }
+
+        // Toast notification
+        function showToast(message, type = '') {
+            const toast = document.getElementById('toast');
+            toast.textContent = message;
+            toast.className = 'toast show ' + type;
+            setTimeout(() => {
+                toast.className = 'toast ' + type;
+            }, 2500);
+        }
+
+        // Utility functions
+        function escapeHtml(text) {
+            if (text == null) return '';
+            const div = document.createElement('div');
+            div.textContent = String(text);
+            return div.innerHTML;
+        }
+
+        function escapeAttr(text) {
+            if (text == null) return '';
+            return String(text).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/'/g, '&#39;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        }
+
+        function formatMarkdown(text) {
+            if (!text) return '';
+            let formatted = escapeHtml(text);
+            
+            // Extract code blocks first to preserve them
+            const codeBlocks = [];
+            formatted = formatted.replace(/```(\w*)\n?([\s\S]*?)```/g, (match, lang, code) => {
+                const placeholder = `__CODE_BLOCK_${codeBlocks.length}__`;
+                codeBlocks.push(`<pre><code class="language-${lang}">${code.trim()}</code></pre>`);
+                return placeholder;
+            });
+            
+            // Inline code
+            formatted = formatted.replace(/`([^`\n]+)`/g, '<code>$1</code>');
+            
+            // Headers
+            formatted = formatted.replace(/^### (.*$)/gim, '<h3>$1</h3>');
+            formatted = formatted.replace(/^## (.*$)/gim, '<h2>$1</h2>');
+            formatted = formatted.replace(/^# (.*$)/gim, '<h1>$1</h1>');
+            
+            // Bold
+            formatted = formatted.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+            
+            // Italic
+            formatted = formatted.replace(/(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)/g, '<em>$1</em>');
+            
+            // Line breaks (code blocks already extracted)
+            formatted = formatted.replace(/\n/g, '<br>');
+            
+            // Restore code blocks
+            codeBlocks.forEach((block, i) => {
+                formatted = formatted.replace(`__CODE_BLOCK_${i}__`, block);
+            });
+            
+            return formatted;
+        }
+    </script>
+</body>
+</html>
