@@ -43,6 +43,15 @@ A modern web chat interface for local LLM providers with advanced model manageme
 - **Navigation buttons**: Previous/Next question jumps
 - Questions navigation panel with model names for easy conversation browsing
 
+### 🧠 Conversational Context (Session Memory)
+
+- Persistent conversation sessions keyed by `sessionId` stored in localStorage
+- Backend session store (`sessionService.js`) maintains full message history per session
+- Each request sends the complete message array to the provider's `/api/chat` endpoint, giving the LLM awareness of prior exchanges
+- Automatic context truncation: when total message characters exceed `contextLength * 4`, oldest entries are removed (with 20% safety margin)
+- Session cleanup: sessions unused for 30+ minutes are automatically removed every 5 minutes
+- Clear chat removes both the frontend conversation state and the backend session
+
 ### 💾 Conversation Persistence
 
 - Auto-save current session (survives page reload)
@@ -236,8 +245,12 @@ Your current conversation auto-saves and restores on page reload.
 - `GET /api/models` — List all available models from active provider (requires `X-Provider` header)
 - `POST /api/show` — Get detailed model information including context window size
 
+### Sessions
+- `POST /api/chat/session` — Create a new conversation session, returns `{ sessionId }`
+- `DELETE /api/chat/session` — Clear a session (accepts `{ sessionId }` in request body)
+
 ### Chat
-- `POST /api/chat` — Send message to selected model (multipart/form-data, requires `X-Provider` header)
+- `POST /api/chat` — Send message to selected model (multipart/form-data, requires `X-Provider` header). Accepts `sessionId` and `contextLength` in body for context-aware responses.
 
 ### Images
 - `GET /api/images/:imageId/:type` — Serve uploaded images (full/thumb)
@@ -287,7 +300,8 @@ server/
 │   │   ├── fileService.js          # PDF/DOC/XLS/code processing
 │   │   ├── imageService.js         # Image save/delete
 │   │   ├── webService.js           # URL content extraction
-│   │   └── metricsService.js       # Metrics normalization
+│   │   ├── metricsService.js       # Metrics normalization
+│   │   └── sessionService.js       # In-memory session store with history & truncation
 │   │
 │   ├── routes/
 │   │   ├── chatRoutes.js

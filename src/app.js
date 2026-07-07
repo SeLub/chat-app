@@ -34,10 +34,13 @@ import imageRoutes from './routes/imageRoutes.js';
 import { showModelHandler } from './controllers/modelController.js';
 import { providerMiddleware } from './middleware/providerMiddleware.js';
 import { getProvider, listProviders, getDefaultProviderName } from './providers/providerManager.js';
+import { startSessionCleanup } from './services/sessionService.js';
 
 app.use('/api/models', modelRoutes);
 app.use('/api/chat', chatRoutes);
 app.use('/api/images', imageRoutes);
+
+startSessionCleanup();
 app.use((err, req, res, next) => {
     // Ошибки подключения к провайдеру
     if (err.code === 'ECONNREFUSED' || err.code === 'ENOTFOUND' || err.code === 'ETIMEDOUT') {
