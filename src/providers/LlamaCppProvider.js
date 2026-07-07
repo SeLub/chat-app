@@ -266,6 +266,45 @@ export class LlamaCppProvider extends BaseProvider {
                 throw new Error(`Chat error: ${response.statusText}`);
             }
 
+            if (stream && response.body) {
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let done = false;
+                let fullResponse = '';
+                let lastMetrics = null;
+
+                while (!done) {
+                    const { value, done: readDone } = await reader.read();
+                    done = readDone;
+
+                    if (value) {
+                        const chunk = decoder.decode(value, { stream: true });
+                        const lines = chunk.split('\n').filter(l => l.startsWith('data: ') && l !== 'data: [DONE]');
+
+                        for (const line of lines) {
+                            try {
+                                const dataStr = line.slice(6);
+                                const data = JSON.parse(dataStr);
+                                const delta = data.choices?.[0]?.delta?.content;
+                                if (delta) {
+                                    fullResponse += delta;
+                                }
+                                if (data.usage) {
+                                    lastMetrics = extractLlamaCppMetrics(data);
+                                }
+                            } catch (e) {
+                                log.debug('Failed to parse SSE chunk', { line });
+                            }
+                        }
+                    }
+                }
+
+                return {
+                    response: fullResponse,
+                    metrics: lastMetrics || {}
+                };
+            }
+
             const data = await response.json();
             const content = data.choices?.[0]?.message?.content || '';
 

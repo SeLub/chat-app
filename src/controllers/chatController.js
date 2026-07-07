@@ -4,6 +4,7 @@ import { processUrlsFromText } from '../services/webService.js';
 import { saveImageFiles } from '../services/imageService.js';
 import { isImageFile } from '../utils/imageUtils.js';
 import { createLogger } from '../utils/logger.js';
+import { storeMessage, getHistory, truncateToContext } from '../services/sessionService.js';
 
 const log = createLogger('ChatController');
 
@@ -87,12 +88,26 @@ export async function chatHandler(req, res) {
             }
         }
 
+        const sessionId = req.body.sessionId;
+        const contextLength = parseInt(req.body.contextLength, 10) || 131072;
+
+        if (!sessionId) {
+            return res.status(400).json({ error: 'sessionId is required. Create a session via POST /api/chat/session first.' });
+        }
+
         try {
-            const result = await req.provider.generate({
+            storeMessage(sessionId, { role: 'user', content: message, model });
+
+            let messages = getHistory(sessionId);
+            messages = truncateToContext(messages, contextLength);
+
+            const result = await req.provider.chat({
                 model,
-                prompt: message,
+                messages,
                 stream: false
             });
+
+            storeMessage(sessionId, { role: 'assistant', content: result.response, model });
 
             res.json({
                 response: result.response,

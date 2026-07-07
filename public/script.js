@@ -14,20 +14,42 @@ let uploadedImages = [];
 let uploadedCodeFiles = [];
 let questionCounter = 0;
 let statusRefreshInterval = null;
+let currentSessionId = null;
+let currentContextLength = null;
 
 // === Initialize ===
-window.addEventListener('DOMContentLoaded', () => {
+window.addEventListener('DOMContentLoaded', async () => {
     log.info('Initializing application');
     loadSelectedProvider();
     loadModels();
     loadCurrentConversation();
     setupEventListeners();
     
+    await ensureSession();
+    
     // Запускаем периодическое обновление статуса провайдеров
     refreshProviderStatus();
     statusRefreshInterval = setInterval(refreshProviderStatus, 30000);
     log.info('Provider status refresh started (every 30s)');
 });
+
+async function ensureSession() {
+    const saved = localStorage.getItem('sessionId');
+    if (saved) {
+        currentSessionId = saved;
+        log.info('Restored session', { sessionId: saved.slice(0, 8) });
+        return;
+    }
+    try {
+        const response = await fetch('/api/chat/session', { method: 'POST' });
+        const data = await response.json();
+        currentSessionId = data.sessionId;
+        localStorage.setItem('sessionId', currentSessionId);
+        log.info('Created new session', { sessionId: currentSessionId.slice(0, 8) });
+    } catch (error) {
+        log.error('Failed to create session', error);
+    }
+}
 
 // === Provider Management ===
 function loadSelectedProvider() {
@@ -174,6 +196,7 @@ function handleModelSelect() {
     
     if (!selectedOption || !selectedOption.value) {
         currentModel = null;
+        currentContextLength = null;
         updateModelInfo();
         return;
     }
@@ -262,12 +285,14 @@ async function updateModelInfo() {
         }
         
         modelContextEl.textContent = contextLength ? contextLength : '-';
+        currentContextLength = contextLength || null;
         log.debug('Model info updated', { size: modelSizeEl.textContent, ctx: modelContextEl.textContent });
         
     } catch (error) {
         log.error('Error loading model info', error);
         modelSizeEl.textContent = '-';
         modelContextEl.textContent = '-';
+        currentContextLength = null;
     }
 }
 
@@ -288,6 +313,12 @@ async function sendMessage() {
     const formData = new FormData();
     formData.append('message', message);
     formData.append('model', currentModel);
+    if (currentSessionId) {
+        formData.append('sessionId', currentSessionId);
+    }
+    if (currentContextLength) {
+        formData.append('contextLength', currentContextLength);
+    }
     
     if (uploadedFile) {
         formData.append('file', uploadedFile);
@@ -708,10 +739,10 @@ function loadCurrentConversation() {
     
     currentConversation.forEach(msg => renderMessage(msg));
     
-    log.info(`Restored conversation: ${currentConversation.length} messages, ${questions.length} questions`);
+    log.info(`Restored conversation from localStorage: ${currentConversation.length} messages, ${questions.length} questions`);
 }
 
-function clearChat() {
+async function clearChat() {
     if (!confirm('Clear current chat?')) return;
     
     currentConversation = [];
@@ -722,6 +753,20 @@ function clearChat() {
     localStorage.removeItem('questionCounter');
     localStorage.removeItem('currentModel');
     localStorage.removeItem('currentProvider');
+    
+    if (currentSessionId) {
+        try {
+            await fetch('/api/chat/session', {
+                method: 'DELETE',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ sessionId: currentSessionId })
+            });
+        } catch (error) {
+            log.error('Failed to clear session', error);
+        }
+        localStorage.removeItem('sessionId');
+        currentSessionId = null;
+    }
     
     document.getElementById('chatMessages').innerHTML = `
         <div class="message bot-message">
