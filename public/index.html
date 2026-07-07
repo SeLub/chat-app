@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Ollama Chat</title>
+    <title>Multi-Provider AI Chat</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -26,7 +26,7 @@
         <div class="middle-panel">
             <div class="chat-header">
                 <div class="selected-model-indicator">
-                    <span class="model-icon">🦙</span>
+                    <span class="model-icon">🤖</span>
                     <span class="model-name" id="selectedModelName">No model selected</span>
                     <div class="model-info-inline">
                         <span class="info-badge">
@@ -58,9 +58,9 @@
                 <div class="message bot-message">
                     <div class="message-content">
                         <div class="message-header">
-                            <div class="message-model">🦙 Ollama Chat</div>
+                            <div class="message-model">🤖 AI Chat</div>
                         </div>
-                        <div class="message-text">Welcome to Ollama Chat! Select a model and start chatting!</div>
+                        <div class="message-text">Welcome! Select a provider and model, then start chatting.</div>
                     </div>
                 </div>
             </div>
@@ -87,75 +87,91 @@
             </div>
         </div>
 
-        <!-- Right Panel: Models -->
+        <!-- Right Panel: Models & Statistics -->
         <div class="right-panel">
-            <div class="panel-header">
-                🦙 Models
+            <!-- Section 1: Models -->
+            <div class="right-section models-section-container">
+                <div class="section-header">
+                    🤖 Models
+                </div>
+                <div class="section-content">
+                    <!-- Provider Selection -->
+                    <div class="provider-selection">
+                        <h3>Provider</h3>
+                        <div class="provider-radios">
+                            <label class="radio-label" data-provider="ollama">
+                                <input type="radio" name="provider" value="ollama" checked onchange="handleProviderChange()">
+                                <span class="provider-name">Ollama</span>
+                                <span class="status-indicator" id="status-ollama" title="Checking...">
+                                    <span class="status-dot"></span>
+                                </span>
+                            </label>
+                            <label class="radio-label" data-provider="llama_cpp">
+                                <input type="radio" name="provider" value="llama_cpp" onchange="handleProviderChange()">
+                                <span class="provider-name">llama.cpp</span>
+                                <span class="status-indicator" id="status-llama_cpp" title="Checking...">
+                                    <span class="status-dot"></span>
+                                </span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <!-- Model Selection -->
+                    <div class="model-selection">
+                        <h3>Select Model</h3>
+                        <select class="model-dropdown" id="modelDropdown" onchange="handleModelSelect()">
+                            <option value="">Loading models...</option>
+                        </select>
+                    </div>
+                </div>
             </div>
-            <div class="panel-content">
-                <!-- Provider Selection -->
-                <div class="provider-selection">
-                    <h3>Provider</h3>
-                    <div class="provider-radios">
-                        <label class="radio-label">
-                            <input type="radio" name="provider" value="ollama" checked onchange="handleProviderChange()">
-                            <span>Ollama</span>
-                        </label>
-                        <label class="radio-label">
-                            <input type="radio" name="provider" value="llama_cpp" onchange="handleProviderChange()">
-                            <span>llama.cpp</span>
-                        </label>
-                    </div>
-                </div>
 
-                <!-- Model Selection -->
-                <div class="model-selection">
-                    <h3>Select Model</h3>
-                    <select class="model-dropdown" id="modelDropdown" onchange="handleModelSelect()">
-                        <option value="">Loading models...</option>
-                    </select>
+            <!-- Section 2: Statistics -->
+            <div class="right-section stats-section-container">
+                <div class="section-header">
+                    📊 Statistics
                 </div>
-
-                <!-- Statistics -->
-                <div class="stats-section">
-                    <h3>Session Stats</h3>
-                    <div class="stat-item">
-                        <span class="stat-label">Questions:</span>
-                        <span class="stat-value" id="questionCount">0</span>
-                    </div>
-                    <div class="stat-item">
-                        <span class="stat-label">Input Tokens:</span>
-                        <span class="stat-value" id="inputTokens">~0</span>
-                    </div>
-                    <div class="stat-item">
-                        <span class="stat-label">Output Tokens:</span>
-                        <span class="stat-value" id="outputTokens">~0</span>
-                    </div>
-                    <div class="stat-item">
-                        <span class="stat-label">Context Load:</span>
-                        <span class="stat-value" id="contextLoad">0%</span>
-                    </div>
-                    
-                    <h3>Last Response</h3>
-                    <div class="stat-item">
-                        <span class="stat-label">TPS:</span>
-                        <span class="stat-value" id="tps">-</span>
-                    </div>
-                    <div class="stat-item">
-                        <span class="stat-label">Prompt Speed:</span>
-                        <span class="stat-value" id="promptSpeed">-</span>
-                    </div>
-                    <div class="stat-item">
-                        <span class="stat-label">TTFT:</span>
-                        <span class="stat-value" id="ttft">-</span>
-                    </div>
-                    <div class="stat-item">
-                        <span class="stat-label">Load Time:</span>
-                        <span class="stat-value" id="loadTime">-</span>
-                    </div>
-                    <div class="stat-item">
-                        <span class="stat-label">Total Time:</span>
-                        <span class="stat-value" id="totalTime">-</span>
+                <div class="section-content">
+                    <div class="stats-section">
+                        <h3>Session Stats</h3>
+                        <div class="stat-item">
+                            <span class="stat-label">Questions:</span>
+                            <span class="stat-value" id="questionCount">0</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">Input Tokens:</span>
+                            <span class="stat-value" id="inputTokens">~0</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">Output Tokens:</span>
+                            <span class="stat-value" id="outputTokens">~0</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">Context Load:</span>
+                            <span class="stat-value" id="contextLoad">0%</span>
+                        </div>
+                        
+                        <h3>Last Response</h3>
+                        <div class="stat-item">
+                            <span class="stat-label">TPS:</span>
+                            <span class="stat-value" id="tps">-</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">Prompt Speed:</span>
+                            <span class="stat-value" id="promptSpeed">-</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">TTFT:</span>
+                            <span class="stat-value" id="ttft">-</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">Load Time:</span>
+                            <span class="stat-value" id="loadTime">-</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">Total Time:</span>
+                            <span class="stat-value" id="totalTime">-</span>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -201,6 +217,7 @@
 
     <div class="toast" id="toast"></div>
 
+    <script src="logger.js"></script>
     <script src="script.js"></script>
 </body>
 </html>

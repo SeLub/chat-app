@@ -4,218 +4,320 @@
 import fetch from 'node-fetch';
 import { BaseProvider } from './BaseProvider.js';
 import { extractLlamaCppMetrics } from '../services/metricsService.js';
+import { createLogger } from '../utils/logger.js';
+
+const log = createLogger('LlamaCppProvider');
 
 export class LlamaCppProvider extends BaseProvider {
-  constructor(name, config) {
-    super(name, config);
-  }
+    constructor(name, config) {
+        super(name, config);
+    }
 
-  /**
-   * Получает список доступных моделей через /slots
-   * llama.cpp server обычно загружает одну модель, но мы адаптируем интерфейс
-   */
-  async getModels() {
-    try {
-      console.log('Checking llama.cpp connection...');
-      
-      // Пробуем получить информацию через /slots
-      const slotsResponse = await fetch(`${this.url}/slots`);
-      
-      if (!slotsResponse.ok) {
-        // Если /slots недоступен, пробуем /props
-        const propsResponse = await fetch(`${this.url}/props`);
-        
-        if (!propsResponse.ok) {
-          throw new Error('llama.cpp server not responding');
+    /**
+     * Получает список моделей через /v1/models (OpenAI-совместимый API)
+     * Возвращает РЕАЛЬНОЕ имя модели + размер + контекст
+     */
+    async getModels() {
+        try {
+            log.info('Checking llama.cpp connection...');
+
+            // Основной источник — /v1/models (OpenAI-совместимый)
+            const modelsResponse = await fetch(`${this.url}/v1/models`);
+
+            if (!modelsResponse.ok) {
+                log.warn(`/v1/models unavailable (${modelsResponse.status}), trying /props`);
+                return await this._getModelsFallback();
+            }
+
+            const data = await modelsResponse.json();
+            const modelsList = data.data || data.models || [];
+
+            if (modelsList.length === 0) {
+                log.warn('No models returned from /v1/models');
+                return await this._getModelsFallback();
+            }
+
+            // Получаем статус слотов (для определения running/available)
+            let slots = [];
+            try {
+                const slotsResponse = await fetch(`${this.url}/slots`);
+                if (slotsResponse.ok) {
+                    slots = await slotsResponse.json();
+                }
+            } catch (e) {
+                log.debug('Could not fetch /slots', { error: e.message });
+            }
+
+            const models = modelsList.map((m, index) => {
+                // Реальное имя модели из /v1/models
+                const realName = m.id || m.name || m.model || `llama-cpp-model-${index}`;
+                
+                // Метаданные из /v1/models
+                const meta = m.meta || {};
+                
+                // Размер в байтах (если есть)
+                const size = meta.size || 0;
+                
+                // Контекст: n_ctx из meta, иначе из default_generation_settings
+                const contextLength = meta.n_ctx || null;
+                
+                // Обучающий контекст (максимальный, для которого модель обучалась)
+                const trainContext = meta.n_ctx_train || null;
+                
+                // Количество параметров
+                const nParams = meta.n_params || null;
+                
+                // Определяем статус: если есть слоты и они обрабатывают — running
+                const slot = slots[index];
+                const status = slot?.is_processing ? 'running' : 'available';
+
+                return {
+                    name: realName,
+                    size: size,
+                    status: status,
+                    type: this.detectModelType(realName),
+                    contextLength: contextLength,
+                    // Дополнительная полезная информация для UI
+                    meta: {
+                        trainContext: trainContext,
+                        nParams: nParams,
+                        nVocab: meta.n_vocab || null,
+                        nEmbd: meta.n_embd || null,
+                        format: m.format || meta.format || 'gguf',
+                        quantization: meta.quantization || null,
+                        family: meta.family || null,
+                        aliases: m.aliases || [],
+                        capabilities: m.capabilities || [],
+                    }
+                };
+            });
+
+            log.info(`Found ${models.length} model(s) in llama.cpp`, {
+                models: models.map(m => m.name)
+            });
+
+            return { models, connected: true };
+        } catch (error) {
+            log.error('llama.cpp models API error', { error: error.message });
+            return { models: [], connected: false };
         }
-        
-        const props = await propsResponse.json();
-        
-        // Создаём виртуальный список моделей на основе загруженной модели
-        const models = [{
-          name: props.model || 'llama-cpp-model',
-          size: 0, // llama.cpp не всегда возвращает размер
-          status: 'running',
-          type: 'text', // По умолчанию текстовая модель
-          contextLength: props.n_ctx || 2048
-        }];
-        
-        return { models, connected: true };
-      }
-      
-      const slots = await slotsResponse.json();
-      
-      // Извлекаем информацию о загруженных моделях из slots
-      const models = slots.map((slot, index) => ({
-        name: slot.model || `llama-cpp-slot-${index}`,
-        size: 0,
-        status: slot.is_processing ? 'running' : 'available',
-        type: this.detectModelType(slot.model || ''),
-        contextLength: slot.n_ctx || 2048
-      }));
-      
-      // Если нет слотов, создаём виртуальную модель
-      if (models.length === 0) {
-        models.push({
-          name: 'llama-cpp-model',
-          size: 0,
-          status: 'running',
-          type: 'text',
-          contextLength: 2048
-        });
-      }
-      
-      return { models, connected: true };
-    } catch (error) {
-      console.error('llama.cpp models API error:', error.message);
-      return { models: [], connected: false };
     }
-  }
 
-  /**
-   * Получает детальную информацию о модели через /props
-   */
-  async showModel(name) {
-    try {
-      const response = await fetch(`${this.url}/props`);
-      
-      if (!response.ok) {
-        throw new Error('Failed to get model information');
-      }
-      
-      const props = await response.json();
-      
-      // Контекст: если n_ctx установлен — показываем его, иначе null (UI покажет "-")
-      const contextLength = props.n_ctx || null;
-      
-      return {
-        model: props.model || name,
-        parameters: {
-          context_length: contextLength,
-          n_gpu_layers: props.n_gpu_layers || 0,
-          n_batch: props.n_batch || 512
-        },
-        template: props.chat_template || '',
-        modelfile: `# llama.cpp model\n${props.model || 'Unknown'}`
-      };
-    } catch (error) {
-      console.error('Show model error:', error);
-      throw error;
+    /**
+     * Fallback: если /v1/models недоступен, используем /props
+     */
+    async _getModelsFallback() {
+        try {
+            const propsResponse = await fetch(`${this.url}/props`);
+            if (!propsResponse.ok) {
+                throw new Error('llama.cpp server not responding');
+            }
+
+            const props = await propsResponse.json();
+            const modelName = props.model || 'llama-cpp-model';
+            const contextLength = props.n_ctx || null;
+
+            return {
+                models: [{
+                    name: modelName,
+                    size: 0,
+                    status: 'running',
+                    type: this.detectModelType(modelName),
+                    contextLength: contextLength,
+                    meta: {}
+                }],
+                connected: true
+            };
+        } catch (error) {
+            log.error('llama.cpp fallback failed', { error: error.message });
+            return { models: [], connected: false };
+        }
     }
-  }
 
-  /**
-   * Генерирует ответ на промпт через /completion
-   */
-  async generate({ model, prompt, stream = false }) {
-    try {
-      console.log('Sending request to llama.cpp...');
-      
-      const response = await fetch(`${this.url}/completion`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          prompt: prompt,
-          n_predict: -1, // Без лимита токенов
-          stream: stream,
-          temperature: 0.7,
-          top_k: 40,
-          top_p: 0.95,
-          repeat_penalty: 1.1
-        })
-      });
+    /**
+     * Получает детальную информацию о модели
+     * Комбинирует данные из /props и /v1/models
+     */
+    async showModel(name) {
+        try {
+            // Параллельно запрашиваем /props и /v1/models
+            const [propsResponse, modelsResponse] = await Promise.all([
+                fetch(`${this.url}/props`).catch(() => null),
+                fetch(`${this.url}/v1/models`).catch(() => null)
+            ]);
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('llama.cpp response not ok:', response.statusText, errorText);
-        throw new Error(`Model error: ${response.statusText}`);
-      }
+            let props = {};
+            let modelMeta = {};
 
-      const data = await response.json();
-      console.log('llama.cpp response:', data);
+            if (propsResponse && propsResponse.ok) {
+                props = await propsResponse.json();
+            }
 
-      return {
-        response: data.content,
-        metrics: extractLlamaCppMetrics(data)
-      };
-    } catch (error) {
-      console.error('Generate error:', error);
-      throw error;
+            if (modelsResponse && modelsResponse.ok) {
+                const modelsData = await modelsResponse.json();
+                const modelsList = modelsData.data || modelsData.models || [];
+                const found = modelsList.find(m => m.id === name || m.name === name) || modelsList[0];
+                if (found) {
+                    modelMeta = found.meta || {};
+                }
+            }
+
+            const contextLength = modelMeta.n_ctx || props.n_ctx || null;
+            const trainContext = modelMeta.n_ctx_train || null;
+            const nParams = modelMeta.n_params || null;
+            const size = modelMeta.size || 0;
+
+            return {
+                model: name,
+                size: size,
+                parameters: {
+                    context_length: contextLength,
+                    train_context: trainContext,
+                    n_params: nParams,
+                    n_gpu_layers: props.n_gpu_layers || 0,
+                    n_batch: props.n_batch || 512,
+                    n_vocab: modelMeta.n_vocab || null,
+                    n_embd: modelMeta.n_embd || null,
+                },
+                template: props.chat_template || '',
+                generation_settings: props.default_generation_settings?.params || {},
+                modelfile: `# llama.cpp model\n${name}`
+            };
+        } catch (error) {
+            log.error('Show model error', { error: error.message });
+            throw error;
+        }
     }
-  }
 
-  /**
-   * Отправляет чат-сообщение через /v1/chat/completions (OpenAI-совместимый API)
-   */
-  async chat({ model, messages, stream = false }) {
-    try {
-      console.log('Sending chat request to llama.cpp...');
-      
-      // llama.cpp поддерживает OpenAI-совместимый API
-      const response = await fetch(`${this.url}/v1/chat/completions`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          messages: messages,
-          stream: stream,
-          temperature: 0.7,
-          max_tokens: -1
-        })
-      });
+    /**
+     * Генерирует ответ на промпт через /completion
+     */
+    async generate({ model, prompt, stream = false }) {
+        try {
+            log.info('Sending request to llama.cpp', { model });
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('llama.cpp chat response not ok:', response.statusText, errorText);
-        throw new Error(`Chat error: ${response.statusText}`);
-      }
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), 120000); // 120s timeout
 
-      const data = await response.json();
-      console.log('llama.cpp chat response:', data);
+            const response = await fetch(`${this.url}/completion`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    prompt,
+                    n_predict: -1,
+                    stream,
+                    temperature: 0.7,
+                }),
+                signal: controller.signal
+            });
 
-      // OpenAI-совместимый формат ответа
-      const content = data.choices?.[0]?.message?.content || '';
-      
-      return {
-        response: content,
-        metrics: extractLlamaCppMetrics(data)
-      };
-    } catch (error) {
-      console.error('Chat error:', error);
-      throw error;
+            clearTimeout(timeout);
+
+            if (!response.ok) {
+                const errorText = await response.text();
+                log.error('llama.cpp returned error', { status: response.status, body: errorText });
+                throw new Error(`llama.cpp server error: ${response.status} ${errorText}`);
+            }
+
+            const data = await response.json();
+            return {
+                response: data.content,
+                metrics: extractLlamaCppMetrics(data)
+            };
+        } catch (error) {
+            if (error.name === 'AbortError') {
+                throw new Error('Request to llama.cpp timed out after 120 seconds');
+            }
+            if (error.code === 'ECONNREFUSED') {
+                throw new Error(`Cannot connect to llama.cpp at ${this.url}. Is the server running?`);
+            }
+            throw error;
+        }
     }
-  }
 
-  /**
-   * Проверяет доступность провайдера через /health
-   */
-  async healthCheck() {
-    try {
-      const response = await fetch(`${this.url}/health`);
-      return response.ok;
-    } catch {
-      return false;
+    /**
+     * Отправляет чат-сообщение через /v1/chat/completions (OpenAI-совместимый API)
+     */
+    async chat({ model, messages, stream = false }) {
+        try {
+            log.info('Sending chat request to llama.cpp', { model });
+
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), 120000);
+
+            const response = await fetch(`${this.url}/v1/chat/completions`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    model: model,
+                    messages: messages,
+                    stream: stream,
+                    temperature: 0.7,
+                    max_tokens: -1
+                }),
+                signal: controller.signal
+            });
+
+            clearTimeout(timeout);
+
+            if (!response.ok) {
+                const errorText = await response.text();
+                log.error('llama.cpp chat response not ok', { status: response.status, body: errorText });
+                throw new Error(`Chat error: ${response.statusText}`);
+            }
+
+            const data = await response.json();
+            const content = data.choices?.[0]?.message?.content || '';
+
+            return {
+                response: content,
+                metrics: extractLlamaCppMetrics(data)
+            };
+        } catch (error) {
+            if (error.name === 'AbortError') {
+                throw new Error('Request to llama.cpp timed out after 120 seconds');
+            }
+            if (error.code === 'ECONNREFUSED') {
+                throw new Error(`Cannot connect to llama.cpp at ${this.url}. Is the server running?`);
+            }
+            throw error;
+        }
     }
-  }
 
-  /**
-   * Определяет тип модели по имени
-   */
-  detectModelType(modelName) {
-    const embedModels = ['embed', 'embedding'];
-    const visionModels = ['vision', 'llava', 'gemma3-vision'];
+    /**
+     * Проверяет доступность через /health
+     */
+    async healthCheck() {
+        try {
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), 5000);
+            
+            const response = await fetch(`${this.url}/health`, {
+                signal: controller.signal
+            });
+            
+            clearTimeout(timeout);
+            return response.ok;
+        } catch (error) {
+            log.debug(`Health check failed for ${this.name}`, { error: error.message });
+            return false;
+        }
+    }
 
-    const isEmbed = embedModels.some(type => modelName.toLowerCase().includes(type));
-    const isVision = visionModels.some(type => modelName.toLowerCase().includes(type));
+    /**
+     * Определяет тип модели по имени
+     */
+    detectModelType(modelName) {
+        const lower = modelName.toLowerCase();
+        const embedModels = ['embed', 'embedding'];
+        const visionModels = ['vision', 'llava', 'gemma3-vision'];
 
-    if (isEmbed) return 'embedding';
-    if (isVision) return 'vision';
-    return 'text';
-  }
+        if (embedModels.some(t => lower.includes(t))) return 'embedding';
+        if (visionModels.some(t => lower.includes(t))) return 'vision';
+        return 'text';
+    }
 
-  /**
-   * Нормализует метрики llama.cpp
-   */
-  normalizeMetrics(raw) {
-    return extractLlamaCppMetrics(raw);
-  }
+    normalizeMetrics(raw) {
+        return extractLlamaCppMetrics(raw);
+    }
 }

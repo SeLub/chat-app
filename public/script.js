@@ -1,3 +1,8 @@
+// public/script.js
+// Основной скрипт фронтенда
+
+const log = window.logger || console;
+
 // Global state
 let currentModel = null;
 let currentProvider = 'ollama';
@@ -8,22 +13,30 @@ let uploadedFile = null;
 let uploadedImages = [];
 let uploadedCodeFiles = [];
 let questionCounter = 0;
+let statusRefreshInterval = null;
 
-// Initialize
+// === Initialize ===
 window.addEventListener('DOMContentLoaded', () => {
+    log.info('Initializing application');
     loadSelectedProvider();
     loadModels();
     loadCurrentConversation();
     setupEventListeners();
+    
+    // Запускаем периодическое обновление статуса провайдеров
+    refreshProviderStatus();
+    statusRefreshInterval = setInterval(refreshProviderStatus, 30000);
+    log.info('Provider status refresh started (every 30s)');
 });
 
-// Provider Management
+// === Provider Management ===
 function loadSelectedProvider() {
     const saved = localStorage.getItem('selectedProvider');
     if (saved) {
         currentProvider = saved;
         const radio = document.querySelector(`input[name="provider"][value="${saved}"]`);
         if (radio) radio.checked = true;
+        log.info(`Restored provider from localStorage: ${saved}`);
     }
 }
 
@@ -34,13 +47,72 @@ function saveSelectedProvider() {
 function handleProviderChange() {
     const selectedRadio = document.querySelector('input[name="provider"]:checked');
     if (selectedRadio) {
-        currentProvider = selectedRadio.value;
+        const newProvider = selectedRadio.value;
+        log.info(`Provider changed: ${currentProvider} → ${newProvider}`);
+        currentProvider = newProvider;
         saveSelectedProvider();
         loadModels();
+        refreshProviderStatus(); // Сразу обновляем статус после смены
     }
 }
 
-// Model Management
+// === Provider Status ===
+async function refreshProviderStatus() {
+    try {
+        const response = await fetch('/api/providers/status');
+        const data = await response.json();
+        
+        data.providers.forEach(p => {
+            const indicator = document.getElementById(`status-${p.name}`);
+            const label = document.querySelector(`.radio-label[data-provider="${p.name}"]`);
+            
+            if (!indicator || !label) return;
+            
+            const dot = indicator.querySelector('.status-dot');
+            dot.className = 'status-dot ' + p.status;
+            
+            let tooltip = `${p.name}: ${p.status}`;
+            if (p.latencyMs) tooltip += ` (${p.latencyMs}ms)`;
+            if (p.error) tooltip += `\n${p.error}`;
+            indicator.title = tooltip;
+            
+            if (p.status !== 'connected') {
+                label.classList.add('unavailable');
+            } else {
+                label.classList.remove('unavailable');
+            }
+        });
+        
+        checkCurrentProviderAvailability(data.providers);
+        log.debug('Provider status refreshed', data.providers);
+        
+    } catch (error) {
+        log.error('Failed to refresh provider status', error);
+    }
+}
+
+function checkCurrentProviderAvailability(providers) {
+    const current = providers.find(p => p.name === currentProvider);
+    
+    if (!current) {
+        log.warn(`Current provider "${currentProvider}" not found in status response`);
+        return;
+    }
+    
+    if (current.status === 'connected') {
+        return;
+    }
+    
+    const fallback = providers.find(p => p.status === 'connected');
+    let message = `⚠️ ${current.name} is unavailable`;
+    if (current.error) message += `\n${current.error}`;
+    if (fallback) message += `\n💡 Switch to ${fallback.name} to continue.`;
+    
+    log.warn(`Provider ${currentProvider} unavailable`, { fallback: fallback?.name });
+    showToast(message, 'error');
+}
+
+// === Model Management ===
 async function loadModels() {
     const dropdown = document.getElementById('modelDropdown');
     dropdown.innerHTML = '<option value="">Loading models...</option>';
@@ -48,6 +120,7 @@ async function loadModels() {
     allModels = [];
     
     try {
+        log.info(`Loading models from ${currentProvider}`);
         const response = await fetch('/api/models', {
             headers: { 'X-Provider': currentProvider }
         });
@@ -58,9 +131,12 @@ async function loadModels() {
                 ...model,
                 provider: currentProvider
             }));
+            log.info(`Loaded ${allModels.length} models from ${currentProvider}`);
+        } else {
+            log.warn(`No models available from ${currentProvider}`);
         }
     } catch (error) {
-        console.error(`Error loading models from ${currentProvider}:`, error);
+        log.error(`Error loading models from ${currentProvider}`, error);
     }
     
     if (allModels.length === 0) {
@@ -79,6 +155,7 @@ async function loadModels() {
         dropdown.appendChild(option);
     });
     
+    // Restore previously selected model if available
     const savedModel = localStorage.getItem('selectedModel');
     const savedProvider = localStorage.getItem('selectedProvider');
     if (savedModel && savedProvider === currentProvider) {
@@ -86,6 +163,7 @@ async function loadModels() {
         if (modelExists) {
             dropdown.value = savedModel;
             handleModelSelect();
+            log.info(`Restored model: ${savedModel}`);
         }
     }
 }
@@ -106,17 +184,10 @@ function handleModelSelect() {
     localStorage.setItem('selectedModel', currentModel);
     localStorage.setItem('selectedProvider', currentProvider);
     
+    log.info(`Model selected: ${currentModel} (${currentProvider})`);
     updateModelInfo();
 }
 
-/**
- * Универсальный парсер контекста из ответа /api/show
- * Ollama возвращает model_info с ключами типа:
- *   - "llama.context_length"
- *   - "ollama.context_length"  
- *   - "general.context_length"
- * Ищем любой ключ, содержащий "context_length"
- */
 function extractContextLength(data) {
     if (!data || !data.model_info) return null;
     
@@ -159,7 +230,6 @@ async function updateModelInfo() {
         const data = await response.json();
         
         // === SIZE ===
-        // Ollama: data.details.size (в байтах)
         if (data.details && data.details.size) {
             const sizeGB = (data.details.size / 1024 / 1024 / 1024).toFixed(2);
             modelSizeEl.textContent = `${sizeGB} GB`;
@@ -174,20 +244,16 @@ async function updateModelInfo() {
         }
         
         // === CONTEXT ===
-        // 1. Пробуем универсальный парсер (Ollama)
         let contextLength = extractContextLength(data);
         
-        // 2. Пробуем data.parameters.context_length (llama.cpp)
         if (!contextLength && data.parameters && data.parameters.context_length) {
             contextLength = data.parameters.context_length;
         }
         
-        // 3. Пробуем data.model_info напрямую (некоторые версии Ollama)
         if (!contextLength && data.model_info && data.model_info.context_length) {
             contextLength = data.model_info.context_length;
         }
         
-        // 4. Fallback: из списка моделей
         if (!contextLength) {
             const model = allModels.find(m => m.name === currentModel);
             if (model && model.contextLength) {
@@ -195,17 +261,17 @@ async function updateModelInfo() {
             }
         }
         
-        // Отображаем: если есть значение — показываем, иначе "-"
         modelContextEl.textContent = contextLength ? contextLength : '-';
+        log.debug('Model info updated', { size: modelSizeEl.textContent, ctx: modelContextEl.textContent });
         
     } catch (error) {
-        console.error('Error loading model info:', error);
+        log.error('Error loading model info', error);
         modelSizeEl.textContent = '-';
         modelContextEl.textContent = '-';
     }
 }
 
-// Chat functionality
+// === Chat Functionality ===
 async function sendMessage() {
     const input = document.getElementById('chatInput');
     const message = input.value.trim();
@@ -227,29 +293,58 @@ async function sendMessage() {
         formData.append('file', uploadedFile);
     }
     
-    uploadedCodeFiles.forEach((file, index) => {
+    uploadedCodeFiles.forEach((file) => {
         formData.append('codeFiles', file);
     });
     
     try {
+        log.info(`Sending message to ${currentProvider}/${currentModel}`);
         const response = await fetch('/api/chat', {
             method: 'POST',
-            headers: {
-                'X-Provider': currentProvider
-            },
+            headers: { 'X-Provider': currentProvider },
             body: formData
         });
+        
+        if (response.status === 503) {
+            const data = await response.json();
+            addBotMessage(
+                `⚠️ **${currentProvider} is unavailable**\n\n${data.error}\n\nPlease check the provider status or switch to another provider.`,
+                currentModel, null, null, questionId
+            );
+            refreshProviderStatus();
+            return;
+        }
+        
+        if (!response.ok) {
+            const data = await response.json().catch(() => ({ error: 'Unknown error' }));
+            addBotMessage(
+                `❌ **Error ${response.status}**\n\n${data.error || response.statusText}`,
+                currentModel, null, null, questionId
+            );
+            return;
+        }
         
         const data = await response.json();
         
         if (data.error) {
-            addBotMessage(`Error: ${data.error}`, currentModel, null, null, questionId);
-        } else {
-            addBotMessage(data.response, currentModel, data.metrics, data.imageData, questionId);
-            updateStats(data.metrics);
+            let errorMessage = data.error;
+            if (data.error.includes('ECONNREFUSED')) {
+                errorMessage = `Cannot connect to ${currentProvider} server.\n\n**Possible reasons:**\n- Server is not running\n- Wrong URL in configuration\n- Firewall blocking the connection`;
+            }
+            addBotMessage(`❌ ${errorMessage}`, currentModel, null, null, questionId);
+            return;
         }
+        
+        addBotMessage(data.response, currentModel, data.metrics, data.imageData, questionId);
+        updateStats(data.metrics);
+        log.info(`Response received from ${currentModel}`, { metrics: data.metrics });
+        
     } catch (error) {
-        addBotMessage(`Error: ${error.message}`, currentModel, null, null, questionId);
+        log.error('Network error sending message', error);
+        addBotMessage(
+            `❌ **Network error**\n\n${error.message}\n\nPlease check your connection and try again.`,
+            currentModel, null, null, questionId
+        );
     }
     
     uploadedFile = null;
@@ -329,7 +424,7 @@ function addBotMessage(message, model, metrics = null, imageData = null, questio
         <div class="message-content">
             <div class="message-header">
                 <div class="message-model">
-                    🦙 ${model}
+                    🤖 ${model}
                 </div>
             </div>
             ${imageHtml}
@@ -353,16 +448,14 @@ function addBotMessage(message, model, metrics = null, imageData = null, questio
     saveCurrentConversation();
 }
 
-// Question navigation
+// === Question Navigation ===
 function jumpToNextQuestion(currentQuestionId) {
     const currentIndex = questions.findIndex(q => q.id === currentQuestionId);
     if (currentIndex === -1 || currentIndex >= questions.length - 1) {
         showToast('No more questions', 'info');
         return;
     }
-    
-    const nextQuestion = questions[currentIndex + 1];
-    jumpToQuestion(nextQuestion.id);
+    jumpToQuestion(questions[currentIndex + 1].id);
 }
 
 function jumpToPreviousQuestion(currentQuestionId) {
@@ -371,9 +464,7 @@ function jumpToPreviousQuestion(currentQuestionId) {
         showToast('No previous question', 'info');
         return;
     }
-    
-    const prevQuestion = questions[currentIndex - 1];
-    jumpToQuestion(prevQuestion.id);
+    jumpToQuestion(questions[currentIndex - 1].id);
 }
 
 function jumpToQuestion(questionId) {
@@ -394,7 +485,7 @@ function highlightMessage(element) {
     }, 2000);
 }
 
-// Copy functions
+// === Copy Functions ===
 function copyQuestion(questionId) {
     const question = questions.find(q => q.id === questionId);
     if (!question) {
@@ -405,16 +496,11 @@ function copyQuestion(questionId) {
     navigator.clipboard.writeText(question.text).then(() => {
         showToast('Question copied!', 'success');
     }).catch(err => {
-        console.error('Failed to copy:', err);
+        log.error('Failed to copy question', err);
         showToast('Failed to copy', 'error');
     });
 }
 
-/**
- * Копирует Q&A пару в формате Markdown
- * Использует оригинальный текст ответа из currentConversation
- * (чтобы сохранить форматирование: кодовые блоки, заголовки и т.д.)
- */
 function copyQAPair(questionId) {
     const question = questions.find(q => q.id === questionId);
     const answer = currentConversation.find(m => m.role === 'assistant' && m.questionId === questionId);
@@ -424,18 +510,17 @@ function copyQAPair(questionId) {
         return;
     }
     
-    // Формируем Markdown с заголовками
     const qaMarkdown = `## Question\n\n${question.text}\n\n## Answer\n\n${answer.content}`;
     
     navigator.clipboard.writeText(qaMarkdown).then(() => {
         showToast('Q&A copied as Markdown!', 'success');
     }).catch(err => {
-        console.error('Failed to copy:', err);
+        log.error('Failed to copy Q&A', err);
         showToast('Failed to copy', 'error');
     });
 }
 
-// Delete functions
+// === Delete Functions ===
 function deleteQAPair(questionId) {
     if (!confirm('Delete this question and answer?')) return;
     
@@ -452,7 +537,7 @@ function deleteQAPair(questionId) {
     
     // Renumber questions
     questionCounter = 0;
-    questions.forEach((q, index) => {
+    questions.forEach((q) => {
         questionCounter++;
         q.number = questionCounter;
         
@@ -468,7 +553,7 @@ function deleteQAPair(questionId) {
     showToast('Q&A pair deleted', 'success');
 }
 
-// Utility functions
+// === Utility Functions ===
 function escapeHtml(text) {
     const div = document.createElement('div');
     div.textContent = text;
@@ -508,7 +593,7 @@ function updateQuestionsList() {
         return;
     }
     
-    questionsList.innerHTML = questions.map((q, index) => `
+    questionsList.innerHTML = questions.map((q) => `
         <div class="question-item" onclick="jumpToQuestion('${q.id}')">
             <div class="question-number">Q${q.number} • ${q.model}</div>
             <div class="question-text">${escapeHtml(q.text)}</div>
@@ -516,11 +601,10 @@ function updateQuestionsList() {
     `).join('');
 }
 
-// File handling
+// === File Handling ===
 function handleFileUpload(event) {
     const file = event.target.files[0];
     if (!file) return;
-    
     uploadedFile = file;
     showFilePreview(file.name, file.size);
 }
@@ -528,7 +612,6 @@ function handleFileUpload(event) {
 function handleImageUpload(event) {
     const file = event.target.files[0];
     if (!file) return;
-    
     uploadedFile = file;
     showFilePreview(file.name, file.size);
 }
@@ -546,9 +629,8 @@ function showFilePreview(name, size) {
     preview.classList.add('active');
 }
 
-// Conversation management
+// === Conversation Management ===
 function saveCurrentConversation() {
-    // Сохраняем ВСЕ данные: conversation, questions, counter, model
     localStorage.setItem('currentConversation', JSON.stringify(currentConversation));
     localStorage.setItem('currentQuestions', JSON.stringify(questions));
     localStorage.setItem('questionCounter', questionCounter.toString());
@@ -556,78 +638,77 @@ function saveCurrentConversation() {
     localStorage.setItem('currentProvider', currentProvider || 'ollama');
 }
 
+function renderMessage(msg) {
+    const chatMessages = document.getElementById('chatMessages');
+    
+    if (msg.role === 'user') {
+        const q = questions.find(q => q.id === msg.questionId);
+        const messageDiv = document.createElement('div');
+        messageDiv.className = 'message user-message';
+        messageDiv.dataset.questionId = msg.questionId;
+        messageDiv.innerHTML = `
+            <div class="message-content">
+                <div class="message-header">
+                    <div class="message-model">
+                        Q${q ? q.number : '?'} • You • ${msg.model || 'unknown'}
+                    </div>
+                    <div class="message-nav-buttons">
+                        <button class="nav-btn prev-btn" onclick="jumpToPreviousQuestion('${msg.questionId}')" title="Jump to previous question">↑ Prev</button>
+                        <button class="nav-btn next-btn" onclick="jumpToNextQuestion('${msg.questionId}')" title="Jump to next question">Next ↓</button>
+                    </div>
+                </div>
+                <div class="message-text">${escapeHtml(msg.content)}</div>
+                <div class="message-actions">
+                    <button class="message-action-btn" onclick="copyQuestion('${msg.questionId}')">📋 Copy Question</button>
+                    <button class="message-action-btn" onclick="deleteQAPair('${msg.questionId}')">🗑️ Delete</button>
+                </div>
+            </div>
+        `;
+        chatMessages.appendChild(messageDiv);
+    } else {
+        const messageDiv = document.createElement('div');
+        messageDiv.className = 'message bot-message';
+        messageDiv.dataset.questionId = msg.questionId;
+        messageDiv.innerHTML = `
+            <div class="message-content">
+                <div class="message-header">
+                    <div class="message-model">🤖 ${msg.model || 'unknown'}</div>
+                </div>
+                <div class="message-text">${formatMarkdown(msg.content)}</div>
+                <div class="message-actions">
+                    <button class="message-action-btn" onclick="jumpToQuestion('${msg.questionId}')">🔼 Question</button>
+                    <button class="message-action-btn" onclick="copyQAPair('${msg.questionId}')">📋 Copy Q&A</button>
+                    <button class="message-action-btn" onclick="deleteQAPair('${msg.questionId}')">🗑️ Delete</button>
+                </div>
+            </div>
+        `;
+        chatMessages.appendChild(messageDiv);
+    }
+}
+
 function loadCurrentConversation() {
     const saved = localStorage.getItem('currentConversation');
-    if (saved) {
-        currentConversation = JSON.parse(saved);
-        questions = JSON.parse(localStorage.getItem('currentQuestions') || '[]');
-        questionCounter = parseInt(localStorage.getItem('questionCounter') || '0');
-        
-        // Восстанавливаем модель и провайдера
-        const savedModel = localStorage.getItem('currentModel');
-        const savedProvider = localStorage.getItem('currentProvider') || 'ollama';
-        if (savedModel) {
-            currentModel = savedModel;
-            currentProvider = savedProvider;
-        }
-        
-        updateQuestionsList();
-        
-        const chatMessages = document.getElementById('chatMessages');
-        chatMessages.innerHTML = '';
-        
-        currentConversation.forEach(msg => {
-            if (msg.role === 'user') {
-                const q = questions.find(q => q.id === msg.questionId);
-                const messageDiv = document.createElement('div');
-                messageDiv.className = 'message user-message';
-                messageDiv.dataset.questionId = msg.questionId;
-                messageDiv.innerHTML = `
-                    <div class="message-content">
-                        <div class="message-header">
-                            <div class="message-model">
-                                Q${q ? q.number : '?'} • You • ${msg.model || 'unknown'}
-                            </div>
-                            <div class="message-nav-buttons">
-                                <button class="nav-btn prev-btn" onclick="jumpToPreviousQuestion('${msg.questionId}')" title="Jump to previous question">
-                                    ↑ Prev
-                                </button>
-                                <button class="nav-btn next-btn" onclick="jumpToNextQuestion('${msg.questionId}')" title="Jump to next question">
-                                    Next ↓
-                                </button>
-                            </div>
-                        </div>
-                        <div class="message-text">${escapeHtml(msg.content)}</div>
-                        <div class="message-actions">
-                            <button class="message-action-btn" onclick="copyQuestion('${msg.questionId}')">📋 Copy Question</button>
-                            <button class="message-action-btn" onclick="deleteQAPair('${msg.questionId}')">🗑️ Delete</button>
-                        </div>
-                    </div>
-                `;
-                chatMessages.appendChild(messageDiv);
-            } else {
-                const messageDiv = document.createElement('div');
-                messageDiv.className = 'message bot-message';
-                messageDiv.dataset.questionId = msg.questionId;
-                messageDiv.innerHTML = `
-                    <div class="message-content">
-                        <div class="message-header">
-                            <div class="message-model">
-                                🦙 ${msg.model || 'unknown'}
-                            </div>
-                        </div>
-                        <div class="message-text">${formatMarkdown(msg.content)}</div>
-                        <div class="message-actions">
-                            <button class="message-action-btn" onclick="jumpToQuestion('${msg.questionId}')">🔼 Question</button>
-                            <button class="message-action-btn" onclick="copyQAPair('${msg.questionId}')">📋 Copy Q&A</button>
-                            <button class="message-action-btn" onclick="deleteQAPair('${msg.questionId}')">🗑️ Delete</button>
-                        </div>
-                    </div>
-                `;
-                chatMessages.appendChild(messageDiv);
-            }
-        });
+    if (!saved) return;
+    
+    currentConversation = JSON.parse(saved);
+    questions = JSON.parse(localStorage.getItem('currentQuestions') || '[]');
+    questionCounter = parseInt(localStorage.getItem('questionCounter') || '0');
+    
+    const savedModel = localStorage.getItem('currentModel');
+    const savedProvider = localStorage.getItem('currentProvider') || 'ollama';
+    if (savedModel) {
+        currentModel = savedModel;
+        currentProvider = savedProvider;
     }
+    
+    updateQuestionsList();
+    
+    const chatMessages = document.getElementById('chatMessages');
+    chatMessages.innerHTML = '';
+    
+    currentConversation.forEach(msg => renderMessage(msg));
+    
+    log.info(`Restored conversation: ${currentConversation.length} messages, ${questions.length} questions`);
 }
 
 function clearChat() {
@@ -646,7 +727,7 @@ function clearChat() {
         <div class="message bot-message">
             <div class="message-content">
                 <div class="message-header">
-                    <div class="message-model">🦙 Ollama Chat</div>
+                    <div class="message-model">🤖 AI Chat</div>
                 </div>
                 <div class="message-text">Chat cleared. Start a new conversation!</div>
             </div>
@@ -654,9 +735,10 @@ function clearChat() {
     `;
     
     updateQuestionsList();
+    log.info('Chat cleared');
 }
 
-// Modal functions
+// === Modal Functions ===
 function showMultilineModal() {
     document.getElementById('multilineModal').classList.add('active');
 }
@@ -703,6 +785,7 @@ function confirmSave() {
     
     showToast('Conversation saved!', 'success');
     closeSaveModal();
+    log.info(`Conversation saved: ${name}`);
 }
 
 function showLoadModal() {
@@ -742,61 +825,12 @@ function loadConversation(index) {
     const chatMessages = document.getElementById('chatMessages');
     chatMessages.innerHTML = '';
     
-    currentConversation.forEach(msg => {
-        if (msg.role === 'user') {
-            const q = questions.find(q => q.id === msg.questionId);
-            const messageDiv = document.createElement('div');
-            messageDiv.className = 'message user-message';
-            messageDiv.dataset.questionId = msg.questionId;
-            messageDiv.innerHTML = `
-                <div class="message-content">
-                    <div class="message-header">
-                        <div class="message-model">
-                            Q${q ? q.number : '?'} • You • ${msg.model || 'unknown'}
-                        </div>
-                        <div class="message-nav-buttons">
-                            <button class="nav-btn prev-btn" onclick="jumpToPreviousQuestion('${msg.questionId}')" title="Jump to previous question">
-                                ↑ Prev
-                            </button>
-                            <button class="nav-btn next-btn" onclick="jumpToNextQuestion('${msg.questionId}')" title="Jump to next question">
-                                Next ↓
-                            </button>
-                        </div>
-                    </div>
-                    <div class="message-text">${escapeHtml(msg.content)}</div>
-                    <div class="message-actions">
-                        <button class="message-action-btn" onclick="copyQuestion('${msg.questionId}')">📋 Copy Question</button>
-                        <button class="message-action-btn" onclick="deleteQAPair('${msg.questionId}')">🗑️ Delete</button>
-                    </div>
-                </div>
-            `;
-            chatMessages.appendChild(messageDiv);
-        } else {
-            const messageDiv = document.createElement('div');
-            messageDiv.className = 'message bot-message';
-            messageDiv.dataset.questionId = msg.questionId;
-            messageDiv.innerHTML = `
-                <div class="message-content">
-                    <div class="message-header">
-                        <div class="message-model">
-                            🦙 ${msg.model || 'unknown'}
-                        </div>
-                    </div>
-                    <div class="message-text">${formatMarkdown(msg.content)}</div>
-                    <div class="message-actions">
-                        <button class="message-action-btn" onclick="jumpToQuestion('${msg.questionId}')">🔼 Question</button>
-                        <button class="message-action-btn" onclick="copyQAPair('${msg.questionId}')">📋 Copy Q&A</button>
-                        <button class="message-action-btn" onclick="deleteQAPair('${msg.questionId}')">🗑️ Delete</button>
-                    </div>
-                </div>
-            `;
-            chatMessages.appendChild(messageDiv);
-        }
-    });
+    currentConversation.forEach(msg => renderMessage(msg));
     
     updateQuestionsList();
     closeLoadModal();
     showToast('Conversation loaded!', 'success');
+    log.info(`Conversation loaded: ${conv.name}`);
 }
 
 function returnToCurrent() {
@@ -813,6 +847,7 @@ function exportConversation() {
     a.download = `conversation-${Date.now()}.json`;
     a.click();
     URL.revokeObjectURL(url);
+    log.info('Conversation exported');
 }
 
 function toggleDropdown() {
