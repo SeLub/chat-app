@@ -881,3 +881,210 @@ body {
 }
 
 /* Старую .next-btn можно удалить, она заменена на .nav-btn */
+
+/* === Right Panel: Two Sections === */
+.right-panel {
+    width: 20%;
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.right-section {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+/* Верхняя секция (Models) — фиксированная высота, не скроллится */
+.models-section-container {
+    flex: 0 0 auto;
+    border-bottom: 2px solid #e0e0e0;
+}
+
+/* Нижняя секция (Statistics) — занимает оставшееся место, скроллится */
+.stats-section-container {
+    flex: 1 1 auto;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
+.section-header {
+    padding: 12px 15px;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    font-size: 1em;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+}
+
+.section-content {
+    padding: 15px;
+    overflow-y: auto;
+    flex: 1;
+}
+
+/* === Provider Selection (без refresh-кнопки) === */
+.provider-selection {
+    margin-bottom: 15px;
+}
+
+.provider-selection h3 {
+    font-size: 0.85em;
+    color: #667eea;
+    margin-bottom: 8px;
+    padding-bottom: 4px;
+    border-bottom: 1px solid #e0e0e0;
+}
+
+.provider-radios {
+    display: flex;
+    flex-direction: row;
+    gap: 10px;
+    padding: 8px;
+    background: #f8f9fa;
+    border-radius: 6px;
+    align-items: center;
+}
+
+.radio-label {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    cursor: pointer;
+    font-size: 0.85em;
+    font-weight: 500;
+    color: #333;
+    padding: 5px 8px;
+    border-radius: 4px;
+    transition: background 0.2s;
+    flex: 1;
+}
+
+.radio-label:hover {
+    background: #e9ecef;
+    color: #667eea;
+}
+
+.radio-label.unavailable {
+    opacity: 0.6;
+}
+
+.radio-label input[type="radio"] {
+    width: 14px;
+    height: 14px;
+    cursor: pointer;
+    accent-color: #667eea;
+}
+
+.radio-label .provider-name {
+    user-select: none;
+}
+
+.status-indicator {
+    display: inline-flex;
+    align-items: center;
+    margin-left: 2px;
+}
+
+.status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #9ca3af;
+    transition: background 0.3s;
+}
+
+.status-dot.connected { background: #10b981; box-shadow: 0 0 4px #10b981; }
+.status-dot.disconnected { background: #ef4444; }
+.status-dot.checking { background: #f59e0b; animation: pulse 1s infinite; }
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+}
+
+/* === Model Selection === */
+.model-selection {
+    margin-bottom: 0;
+}
+
+.model-selection h3 {
+    font-size: 0.85em;
+    color: #667eea;
+    margin-bottom: 8px;
+    padding-bottom: 4px;
+    border-bottom: 1px solid #e0e0e0;
+}
+
+.model-dropdown {
+    width: 100%;
+    padding: 8px 10px;
+    border: 2px solid #e0e0e0;
+    border-radius: 6px;
+    font-size: 0.85em;
+    background: white;
+    cursor: pointer;
+    transition: border-color 0.2s;
+}
+
+.model-dropdown:focus {
+    outline: none;
+    border-color: #667eea;
+}
+
+/* === Statistics Section === */
+.stats-section {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.stats-section h3 {
+    font-size: 0.85em;
+    color: #667eea;
+    margin-top: 12px;
+    margin-bottom: 6px;
+    padding-bottom: 4px;
+    border-bottom: 1px solid #e0e0e0;
+}
+
+.stats-section h3:first-child {
+    margin-top: 0;
+}
+
+.stat-item {
+    display: flex;
+    justify-content: space-between;
+    padding: 4px 0;
+    font-size: 0.8em;
+}
+
+.stat-label {
+    color: #6c757d;
+    font-weight: 500;
+}
+
+.stat-value {
+    color: #333;
+    font-weight: 600;
+}
+
+#tps {
+    color: #10b981;
+}
+
+#contextLoad.warning {
+    color: #f59e0b;
+}
+
+#contextLoad.danger {
+    color: #ef4444;
+}
