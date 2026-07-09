@@ -26,6 +26,7 @@ window.addEventListener('DOMContentLoaded', async () => {
     setupEventListeners();
     
     await ensureSession();
+    await rebuildSession();
     
     // Запускаем периодическое обновление статуса провайдеров
     refreshProviderStatus();
@@ -667,6 +668,7 @@ function saveCurrentConversation() {
     localStorage.setItem('questionCounter', questionCounter.toString());
     localStorage.setItem('currentModel', currentModel || '');
     localStorage.setItem('currentProvider', currentProvider || 'ollama');
+    localStorage.setItem('currentSessionId', currentSessionId || '');
 }
 
 function renderMessage(msg) {
@@ -732,6 +734,11 @@ function loadCurrentConversation() {
         currentProvider = savedProvider;
     }
     
+    const savedSessionId = localStorage.getItem('currentSessionId');
+    if (savedSessionId && !currentSessionId) {
+        currentSessionId = savedSessionId;
+    }
+    
     updateQuestionsList();
     
     const chatMessages = document.getElementById('chatMessages');
@@ -742,21 +749,30 @@ function loadCurrentConversation() {
     log.info(`Restored conversation from localStorage: ${currentConversation.length} messages, ${questions.length} questions`);
 }
 
+async function rebuildSession() {
+    if (!currentSessionId || currentConversation.length === 0) return;
+    try {
+        await fetch('/api/chat/seed', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ sessionId: currentSessionId, messages: currentConversation })
+        });
+        log.info(`Rebuilt session with ${currentConversation.length} messages`);
+    } catch (error) {
+        log.error('Failed to rebuild session', error);
+    }
+}
+
 async function clearChat() {
     if (!confirm('Clear current chat?')) return;
     
     currentConversation = [];
     questions = [];
     questionCounter = 0;
-    localStorage.removeItem('currentConversation');
-    localStorage.removeItem('currentQuestions');
-    localStorage.removeItem('questionCounter');
-    localStorage.removeItem('currentModel');
-    localStorage.removeItem('currentProvider');
     
     if (currentSessionId) {
         try {
-            await fetch('/api/chat/session', {
+            const response = await fetch('/api/chat/session', {
                 method: 'DELETE',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ sessionId: currentSessionId })
@@ -764,9 +780,22 @@ async function clearChat() {
         } catch (error) {
             log.error('Failed to clear session', error);
         }
-        localStorage.removeItem('sessionId');
-        currentSessionId = null;
     }
+    
+    localStorage.removeItem('sessionId');
+    localStorage.removeItem('currentSessionId');
+    currentSessionId = null;
+    
+    try {
+        const sessionResponse = await fetch('/api/chat/session', { method: 'POST' });
+        const sessionData = await sessionResponse.json();
+        currentSessionId = sessionData.sessionId;
+        localStorage.setItem('sessionId', currentSessionId);
+    } catch (error) {
+        log.error('Failed to create new session after clear', error);
+    }
+    
+    saveCurrentConversation();
     
     document.getElementById('chatMessages').innerHTML = `
         <div class="message bot-message">
@@ -824,6 +853,7 @@ function confirmSave() {
         conversation: currentConversation,
         questions: questions,
         questionCounter: questionCounter,
+        sessionId: currentSessionId || '',
         timestamp: Date.now()
     });
     localStorage.setItem('savedConversations', JSON.stringify(saved));
@@ -858,19 +888,29 @@ function closeLoadModal() {
 function loadConversation(index) {
     const saved = JSON.parse(localStorage.getItem('savedConversations') || '[]');
     const conv = saved[index];
+    if (!conv) return;
     
-    currentConversation = conv.conversation;
-    questions = conv.questions;
-    questionCounter = conv.questionCounter || questions.length;
+    currentConversation = conv.conversation || [];
+    questions = conv.questions || [];
+    questionCounter = conv.questionCounter !== undefined ? conv.questionCounter : questions.length;
+    currentSessionId = conv.sessionId || null;
+
+    log.info(`Loading conversation "${conv.name}": ${currentConversation.length} messages, ${questions.length} questions, sessionId: ${currentSessionId ? currentSessionId.slice(0, 8) : 'none'}`);
     
     localStorage.setItem('currentConversation', JSON.stringify(currentConversation));
     localStorage.setItem('currentQuestions', JSON.stringify(questions));
     localStorage.setItem('questionCounter', questionCounter.toString());
+    if (currentSessionId) {
+        localStorage.setItem('sessionId', currentSessionId);
+        localStorage.setItem('currentSessionId', currentSessionId);
+    }
     
     const chatMessages = document.getElementById('chatMessages');
     chatMessages.innerHTML = '';
     
     currentConversation.forEach(msg => renderMessage(msg));
+    
+    rebuildSession();
     
     updateQuestionsList();
     closeLoadModal();

@@ -658,8 +658,16 @@
         function loadConversations() {
             try {
                 const saved = localStorage.getItem('savedConversations');
-                conversations = saved ? JSON.parse(saved) : [];
-                // Sort by timestamp descending (newest first)
+                const raw = saved ? JSON.parse(saved) : [];
+                // Adapt: { name, category, conversation: [...], questions, questionCounter, timestamp } → dashboard format
+                conversations = raw.map((item, idx) => ({
+                    id: String(idx),
+                    name: item.name || 'Unnamed',
+                    category: item.category || 'General',
+                    messages: Array.isArray(item.conversation) ? item.conversation : [],
+                    model: (item.conversation?.[0]?.model) || 'Unknown',
+                    timestamp: item.timestamp || Date.now()
+                }));
                 conversations.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
                 renderDashboard();
             } catch (error) {
@@ -671,7 +679,13 @@
 
         function saveConversations() {
             try {
-                localStorage.setItem('savedConversations', JSON.stringify(conversations));
+                const raw = conversations.map(c => ({
+                    name: c.name,
+                    category: c.category,
+                    conversation: c.messages,
+                    timestamp: c.timestamp
+                }));
+                localStorage.setItem('savedConversations', JSON.stringify(raw));
             } catch (error) {
                 console.error('Error saving conversations:', error);
                 showToast('Error saving conversations', 'error');
@@ -880,21 +894,21 @@
 
         // Single actions
         function openConversation(id) {
-            // Save current conversation as backup if exists
             const currentChat = localStorage.getItem('currentConversation');
             if (currentChat) {
                 try {
                     const parsed = JSON.parse(currentChat);
-                    if (parsed.messages && parsed.messages.length > 0) {
+                    if (parsed.length > 0) {
                         localStorage.setItem('currentConversationBackup', currentChat);
                     }
                 } catch (e) { /* ignore */ }
             }
 
-            // Mark conversation to be loaded on chat page
-            localStorage.setItem('loadConversationId', id);
+            const conv = conversations.find(c => c.id === id);
+            if (conv) {
+                localStorage.setItem('currentConversation', JSON.stringify(conv.messages));
+            }
 
-            // Navigate to chat
             window.location.href = '/';
         }
 
@@ -966,7 +980,7 @@
             // Delete associated images from server (best-effort)
             const imageUrls = [];
             conversations.forEach(conv => {
-                if (idsToDelete.has(conv.id)) {
+                if (idsToDelete.has(String(conv.id))) {
                     (conv.messages || []).forEach(msg => {
                         if (msg.imageData) {
                             if (msg.imageData.fullUrl) imageUrls.push(msg.imageData.fullUrl);
@@ -984,8 +998,9 @@
                 }).catch(err => console.error('Failed to delete images:', err));
             }
 
-            // Remove conversations
-            conversations = conversations.filter(c => !idsToDelete.has(c.id));
+            // Remove conversations and re-index
+            conversations = conversations.filter(c => !idsToDelete.has(String(c.id)));
+            conversations.forEach((c, idx) => c.id = String(idx));
 
             // Remove from selection
             idsToDelete.forEach(id => selectedIds.delete(id));
