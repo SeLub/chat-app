@@ -3,7 +3,7 @@ import { Router } from 'express';
 import { chatHandler } from '../controllers/chatController.js';
 import { upload } from '../middleware/uploadMiddleware.js';
 import { providerMiddleware } from '../middleware/providerMiddleware.js';
-import { createSession, clearSession } from '../services/sessionService.js';
+import { createSession, clearSession, seedMessages } from '../services/sessionService.js';
 
 const router = Router();
 
@@ -21,7 +21,20 @@ router.delete('/session', (req, res) => {
     res.json({ ok: true });
 });
 
-router.post('/', 
+router.post('/seed', (req, res) => {
+    const { sessionId, messages } = req.body;
+    if (!sessionId || !messages) {
+        return res.status(400).json({ error: 'sessionId and messages are required' });
+    }
+    try {
+        seedMessages(sessionId, messages);
+        res.json({ ok: true });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+router.post('/',
   upload.fields([{ name: 'file', maxCount: 1 }, { name: 'codeFiles', maxCount: 50 }]),
   providerMiddleware,
   chatHandler

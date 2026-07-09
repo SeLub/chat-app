@@ -71,6 +71,16 @@ export function clearSession(sessionId) {
     return exists;
 }
 
+export function seedMessages(sessionId, messages) {
+    const session = sessions.get(sessionId);
+    if (!session) {
+        throw new Error(`Session '${sessionId.slice(0, 8)}...' not found`);
+    }
+    session.messages = [...messages];
+    session.lastAccess = Date.now();
+    log.info('Seeded session with messages', { sessionId: sessionId.slice(0, 8), count: messages.length });
+}
+
 export function truncateToContext(history, contextLength) {
     const maxChars = contextLength * 4;
     const safetyMargin = maxChars * 0.8;
