@@ -29,18 +29,19 @@ export { uploadsDir, thumbnailsDir };
 import modelRoutes from './routes/modelRoutes.js';
 import chatRoutes from './routes/chatRoutes.js';
 import imageRoutes from './routes/imageRoutes.js';
+import sessionRoutes from './routes/sessionRoutes.js';
+import attachmentRoutes from './routes/attachmentRoutes.js';
 
 // ВАЖНО: Добавляем маршрут /api/show отдельно
 import { showModelHandler } from './controllers/modelController.js';
 import { providerMiddleware } from './middleware/providerMiddleware.js';
 import { getProvider, listProviders, getDefaultProviderName } from './providers/providerManager.js';
-import { startSessionCleanup } from './services/sessionService.js';
 
 app.use('/api/models', modelRoutes);
 app.use('/api/chat', chatRoutes);
 app.use('/api/images', imageRoutes);
-
-startSessionCleanup();
+app.use('/api/sessions', sessionRoutes);
+app.use('/api/attachments', attachmentRoutes);
 app.use((err, req, res, next) => {
     // Ошибки подключения к провайдеру
     if (err.code === 'ECONNREFUSED' || err.code === 'ENOTFOUND' || err.code === 'ETIMEDOUT') {

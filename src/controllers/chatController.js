@@ -4,20 +4,22 @@ import { processUrlsFromText } from '../services/webService.js';
 import { saveImageFiles } from '../services/imageService.js';
 import { isImageFile } from '../utils/imageUtils.js';
 import { createLogger } from '../utils/logger.js';
-import { storeMessage, getHistory, truncateToContext } from '../services/sessionService.js';
+import * as sessionService from '../services/sessionService.js';
 
 const log = createLogger('ChatController');
 
 export async function chatHandler(req, res) {
-    let { message, model } = req.body;
+    let { message, model, sessionId, attachments: attachmentMeta, questionId, contextLength } = req.body;
     const file = req.files?.file?.[0];
     const codeFiles = req.files?.codeFiles || [];
 
     log.info('Received message', {
         model,
+        sessionId: sessionId?.slice(0, 8),
         provider: req.providerName,
         hasFile: !!file,
-        codeFiles: codeFiles.length
+        codeFiles: codeFiles.length,
+        attachmentsCount: attachmentMeta?.length || 0
     });
 
     try {
@@ -29,15 +31,11 @@ export async function chatHandler(req, res) {
         }
 
         const modelType = req.provider.detectModelType(model);
-
         if (modelType === 'embedding') {
             return res.status(400).json({ error: 'Embedding models cannot generate text responses' });
         }
 
-        if (modelType === 'vision' && !file) {
-            return res.status(400).json({ error: 'Vision models require image inputs' });
-        }
-
+        // Legacy file upload support (FormData)
         if (codeFiles.length > 0) {
             try {
                 const { formattedMessage } = await processCodeFiles(codeFiles);
@@ -50,9 +48,8 @@ export async function chatHandler(req, res) {
             try {
                 if (isImageFile(file.mimetype)) {
                     if (modelType !== 'vision') {
-                        return res.status(400).json({ error: 'Images require vision models (llama3.2-vision, llava, gemma3, etc.)' });
+                        return res.status(400).json({ error: 'Images require vision models' });
                     }
-
                     const imageData = await saveImageFiles(file.buffer, file.originalname);
                     const base64Image = file.buffer.toString('base64');
 
@@ -68,11 +65,34 @@ export async function chatHandler(req, res) {
                             stream: false
                         });
 
+                        // Generate questionId if not provided
+                        if (!questionId) {
+                            questionId = `q_${Date.now()}`;
+                        }
+
+                        // Save to SQLite
+                        sessionService.addMessage(sessionId, {
+                            role: 'user',
+                            content: message || 'What is in this image?',
+                            model,
+                            questionId,
+                            imageData: JSON.stringify(imageData)
+                        });
+
+                        sessionService.addMessage(sessionId, {
+                            role: 'assistant',
+                            content: result.response,
+                            model,
+                            questionId,
+                            metrics: result.metrics
+                        });
+
                         return res.json({
                             response: result.response,
                             model,
                             imageData,
-                            metrics: result.metrics
+                            metrics: result.metrics,
+                            questionId
                         });
                     } catch (error) {
                         log.error('Vision model error', { error: error.message });
@@ -88,31 +108,75 @@ export async function chatHandler(req, res) {
             }
         }
 
-        const sessionId = req.body.sessionId;
-        const contextLength = parseInt(req.body.contextLength, 10) || 131072;
+        contextLength = parseInt(contextLength, 10) || 131072;
 
         if (!sessionId) {
-            return res.status(400).json({ error: 'sessionId is required. Create a session via POST /api/chat/session first.' });
+            return res.status(400).json({ error: 'sessionId is required' });
+        }
+
+        // Verify session exists
+        const session = sessionService.getSession(sessionId);
+        if (!session) {
+            return res.status(404).json({ error: 'Session not found' });
         }
 
         try {
-            storeMessage(sessionId, { role: 'user', content: message, model });
+            // Build context from SQLite
+            const currentAttachments = attachmentMeta || [];
+            const messages = await sessionService.buildContext(sessionId, currentAttachments);
 
-            let messages = getHistory(sessionId);
-            messages = truncateToContext(messages, contextLength);
+            // Add current user message
+            const contextMessages = [...messages, { role: 'user', content: message }];
+
+            // Truncate if needed
+            let truncatedMessages = contextMessages;
+            const maxChars = contextLength * 4;
+            let totalChars = contextMessages.reduce((sum, m) => sum + (m.content?.length || 0), 0);
+
+            if (totalChars > maxChars) {
+                const keepSystem = contextMessages[0]?.role === 'system';
+                let i = keepSystem ? 1 : 0;
+                while (i < contextMessages.length - 1 && totalChars > maxChars) {
+                    totalChars -= (contextMessages[i].content?.length || 0);
+                    i++;
+                }
+                truncatedMessages = [keepSystem ? contextMessages[0] : null, ...contextMessages.slice(i)].filter(Boolean);
+            }
 
             const result = await req.provider.chat({
                 model,
-                messages,
+                messages: truncatedMessages,
                 stream: false
             });
 
-            storeMessage(sessionId, { role: 'assistant', content: result.response, model });
+            // Generate questionId if not provided
+            if (!questionId) {
+                questionId = `q_${Date.now()}`;
+            }
+
+            // Save user message
+            sessionService.addMessage(sessionId, {
+                role: 'user',
+                content: message,
+                model,
+                questionId,
+                attachmentsMeta: currentAttachments
+            });
+
+            // Save assistant response
+            sessionService.addMessage(sessionId, {
+                role: 'assistant',
+                content: result.response,
+                model,
+                questionId,
+                metrics: result.metrics
+            });
 
             res.json({
                 response: result.response,
                 model,
-                metrics: result.metrics
+                metrics: result.metrics,
+                questionId
             });
         } catch (error) {
             log.error('Chat error', { error: error.message, code: error.code });
@@ -120,6 +184,6 @@ export async function chatHandler(req, res) {
         }
     } catch (error) {
         log.error('Error processing URLs', { error: error.message });
-        // Продолжаем без веб-контента
+        res.status(500).json({ error: 'Failed to process message' });
     }
 }
