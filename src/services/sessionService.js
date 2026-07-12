@@ -1,100 +1,40 @@
 // src/services/sessionService.js
-import { createLogger } from '../utils/logger.js';
+import * as sessionRepo from '../db/sessionRepo.js';
+import * as messageRepo from '../db/messageRepo.js';
+import { buildLLMContext } from './contextBuilder.js';
 
-const log = createLogger('SessionService');
-
-const sessions = new Map();
-
-let cleanupInterval = null;
-
-export function startSessionCleanup() {
-    if (cleanupInterval) return;
-    cleanupInterval = setInterval(() => {
-        const now = Date.now();
-        const THIRTY_MINUTES = 30 * 60 * 1000;
-        for (const [id, session] of sessions.entries()) {
-            if (now - session.lastAccess > THIRTY_MINUTES) {
-                sessions.delete(id);
-                log.info('Cleaned up expired session', { sessionId: id.slice(0, 8) });
-            }
-        }
-    }, 5 * 60 * 1000);
+export function createNewSession(title = null, mode = 'chat', projectId = null) {
+    return sessionRepo.createSession(title, mode, projectId);
 }
 
-export function stopSessionCleanup() {
-    if (cleanupInterval) {
-        clearInterval(cleanupInterval);
-        cleanupInterval = null;
-    }
+export function getSession(id) {
+    return sessionRepo.getSession(id);
 }
 
-function generateId() {
-    const bytes = new Uint8Array(16);
-    crypto.getRandomValues(bytes);
-    return Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
+export function listSessions(options = {}) {
+    return sessionRepo.listSessions(options);
 }
 
-export function createSession() {
-    const sessionId = generateId();
-    sessions.set(sessionId, {
-        messages: [],
-        createdAt: Date.now(),
-        lastAccess: Date.now()
-    });
-    log.info('Created session', { sessionId: sessionId.slice(0, 8) });
-    return { sessionId };
+export function updateSessionMeta(id, updates) {
+    return sessionRepo.updateSession(id, updates);
 }
 
-export function storeMessage(sessionId, { role, content, model }) {
-    const session = sessions.get(sessionId);
-    if (!session) {
-        throw new Error(`Session '${sessionId.slice(0, 8)}...' not found`);
-    }
-    session.messages.push({ role, content, model });
-    session.lastAccess = Date.now();
-    return [...session.messages];
+export function deleteSession(id) {
+    return sessionRepo.deleteSession(id);
 }
 
-export function getHistory(sessionId) {
-    const session = sessions.get(sessionId);
-    if (!session) {
-        throw new Error(`Session '${sessionId.slice(0, 8)}...' not found`);
-    }
-    session.lastAccess = Date.now();
-    return [...session.messages];
+export function getMessagesBySession(sessionId) {
+    return messageRepo.getMessagesBySession(sessionId);
 }
 
-export function clearSession(sessionId) {
-    const exists = sessions.has(sessionId);
-    sessions.delete(sessionId);
-    log.info('Cleared session', { sessionId: sessionId.slice(0, 8), existed: exists });
-    return exists;
+export function addMessage(sessionId, message) {
+    return messageRepo.addMessage(sessionId, message);
 }
 
-export function seedMessages(sessionId, messages) {
-    const session = sessions.get(sessionId);
-    if (!session) {
-        throw new Error(`Session '${sessionId.slice(0, 8)}...' not found`);
-    }
-    session.messages = [...messages];
-    session.lastAccess = Date.now();
-    log.info('Seeded session with messages', { sessionId: sessionId.slice(0, 8), count: messages.length });
+export function deleteMessagesByQuestionId(questionId) {
+    return messageRepo.deleteMessagesByQuestionId(questionId);
 }
 
-export function truncateToContext(history, contextLength) {
-    const maxChars = contextLength * 4;
-    const safetyMargin = maxChars * 0.8;
-
-    let totalChars = history.reduce((sum, m) => sum + (m.content?.length || 0), 0);
-
-    if (totalChars <= safetyMargin) {
-        return history;
-    }
-
-    while (history.length > 2 && totalChars > maxChars) {
-        const removed = history.shift();
-        totalChars -= (removed.content?.length || 0);
-    }
-
-    return history;
+export async function buildContext(sessionId, currentAttachments = []) {
+    return await buildLLMContext(sessionId, currentAttachments);
 }
