@@ -9,6 +9,7 @@ import * as sessionService from '../services/sessionService.js';
 const log = createLogger('ChatController');
 
 export async function chatHandler(req, res) {
+    // === ИСПРАВЛЕНИЕ 1: добавляем questionId в деструктуризацию ===
     let { message, model, sessionId, attachments: attachmentMeta, questionId, contextLength } = req.body;
     const file = req.files?.file?.[0];
     const codeFiles = req.files?.codeFiles || [];
@@ -19,7 +20,8 @@ export async function chatHandler(req, res) {
         provider: req.providerName,
         hasFile: !!file,
         codeFiles: codeFiles.length,
-        attachmentsCount: attachmentMeta?.length || 0
+        attachmentsCount: attachmentMeta?.length || 0,
+        questionId  // ← логируем для отладки
     });
 
     try {
@@ -48,10 +50,13 @@ export async function chatHandler(req, res) {
             try {
                 if (isImageFile(file.mimetype)) {
                     if (modelType !== 'vision') {
-                        return res.status(400).json({ error: 'Images require vision models' });
+                        return res.status(400).json({ error: 'Images require vision models (llama3.2-vision, llava, gemma3, etc.)' });
                     }
                     const imageData = await saveImageFiles(file.buffer, file.originalname);
                     const base64Image = file.buffer.toString('base64');
+
+                    // === ИСПРАВЛЕНИЕ 2: используем questionId из request ===
+                    const visionQuestionId = questionId || `q_${Date.now()}`;
 
                     try {
                         log.info('Sending image to vision model', { model });
@@ -65,34 +70,34 @@ export async function chatHandler(req, res) {
                             stream: false
                         });
 
-                        // Generate questionId if not provided
-                        if (!questionId) {
-                            questionId = `q_${Date.now()}`;
+                        // === ИСПРАВЛЕНИЕ 3: сохраняем vision сообщения в SQLite ===
+                        if (sessionId) {
+                            const session = sessionService.getSession(sessionId);
+                            if (session) {
+                                sessionService.addMessage(sessionId, {
+                                    role: 'user',
+                                    content: message || 'What is in this image?',
+                                    model,
+                                    questionId: visionQuestionId,
+                                    imageData: JSON.stringify(imageData)
+                                });
+
+                                sessionService.addMessage(sessionId, {
+                                    role: 'assistant',
+                                    content: result.response,
+                                    model,
+                                    questionId: visionQuestionId,
+                                    metrics: result.metrics
+                                });
+                            }
                         }
-
-                        // Save to SQLite
-                        sessionService.addMessage(sessionId, {
-                            role: 'user',
-                            content: message || 'What is in this image?',
-                            model,
-                            questionId,
-                            imageData: JSON.stringify(imageData)
-                        });
-
-                        sessionService.addMessage(sessionId, {
-                            role: 'assistant',
-                            content: result.response,
-                            model,
-                            questionId,
-                            metrics: result.metrics
-                        });
 
                         return res.json({
                             response: result.response,
                             model,
                             imageData,
                             metrics: result.metrics,
-                            questionId
+                            questionId: visionQuestionId  // ← возвращаем тот же questionId
                         });
                     } catch (error) {
                         log.error('Vision model error', { error: error.message });
@@ -114,21 +119,21 @@ export async function chatHandler(req, res) {
             return res.status(400).json({ error: 'sessionId is required' });
         }
 
-        // Verify session exists
+        // Verify session exists in SQLite
         const session = sessionService.getSession(sessionId);
         if (!session) {
             return res.status(404).json({ error: 'Session not found' });
         }
 
         try {
-            // Build context from SQLite
+            // Build context from SQLite history
             const currentAttachments = attachmentMeta || [];
             const messages = await sessionService.buildContext(sessionId, currentAttachments);
 
-            // Add current user message
+            // Add current user message to context
             const contextMessages = [...messages, { role: 'user', content: message }];
 
-            // Truncate if needed
+            // Truncate context if needed
             let truncatedMessages = contextMessages;
             const maxChars = contextLength * 4;
             let totalChars = contextMessages.reduce((sum, m) => sum + (m.content?.length || 0), 0);
@@ -149,26 +154,24 @@ export async function chatHandler(req, res) {
                 stream: false
             });
 
-            // Generate questionId if not provided
-            if (!questionId) {
-                questionId = `q_${Date.now()}`;
-            }
+            // === ИСПРАВЛЕНИЕ 4: используем questionId из request ===
+            const finalQuestionId = questionId || `q_${Date.now()}`;
 
-            // Save user message
+            // Save user message to SQLite
             sessionService.addMessage(sessionId, {
                 role: 'user',
                 content: message,
                 model,
-                questionId,
+                questionId: finalQuestionId,
                 attachmentsMeta: currentAttachments
             });
 
-            // Save assistant response
+            // Save assistant response to SQLite
             sessionService.addMessage(sessionId, {
                 role: 'assistant',
                 content: result.response,
                 model,
-                questionId,
+                questionId: finalQuestionId,
                 metrics: result.metrics
             });
 
@@ -176,7 +179,7 @@ export async function chatHandler(req, res) {
                 response: result.response,
                 model,
                 metrics: result.metrics,
-                questionId
+                questionId: finalQuestionId  // ← возвращаем тот же questionId
             });
         } catch (error) {
             log.error('Chat error', { error: error.message, code: error.code });

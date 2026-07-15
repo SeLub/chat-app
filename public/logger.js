@@ -1,6 +1,6 @@
 // public/logger.js
 // Простой логгер для фронтенда с уровнями и модульной привязкой
-
+(function() {
 const LOG_LEVELS = { debug: 0, info: 1, warn: 2, error: 3 };
 const CURRENT_LEVEL = LOG_LEVELS[localStorage.getItem('logLevel') || 'info'];
 
@@ -37,3 +37,5 @@ window.logger = createLogger('App');
 // Управление уровнем из консоли браузера:
 // localStorage.setItem('logLevel', 'debug') — включить всё
 // localStorage.setItem('logLevel', 'error') — только ошибки
+
+})();

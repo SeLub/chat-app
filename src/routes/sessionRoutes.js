@@ -4,7 +4,7 @@ import * as sessionService from '../services/sessionService.js';
 
 const router = Router();
 
-// GET /api/sessions - List all sessions (lightweight metadata)
+// GET /api/sessions - List all sessions
 router.get('/', (req, res) => {
     try {
         const sessions = sessionService.listSessions({
@@ -15,7 +15,6 @@ router.get('/', (req, res) => {
         });
         res.json(sessions);
     } catch (error) {
-        console.error('Error in GET /api/sessions:', error);
         res.status(500).json({ error: error.message });
     }
 });
@@ -29,7 +28,6 @@ router.get('/:id', (req, res) => {
         }
         res.json(session);
     } catch (error) {
-        console.error('Error in GET /api/sessions/:id:', error);
         res.status(500).json({ error: error.message });
     }
 });
@@ -41,11 +39,36 @@ router.get('/:id/messages', (req, res) => {
         if (!session) {
             return res.status(404).json({ error: 'Session not found' });
         }
-
         const messages = sessionService.getMessagesBySession(req.params.id);
         res.json(messages);
     } catch (error) {
-        console.error('Error in GET /api/sessions/:id/messages:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// === НОВОЕ: DELETE /api/sessions/:id/messages/:questionId ===
+router.delete('/:id/messages/:questionId', (req, res) => {
+    try {
+        const { id: sessionId, questionId } = req.params;
+
+        const session = sessionService.getSession(sessionId);
+        if (!session) {
+            return res.status(404).json({ error: 'Session not found' });
+        }
+
+        const result = sessionService.deleteMessagesByQuestionId(questionId);
+
+        if (result.deletedMessages === 0) {
+            return res.status(404).json({ error: 'Q&A pair not found' });
+        }
+
+        res.json({
+            ok: true,
+            deletedMessages: result.deletedMessages,
+            deletedAttachments: result.deletedAttachments
+        });
+    } catch (error) {
+        console.error('Error in DELETE /api/sessions/:id/messages/:questionId:', error);
         res.status(500).json({ error: error.message });
     }
 });
@@ -54,16 +77,9 @@ router.get('/:id/messages', (req, res) => {
 router.post('/', (req, res) => {
     try {
         const { title, mode, project_id } = req.body;
-
-        // Валидация mode
-        if (mode && !['chat', 'project'].includes(mode)) {
-            return res.status(400).json({ error: 'mode must be "chat" or "project"' });
-        }
-
         const result = sessionService.createNewSession(title, mode, project_id);
         res.status(201).json(result);
     } catch (error) {
-        console.error('Error in POST /api/sessions:', error);
         res.status(500).json({ error: error.message });
     }
 });
@@ -71,22 +87,12 @@ router.post('/', (req, res) => {
 // PATCH /api/sessions/:id - Update session metadata
 router.patch('/:id', (req, res) => {
     try {
-        const allowedFields = ['title', 'category', 'model', 'provider'];
         const updates = {};
+        if (req.body.title !== undefined) updates.title = req.body.title;
+        if (req.body.category !== undefined) updates.category = req.body.category;
+        if (req.body.model !== undefined) updates.model = req.body.model;
+        if (req.body.provider !== undefined) updates.provider = req.body.provider;
 
-        // Фильтруем только разрешённые поля
-        for (const field of allowedFields) {
-            if (req.body[field] !== undefined) {
-                updates[field] = req.body[field];
-            }
-        }
-
-        // Проверка что есть что обновлять
-        if (Object.keys(updates).length === 0) {
-            return res.status(400).json({ error: 'No valid fields to update' });
-        }
-
-        // Проверка существования сессии
         const session = sessionService.getSession(req.params.id);
         if (!session) {
             return res.status(404).json({ error: 'Session not found' });
@@ -95,7 +101,6 @@ router.patch('/:id', (req, res) => {
         sessionService.updateSessionMeta(req.params.id, updates);
         res.json({ id: req.params.id, ...updates });
     } catch (error) {
-        console.error('Error in PATCH /api/sessions/:id:', error);
         res.status(500).json({ error: error.message });
     }
 });
@@ -107,11 +112,9 @@ router.delete('/:id', (req, res) => {
         if (!session) {
             return res.status(404).json({ error: 'Session not found' });
         }
-
         sessionService.deleteSession(req.params.id);
         res.json({ ok: true });
     } catch (error) {
-        console.error('Error in DELETE /api/sessions/:id:', error);
         res.status(500).json({ error: error.message });
     }
 });
