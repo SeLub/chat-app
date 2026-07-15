@@ -1,5 +1,5 @@
 // public/script.js
-// Основной скрипт фронтенда — Фаза 3 (адаптация к SQLite backend)
+// Основной скрипт фронтенда — с API Gateway и двух-указательной системой
 
 const log = window.logger || console;
 
@@ -14,115 +14,148 @@ let uploadedImages = [];
 let uploadedCodeFiles = [];
 let questionCounter = 0;
 let statusRefreshInterval = null;
-let currentSessionId = null;
 let currentContextLength = null;
+
+// === Two-Pointer System ===
+let activeSessionId = null;   // Буфер (рабочая сессия)
+let viewingSessionId = null;  // Отображаемая сессия
 
 // === Initialize ===
 window.addEventListener('DOMContentLoaded', async () => {
     log.info('Initializing application');
     loadSelectedProvider();
     loadModels();
-    await ensureSession();      // Создаёт/восстанавливает сессию через API
-    await loadSessionFromAPI(); // Загружает историю из SQLite
+    await ensureSession();
+    await loadViewingSession();
     setupEventListeners();
 
-    // Start provider status refresh
+    // Handle URL parameter ?session=... (переход с Dashboard)
+    handleUrlSessionParameter();
+
     refreshProviderStatus();
     statusRefreshInterval = setInterval(refreshProviderStatus, 30000);
     log.info('Provider status refresh started (every 30s)');
 });
 
-// ============================================================
-// === Session API Functions (Phase 3: backend as source of truth) ===
-// ============================================================
-
-async function fetchSessions(search = '') {
-    const url = search
-        ? `/api/sessions?search=${encodeURIComponent(search)}`
-        : '/api/sessions';
-    const response = await fetch(url);
-    if (!response.ok) throw new Error('Failed to fetch sessions');
-    return response.json();
-}
-
-async function fetchSessionMessages(sessionId) {
-    const response = await fetch(`/api/sessions/${sessionId}/messages`);
-    if (!response.ok) throw new Error('Failed to fetch messages');
-    return response.json();
-}
-
-async function createSessionAPI(title = null) {
-    const body = title ? { title } : {};
-    const response = await fetch('/api/sessions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body)
-    });
-    if (!response.ok) throw new Error('Failed to create session');
-    return response.json(); // { id, title }
-}
-
-async function updateSessionMeta(sessionId, updates) {
-    const response = await fetch(`/api/sessions/${sessionId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(updates)
-    });
-    if (!response.ok) throw new Error('Failed to update session');
-    return response.json();
-}
-
-async function deleteSessionAPI(sessionId) {
-    const response = await fetch(`/api/sessions/${sessionId}`, { method: 'DELETE' });
-    if (!response.ok) throw new Error('Failed to delete session');
-    return response.json();
+// === Handle URL parameter ?session=... ===
+function handleUrlSessionParameter() {
+    const urlParams = new URLSearchParams(window.location.search);
+    const sessionId = urlParams.get('session');
+    if (sessionId) {
+        log.info('Loading session from URL parameter', { sessionId: sessionId.slice(0, 8) });
+        loadConversation(sessionId);
+        window.history.replaceState({}, '', window.location.pathname);
+    }
 }
 
 // ============================================================
-// === Session Lifecycle (Phase 3: replaces localStorage) ===
+// === Session Lifecycle (API Gateway) ===
 // ============================================================
 
 async function ensureSession() {
-    // Проверяем, есть ли сохранённый sessionId
-    const savedId = localStorage.getItem('currentSessionId');
+    const savedId = localStorage.getItem('activeSessionId');
 
     if (savedId) {
         try {
-            // Проверяем, что сессия существует на backend
-            const response = await fetch(`/api/sessions/${savedId}`);
-            if (response.ok) {
-                currentSessionId = savedId;
-                log.info('Restored session', { sessionId: savedId.slice(0, 8) });
+            const session = await window.apiGateway.sessions.get(savedId);
+            if (session) {
+                activeSessionId = savedId;
+                viewingSessionId = localStorage.getItem('viewingSessionId') || savedId;
+                log.info('Restored session', {
+                    active: savedId.slice(0, 8),
+                    viewing: viewingSessionId.slice(0, 8)
+                });
                 return;
             }
         } catch (error) {
-            log.warn('Saved session not found on backend, creating new one');
+            log.warn('Saved session not found, creating new one');
         }
     }
 
-    // Создаём новую сессию через API
     try {
-        const data = await createSessionAPI();
-        currentSessionId = data.id;
-        localStorage.setItem('currentSessionId', currentSessionId);
-        log.info('Created new session', { sessionId: currentSessionId.slice(0, 8) });
+        const data = await window.apiGateway.sessions.create();
+        activeSessionId = data.id;
+        viewingSessionId = data.id;
+        localStorage.setItem('activeSessionId', activeSessionId);
+        localStorage.setItem('viewingSessionId', viewingSessionId);
+        log.info('Created new session', { sessionId: activeSessionId.slice(0, 8) });
     } catch (error) {
         log.error('Failed to create session', error);
         showToast('Failed to initialize session', 'error');
     }
 }
 
-async function loadSessionFromAPI() {
-    if (!currentSessionId) return;
+async function loadViewingSession() {
+    if (!viewingSessionId) return;
 
     try {
-        const messages = await fetchSessionMessages(currentSessionId);
+        const messages = await window.apiGateway.sessions.getMessages(viewingSessionId);
         renderMessagesFromAPI(messages);
-        log.info(`Loaded ${messages.length} messages from session ${currentSessionId.slice(0, 8)}`);
+        updateReturnButtonVisibility();
+        log.info(`Loaded ${messages.length} messages from viewing session ${viewingSessionId.slice(0, 8)}`);
     } catch (error) {
-        log.error('Failed to load session messages', error);
+        log.error('Failed to load viewing session', error);
     }
 }
+
+function updateReturnButtonVisibility() {
+    const btn = document.querySelector('[data-action="return-to-current"]');
+    if (!btn) return;
+
+    if (viewingSessionId !== activeSessionId) {
+        btn.style.display = 'block';
+    } else {
+        btn.style.display = 'none';
+    }
+}
+
+// ============================================================
+// === Нормализация сообщений из БД ===
+// ============================================================
+
+function normalizeMessage(msg) {
+    if (!msg) return msg;
+
+    return {
+        id: msg.id,
+        sessionId: msg.session_id || msg.sessionId,
+        questionId: msg.question_id || msg.questionId,
+        role: msg.role,
+        content: msg.content,
+        model: msg.model,
+        attachmentsMeta: (() => {
+            const raw = msg.attachments_meta || msg.attachmentsMeta || '[]';
+            if (typeof raw === 'string') {
+                try { return JSON.parse(raw); }
+                catch { return []; }
+            }
+            return Array.isArray(raw) ? raw : [];
+        })(),
+        metrics: (() => {
+            const raw = msg.metrics || '{}';
+            if (typeof raw === 'string') {
+                try { return JSON.parse(raw); }
+                catch { return {}; }
+            }
+            return raw;
+        })(),
+        imageData: (() => {
+            const raw = msg.image_data || msg.imageData || null;
+            if (!raw) return null;
+            if (typeof raw === 'string') {
+                try { return JSON.parse(raw); }
+                catch { return null; }
+            }
+            return raw;
+        })(),
+        sortOrder: msg.sort_order || msg.sortOrder,
+        createdAt: msg.created_at || msg.createdAt
+    };
+}
+
+// ============================================================
+// === Render Messages from API ===
+// ============================================================
 
 function renderMessagesFromAPI(messages) {
     const chatMessages = document.getElementById('chatMessages');
@@ -132,7 +165,6 @@ function renderMessagesFromAPI(messages) {
     questionCounter = 0;
 
     if (messages.length === 0) {
-        // Показываем приветственное сообщение
         chatMessages.innerHTML = `
             <div class="message bot-message">
                 <div class="message-content">
@@ -147,9 +179,10 @@ function renderMessagesFromAPI(messages) {
         return;
     }
 
-    for (const msg of messages) {
+    for (const rawMsg of messages) {
+        const msg = normalizeMessage(rawMsg);
         questionCounter++;
-        const questionId = msg.question_id || `q_${questionCounter}_restored`;
+        const questionId = msg.questionId || `q_${questionCounter}_restored`;
 
         if (msg.role === 'user') {
             questions.push({
@@ -163,14 +196,10 @@ function renderMessagesFromAPI(messages) {
             messageDiv.className = 'message user-message';
             messageDiv.dataset.questionId = questionId;
 
-            // Render file badges from attachments_meta
             let attachmentsHtml = '';
-            const attachments = msg.attachments_meta
-                ? (typeof msg.attachments_meta === 'string' ? JSON.parse(msg.attachments_meta) : msg.attachments_meta)
-                : [];
-            if (attachments.length > 0) {
+            if (msg.attachmentsMeta && msg.attachmentsMeta.length > 0) {
                 attachmentsHtml = '<div class="message-attachments">' +
-                    attachments.map(a =>
+                    msg.attachmentsMeta.map(a =>
                         `<span class="file-badge">📎 ${escapeHtml(a.name)} (${formatSize(a.size)}) [${escapeHtml(a.type)}]</span>`
                     ).join('') +
                     '</div>';
@@ -200,14 +229,11 @@ function renderMessagesFromAPI(messages) {
             messageDiv.dataset.questionId = questionId;
 
             let imageHtml = '';
-            const imageData = msg.image_data
-                ? (typeof msg.image_data === 'string' ? JSON.parse(msg.image_data) : msg.image_data)
-                : null;
-            if (imageData && imageData.thumbnailUrl) {
+            if (msg.imageData && msg.imageData.thumbnailUrl) {
                 imageHtml = `
                     <div class="image-preview-container">
-                        <img src="${imageData.thumbnailUrl}" class="image-preview" onclick="showFullImage('${imageData.fullUrl}')">
-                        <div class="image-filename">${escapeHtml(imageData.filename || '')}</div>
+                        <img src="${msg.imageData.thumbnailUrl}" class="image-preview" onclick="showFullImage('${msg.imageData.fullUrl}')">
+                        <div class="image-filename">${escapeHtml(msg.imageData.filename || '')}</div>
                     </div>
                 `;
             }
@@ -241,16 +267,6 @@ function renderMessagesFromAPI(messages) {
 }
 
 // ============================================================
-// === Phase 3: saveCurrentConversation is now a NO-OP ===
-// === Backend auto-saves every message to SQLite ===
-// ============================================================
-
-function saveCurrentConversation() {
-    // NO-OP: backend автоматически сохраняет каждое сообщение в SQLite.
-    // Frontend больше не дублирует данные в localStorage.
-}
-
-// ============================================================
 // === Provider Management ===
 // ============================================================
 
@@ -280,12 +296,9 @@ function handleProviderChange() {
     }
 }
 
-// === Provider Status ===
-
 async function refreshProviderStatus() {
     try {
-        const response = await fetch('/api/providers/status');
-        const data = await response.json();
+        const data = await window.apiGateway.providers.status();
 
         data.providers.forEach(p => {
             const indicator = document.getElementById(`status-${p.name}`);
@@ -322,7 +335,6 @@ function checkCurrentProviderAvailability(providers) {
     let message = `⚠️ ${current.name} is unavailable`;
     if (current.error) message += `\n${current.error}`;
     if (fallback) message += `\n💡 Switch to ${fallback.name} to continue.`;
-
     showToast(message, 'error');
 }
 
@@ -337,10 +349,7 @@ async function loadModels() {
 
     try {
         log.info(`Loading models from ${currentProvider}`);
-        const response = await fetch('/api/models', {
-            headers: { 'X-Provider': currentProvider }
-        });
-        const data = await response.json();
+        const data = await window.apiGateway.models.list(currentProvider);
 
         if (data.connected && data.models) {
             allModels = data.models.map(model => ({
@@ -362,14 +371,13 @@ async function loadModels() {
     allModels.forEach(model => {
         const option = document.createElement('option');
         option.value = model.name;
-        option.textContent = `${model.name}${model.type === 'vision' ? ' 👁️' : ''}`;
+        option.textContent = `${model.name}${model.type === 'vision' ? ' ️' : ''}`;
         option.dataset.provider = model.provider;
         option.dataset.size = model.size;
         option.dataset.contextLength = model.contextLength || '-';
         dropdown.appendChild(option);
     });
 
-    // Restore previously selected model
     const savedModel = localStorage.getItem('selectedModel');
     const savedProvider = localStorage.getItem('selectedProvider');
     if (savedModel && savedProvider === currentProvider) {
@@ -426,19 +434,8 @@ async function updateModelInfo() {
     modelNameEl.textContent = currentModel;
 
     try {
-        const response = await fetch('/api/show', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-Provider': currentProvider
-            },
-            body: JSON.stringify({ name: currentModel })
-        });
+        const data = await window.apiGateway.models.show(currentModel, currentProvider);
 
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const data = await response.json();
-
-        // === SIZE ===
         if (data.details && data.details.size) {
             modelSizeEl.textContent = `${(data.details.size / 1024 / 1024 / 1024).toFixed(2)} GB`;
         } else {
@@ -450,7 +447,6 @@ async function updateModelInfo() {
             }
         }
 
-        // === CONTEXT ===
         let contextLength = extractContextLength(data);
         if (!contextLength && data.parameters && data.parameters.context_length) {
             contextLength = data.parameters.context_length;
@@ -471,7 +467,7 @@ async function updateModelInfo() {
 }
 
 // ============================================================
-// === Chat Functionality (Phase 3: JSON body + pre-extract) ===
+// === Chat Functionality ===
 // ============================================================
 
 async function sendMessage() {
@@ -486,87 +482,45 @@ async function sendMessage() {
 
     input.value = '';
 
-    // Generate questionId on frontend
+    // Генерируем questionId на фронтенде
     questionCounter++;
     const questionId = `q_${questionCounter}_${Date.now()}`;
 
-    // Add question to UI immediately
+    // Добавляем вопрос в UI
     addQuestion(message, currentModel, questionId);
 
-    // Phase 3: Pre-extract attachments from paths
-    let attachmentsMeta = [];
-    if (uploadedCodeFiles.length > 0) {
-        try {
-            const paths = uploadedCodeFiles.map(f => f.path || f.name);
-            const res = await fetch('/api/attachments/extract', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    paths: paths,
-                    sessionId: currentSessionId
-                })
-            });
-            const data = await res.json();
-
-            if (data.results) {
-                attachmentsMeta = data.results;
-            } else if (Array.isArray(data)) {
-                attachmentsMeta = data;
-            }
-
-            if (data.errors && data.errors.length > 0) {
-                log.warn('Some files failed to extract', data.errors);
-                showToast(`Warning: ${data.errors.length} file(s) failed to load`, 'error');
-            }
-        } catch (error) {
-            log.error('Failed to extract attachments', error);
-            showToast('Failed to process attached files', 'error');
-        }
+    // Формируем FormData для отправки файлов
+    const formData = new FormData();
+    formData.append('message', message);
+    formData.append('model', currentModel);
+    formData.append('sessionId', viewingSessionId);
+    formData.append('questionId', questionId);
+    
+    if (currentContextLength) {
+        formData.append('contextLength', currentContextLength);
     }
 
-    // Determine if we should use JSON or FormData
-    // Use JSON for text-only or path-based attachments
-    // Use FormData for legacy file upload (images, documents)
-    const hasLegacyFile = uploadedFile !== null;
-    const hasImageUpload = uploadedFile && uploadedFile.type && uploadedFile.type.startsWith('image/');
+    // Добавляем загруженные файлы
+    if (uploadedFile) {
+        formData.append('file', uploadedFile);
+    }
+
+    // Добавляем code files
+    uploadedCodeFiles.forEach((file) => {
+        formData.append('codeFiles', file);
+    });
 
     try {
-        log.info(`Sending message to ${currentProvider}/${currentModel}`);
+        log.info(`Sending message to ${currentProvider}/${currentModel}`, {
+            hasFile: !!uploadedFile,
+            codeFilesCount: uploadedCodeFiles.length
+        });
 
-        let response;
-
-        if (hasLegacyFile && !attachmentsMeta.length) {
-            // Legacy FormData mode for image/document upload
-            const formData = new FormData();
-            formData.append('file', uploadedFile);
-            formData.append('message', message);
-            formData.append('model', currentModel);
-            formData.append('sessionId', currentSessionId);
-            if (currentContextLength) formData.append('contextLength', currentContextLength);
-
-            response = await fetch('/api/chat', {
-                method: 'POST',
-                headers: { 'X-Provider': currentProvider },
-                body: formData
-            });
-        } else {
-            // JSON mode (new way with path-based attachments)
-            response = await fetch('/api/chat', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-Provider': currentProvider
-                },
-                body: JSON.stringify({
-                    sessionId: currentSessionId,
-                    message,
-                    model: currentModel,
-                    attachments: attachmentsMeta,
-                    questionId,
-                    contextLength: currentContextLength
-                })
-            });
-        }
+        const response = await fetch('/api/chat', {
+            method: 'POST',
+            headers: { 'X-Provider': currentProvider },
+            body: formData
+        });
 
         if (response.status === 503) {
             const data = await response.json();
@@ -636,7 +590,6 @@ function addQuestion(message, model, questionId = null) {
 
     const chatMessages = document.getElementById('chatMessages');
 
-    // Remove welcome message if present
     const welcomeMsg = chatMessages.querySelector('.bot-message');
     if (welcomeMsg && questions.length === 1) {
         const welcomeText = welcomeMsg.querySelector('.message-text');
@@ -649,7 +602,6 @@ function addQuestion(message, model, questionId = null) {
     messageDiv.className = 'message user-message';
     messageDiv.dataset.questionId = questionId;
 
-    // Render file badges for current attachments
     let attachmentsHtml = '';
     if (uploadedCodeFiles.length > 0) {
         attachmentsHtml = '<div class="message-attachments">' +
@@ -672,14 +624,13 @@ function addQuestion(message, model, questionId = null) {
             ${attachmentsHtml}
             <div class="message-actions">
                 <button class="message-action-btn" onclick="copyQuestion('${questionId}')">📋 Copy Question</button>
-                <button class="message-action-btn" onclick="deleteQAPair('${questionId}')">🗑️ Delete</button>
+                <button class="message-action-btn" onclick="deleteQAPair('${questionId}')">️ Delete</button>
             </div>
         </div>
     `;
     chatMessages.appendChild(messageDiv);
     chatMessages.scrollTop = chatMessages.scrollHeight;
 
-    // NO saveCurrentConversation() — backend auto-saves
     return questionId;
 }
 
@@ -715,8 +666,6 @@ function addBotMessage(message, model, metrics = null, imageData = null, questio
     `;
     chatMessages.appendChild(messageDiv);
     chatMessages.scrollTop = chatMessages.scrollHeight;
-
-    // NO saveCurrentConversation() — backend auto-saves
 }
 
 // ============================================================
@@ -779,34 +728,42 @@ function copyQAPair(questionId) {
 }
 
 // ============================================================
-// === Delete Q&A Pair (Phase 3: API call) ===
+// === Delete Q&A Pair ===
 // ============================================================
 
 async function deleteQAPair(questionId) {
     if (!confirm('Delete this question and answer?')) return;
 
     try {
-        await fetch(`/api/sessions/${currentSessionId}/messages/${questionId}`, { method: 'DELETE' });
+        const result = await window.apiGateway.sessions.deleteQAPair(viewingSessionId, questionId);
+        log.info('Q&A deleted from backend', {
+            questionId,
+            deletedMessages: result.deletedMessages,
+            deletedAttachments: result.deletedAttachments
+        });
     } catch (error) {
-        log.error('Failed to delete Q&A pair from backend', error);
+        log.error('Failed to delete Q&A pair', error);
         showToast('Failed to delete from server', 'error');
+        return;
     }
 
-    // Remove from UI
     const chatMessages = document.getElementById('chatMessages');
-    chatMessages.querySelectorAll(`[data-question-id="${questionId}"]`).forEach(el => el.remove());
+    const userMsg = chatMessages.querySelector(`.user-message[data-question-id="${questionId}"]`);
+    const botMsg = chatMessages.querySelector(`.bot-message[data-question-id="${questionId}"]`);
+    if (userMsg) userMsg.remove();
+    if (botMsg) botMsg.remove();
 
-    // Remove from state
     questions = questions.filter(q => q.id !== questionId);
     currentConversation = currentConversation.filter(msg => msg.questionId !== questionId);
 
-    // Renumber
     questionCounter = 0;
-    questions.forEach(q => {
+    questions.forEach((q) => {
         questionCounter++;
         q.number = questionCounter;
-        const modelEl = chatMessages.querySelector(`.user-message[data-question-id="${q.id}"] .message-model`);
-        if (modelEl) modelEl.innerHTML = `Q${questionCounter} • You • ${escapeHtml(q.model)}`;
+        const userMsgEl = chatMessages.querySelector(`.user-message[data-question-id="${q.id}"] .message-model`);
+        if (userMsgEl) {
+            userMsgEl.innerHTML = `Q${questionCounter} • You • ${q.model}`;
+        }
     });
 
     updateQuestionsList();
@@ -814,10 +771,9 @@ async function deleteQAPair(questionId) {
 }
 
 // ============================================================
-// === Conversation Management (Phase 3: API-based) ===
+// === Conversation Management ===
 // ============================================================
 
-// --- Save: update session metadata via API ---
 function saveConversation() {
     document.getElementById('saveModal').classList.add('active');
 }
@@ -836,7 +792,7 @@ async function confirmSave() {
     }
 
     try {
-        await updateSessionMeta(currentSessionId, {
+        await window.apiGateway.sessions.update(activeSessionId, {
             title: name,
             category: category || 'General'
         });
@@ -849,14 +805,13 @@ async function confirmSave() {
     }
 }
 
-// --- Load: fetch sessions from API ---
 async function showLoadModal() {
     const list = document.getElementById('savedConversationsList');
     list.innerHTML = '<div style="color: #999; text-align: center; padding: 20px;">Loading...</div>';
     document.getElementById('loadModal').classList.add('active');
 
     try {
-        const sessions = await fetchSessions();
+        const sessions = await window.apiGateway.sessions.list();
 
         if (sessions.length === 0) {
             list.innerHTML = '<div style="color: #999; text-align: center; padding: 20px;">No saved conversations</div>';
@@ -879,45 +834,63 @@ function closeLoadModal() {
     document.getElementById('loadModal').classList.remove('active');
 }
 
-// --- Load a specific conversation by sessionId ---
 async function loadConversation(sessionId) {
     if (!sessionId) return;
 
+    viewingSessionId = sessionId;
+    localStorage.setItem('viewingSessionId', viewingSessionId);
+
+    updateReturnButtonVisibility();
+
     try {
-        const messages = await fetchSessionMessages(sessionId);
+        const messages = await window.apiGateway.sessions.getMessages(sessionId);
         renderMessagesFromAPI(messages);
         closeLoadModal();
         showToast('Conversation loaded!', 'success');
-        log.info(`Loaded conversation ${sessionId.slice(0, 8)}`);
+        log.info(`Loaded conversation ${sessionId.slice(0, 8)} (viewing, buffer preserved: ${activeSessionId.slice(0, 8)})`);
     } catch (error) {
         log.error('Failed to load conversation', error);
         showToast('Failed to load conversation', 'error');
     }
 }
 
-// --- Return to Current: reload current session from API ---
 async function returnToCurrent() {
-    if (!currentSessionId) return;
-    await loadSessionFromAPI();
-    showToast('Returned to current conversation', 'success');
+    if (viewingSessionId === activeSessionId) {
+        showToast('You are already on the current chat', 'info');
+        return;
+    }
+
+    viewingSessionId = activeSessionId;
+    localStorage.setItem('viewingSessionId', viewingSessionId);
+    updateReturnButtonVisibility();
+
+    try {
+        const messages = await window.apiGateway.sessions.getMessages(activeSessionId);
+        renderMessagesFromAPI(messages);
+        showToast('Returned to current conversation', 'success');
+        log.info(`Returned to buffer ${activeSessionId.slice(0, 8)}`);
+    } catch (error) {
+        log.error('Failed to return to current', error);
+        showToast('Failed to load current conversation', 'error');
+    }
 }
 
-// --- Clear Chat: delete current session, create new ---
 async function clearChat() {
     if (!confirm('Clear current chat and start new?')) return;
 
     try {
-        // Delete current session from backend
-        if (currentSessionId) {
-            await deleteSessionAPI(currentSessionId);
-        }
+        const sessions = await window.apiGateway.sessions.list();
+        const unsavedCount = sessions.filter(s => s.title && s.title.startsWith('unsavedSession')).length;
+        const newArchiveTitle = `unsavedSession ${unsavedCount + 1}`;
 
-        // Create new session
-        const newSession = await createSessionAPI();
-        currentSessionId = newSession.id;
-        localStorage.setItem('currentSessionId', currentSessionId);
+        await window.apiGateway.sessions.update(activeSessionId, { title: newArchiveTitle });
 
-        // Reset UI
+        const newSession = await window.apiGateway.sessions.create();
+        activeSessionId = newSession.id;
+        viewingSessionId = newSession.id;
+        localStorage.setItem('activeSessionId', activeSessionId);
+        localStorage.setItem('viewingSessionId', viewingSessionId);
+
         questions = [];
         questionCounter = 0;
         currentConversation = [];
@@ -930,20 +903,21 @@ async function clearChat() {
             </div>
         `;
         updateQuestionsList();
-        showToast('Chat cleared, new session started', 'success');
-        log.info(`Chat cleared. New session: ${currentSessionId.slice(0, 8)}`);
+        updateReturnButtonVisibility();
+
+        showToast(`Chat cleared. Previous chat archived as "${newArchiveTitle}".`, 'success');
+        log.info(`Chat cleared. Old buffer archived as "${newArchiveTitle}". New buffer: ${activeSessionId.slice(0, 8)}`);
     } catch (error) {
         log.error('Failed to clear chat', error);
         showToast('Failed to clear chat', 'error');
     }
 }
 
-// --- Export: fetch from API, download as JSON ---
 async function exportConversation() {
-    if (!currentSessionId) return;
+    if (!viewingSessionId) return;
 
     try {
-        const messages = await fetchSessionMessages(currentSessionId);
+        const messages = await window.apiGateway.sessions.getMessages(viewingSessionId);
         if (messages.length === 0) {
             showToast('No messages to export', 'info');
             return;
@@ -954,7 +928,7 @@ async function exportConversation() {
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `conversation-${currentSessionId.slice(0, 8)}-${Date.now()}.json`;
+        a.download = `conversation-${viewingSessionId.slice(0, 8)}-${Date.now()}.json`;
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
@@ -981,12 +955,38 @@ function escapeHtml(text) {
 
 function formatMarkdown(text) {
     if (!text) return '';
-    return text
-        .replace(/```([\s\S]*?)```/g, '<pre><code>$1</code></pre>')
-        .replace(/`([^`]+)`/g, '<code>$1</code>')
+    
+    // 1. Сначала извлекаем блоки кода и заменяем на placeholder
+    // Это защищает код от markdown-парсинга и от замены \n на <br>
+    const codeBlocks = [];
+    text = text.replace(/```(\w+)?\n?([\s\S]*?)```/g, (match, lang, code) => {
+        const index = codeBlocks.length;
+        const langLabel = lang ? `<span class="code-lang">${lang}</span>` : '';
+        const encodedCode = encodeURIComponent(code.trim());
+        
+        // ВАЖНО: весь шаблон в ОДНУ СТРОКУ, без переносов!
+        codeBlocks.push(`<div class="code-block-wrapper"><div class="code-block-header">${langLabel}<button class="copy-code-btn" onclick="copyCodeBlock(this)" title="Copy code"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg><span>Copy</span></button></div><pre><code data-raw-code="${encodedCode}">${escapeHtml(code.trim())}</code></pre></div>`);
+        
+        return `__CODE_BLOCK_${index}__`;
+    });
+    
+    // 2. Обрабатываем markdown (теперь код уже защищён placeholder'ами)
+    let result = text
+        // Inline код (важно ДО жирного/курсива)
+        .replace(/`([^`]+)`/g, '<code class="inline-code">$1</code>')
+        // Жирный текст
         .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-        .replace(/\*([^*]+)\*/g, '<em>$1</em>')
+        // Курсив (с негативным lookahead, чтобы не трогать **)
+        .replace(/(?<!\*)\*([^*\n]+)\*(?!\*)/g, '<em>$1</em>')
+        // Переносы строк
         .replace(/\n/g, '<br>');
+    
+    // 3. Возвращаем блоки кода из placeholder'ов
+    codeBlocks.forEach((block, index) => {
+        result = result.replace(`__CODE_BLOCK_${index}__`, block);
+    });
+    
+    return result;
 }
 
 function formatSize(bytes) {
@@ -1027,6 +1027,67 @@ function updateQuestionsList() {
             <div class="question-text">${escapeHtml(q.text)}</div>
         </div>
     `).join('');
+}
+
+function copyCodeBlock(button) {
+    const wrapper = button.closest('.code-block-wrapper');
+    if (!wrapper) return;
+    
+    const codeElement = wrapper.querySelector('pre code');
+    if (!codeElement) return;
+    
+    // Берём исходный код из data-атрибута (сохраняет ВСЕ переносы и отступы)
+    let codeText;
+    if (codeElement.dataset.rawCode) {
+        codeText = decodeURIComponent(codeElement.dataset.rawCode);
+    } else {
+        // Fallback для старых сообщений без data-атрибута
+        codeText = codeElement.textContent;
+    }
+    
+    // Используем textarea для надёжного копирования с сохранением форматирования
+    // (clipboard API иногда теряет переносы строк)
+    const textarea = document.createElement('textarea');
+    textarea.value = codeText;
+    textarea.style.position = 'fixed';
+    textarea.style.opacity = '0';
+    textarea.style.left = '-9999px';
+    document.body.appendChild(textarea);
+    textarea.focus();
+    textarea.select();
+    
+    let success = false;
+    try {
+        success = document.execCommand('copy');
+    } catch (err) {
+        success = false;
+    }
+    document.body.removeChild(textarea);
+    
+    // Fallback на clipboard API
+    if (!success) {
+        navigator.clipboard.writeText(codeText).then(() => {
+            showCopiedFeedback(button);
+        }).catch(() => {
+            showToast('Failed to copy', 'error');
+        });
+        return;
+    }
+    
+    showCopiedFeedback(button);
+}
+
+function showCopiedFeedback(button) {
+    const originalHTML = button.innerHTML;
+    button.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg><span>Copied!</span>';
+    button.classList.add('copied');
+    
+    setTimeout(() => {
+        button.innerHTML = originalHTML;
+        button.classList.remove('copied');
+    }, 2000);
+    
+    showToast('Code copied!', 'success');
 }
 
 // ============================================================
@@ -1098,7 +1159,6 @@ function showToast(message, type = 'info') {
 }
 
 function setupEventListeners() {
-    // Close dropdown on outside click
     document.addEventListener('click', (e) => {
         if (!e.target.closest('.dropdown')) {
             const menu = document.getElementById('dropdownMenu');
@@ -1106,7 +1166,6 @@ function setupEventListeners() {
         }
     });
 
-    // Send on Enter (not Shift+Enter)
     const chatInput = document.getElementById('chatInput');
     if (chatInput) {
         chatInput.addEventListener('keydown', (e) => {
@@ -1117,7 +1176,6 @@ function setupEventListeners() {
         });
     }
 
-    // Multiline: Ctrl+Enter to send
     const multilineInput = document.getElementById('multilineInput');
     if (multilineInput) {
         multilineInput.addEventListener('keydown', (e) => {
