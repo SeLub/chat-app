@@ -970,7 +970,16 @@ function formatMarkdown(text) {
         return `__CODE_BLOCK_${index}__`;
     });
     
-    // 2. Обрабатываем markdown (теперь код уже защищён placeholder'ами)
+    // 2. Парсим Markdown таблицы
+    const tables = [];
+    text = text.replace(/((?:^[\s]*\|.+\|[\s]*\n)+)/gm, (match) => {
+        const index = tables.length;
+        const html = renderMarkdownTable(match.trim());
+        tables.push(html);
+        return `__TABLE_${index}__`;
+    });
+
+    // 2. Обрабатываем markdown (теперь код и таблицы защищены placeholder'ами)
     let result = text
         // Inline код (важно ДО жирного/курсива)
         .replace(/`([^`]+)`/g, '<code class="inline-code">$1</code>')
@@ -985,8 +994,71 @@ function formatMarkdown(text) {
     codeBlocks.forEach((block, index) => {
         result = result.replace(`__CODE_BLOCK_${index}__`, block);
     });
-    
+
+    // 4. Возвращаем таблицы из placeholder'ов
+    tables.forEach((tableHtml, index) => {
+        result = result.replace(`__TABLE_${index}__`, tableHtml);
+    });
+
     return result;
+}
+
+// ============================================================
+// === Markdown Table to HTML ===
+// ============================================================
+
+function renderMarkdownTable(markdown) {
+    const lines = markdown.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+    if (lines.length < 2) return `<pre>${escapeHtml(markdown)}</pre>`;
+
+    const headerLine = lines[0];
+    const headerCells = parseTableRow(headerLine);
+    if (headerCells.length === 0) return `<pre>${escapeHtml(markdown)}</pre>`;
+
+    const separatorLine = lines[1];
+    const isSeparator = /^[\s\-:|]+$/.test(separatorLine) && separatorLine.includes('-');
+
+    const dataLines = isSeparator ? lines.slice(2) : lines.slice(1);
+    const rows = dataLines.map(line => parseTableRow(line)).filter(cells => cells.length > 0);
+
+    const separatorCells = parseTableRow(separatorLine);
+    const alignments = separatorCells.map(cell => {
+        const trimmed = cell.trim();
+        if (trimmed.startsWith(':') && trimmed.endsWith(':')) return 'center';
+        if (trimmed.endsWith(':')) return 'right';
+        return 'left';
+    });
+
+    let html = '<table class="markdown-table"><thead><tr>';
+    headerCells.forEach((cell, i) => {
+        const align = alignments[i] || 'left';
+        html += `<th align="${align}">${formatTableCell(cell)}</th>`;
+    });
+    html += '</tr></thead><tbody>';
+
+    rows.forEach(row => {
+        html += '<tr>';
+        row.forEach((cell, i) => {
+            const align = alignments[i] || 'left';
+            html += `<td align="${align}">${formatTableCell(cell)}</td>`;
+        });
+        html += '</tr>';
+    });
+
+    html += '</tbody></table>';
+    return `<div class="markdown-table-wrapper">${html}</div>`;
+}
+
+function parseTableRow(line) {
+    let trimmed = line.replace(/^\|[\s]*/, '').replace(/[\s]*\|$/, '');
+    return trimmed.split('|').map(cell => cell.trim());
+}
+
+function formatTableCell(text) {
+    let formatted = escapeHtml(text);
+    formatted = formatted.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+    formatted = formatted.replace(/(?<!\*)\*([^*\n]+)\*(?!\*)/g, '<em>$1</em>');
+    return formatted;
 }
 
 function formatSize(bytes) {
