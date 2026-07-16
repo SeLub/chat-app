@@ -879,14 +879,21 @@ async function clearChat() {
     if (!confirm('Clear current chat and start new?')) return;
 
     try {
-        const sessions = await window.apiGateway.sessions.list();
-        const unsavedCount = sessions.filter(s => s.title && s.title.startsWith('unsavedSession')).length;
-        const newArchiveTitle = `unsavedSession ${unsavedCount + 1}`;
 
-        await window.apiGateway.sessions.update(activeSessionId, { title: newArchiveTitle });
-
+        const currentSessionId = localStorage.getItem('viewingSessionId');
+        const currentSession = await window.apiGateway.sessions.get(currentSessionId);
+        let newArchiveTitle = '';
+        if (currentSession && !currentSession.title.startsWith('unsavedSession')) {
+            newArchiveTitle = currentSession.title;
+        } else {
+            const sessions = await window.apiGateway.sessions.list();
+            const unsavedCount = sessions.filter(s => s.title && s.title.startsWith('unsavedSession')).length;
+            newArchiveTitle = `unsavedSession ${unsavedCount + 1}`;
+            await window.apiGateway.sessions.update(currentSessionId, { title: newArchiveTitle });
+        }
+        
         const newSession = await window.apiGateway.sessions.create();
-        activeSessionId = newSession.id;
+        activeSessionId = currentSessionId;
         viewingSessionId = newSession.id;
         localStorage.setItem('activeSessionId', activeSessionId);
         localStorage.setItem('viewingSessionId', viewingSessionId);
