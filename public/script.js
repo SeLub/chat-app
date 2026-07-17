@@ -19,6 +19,7 @@ let currentContextLength = null;
 // === Two-Pointer System ===
 let activeSessionId = null;   // Буфер (рабочая сессия)
 let viewingSessionId = null;  // Отображаемая сессия
+let currentSessionTitle = '';
 
 // === Initialize ===
 window.addEventListener('DOMContentLoaded', async () => {
@@ -26,27 +27,26 @@ window.addEventListener('DOMContentLoaded', async () => {
     loadSelectedProvider();
     loadModels();
     await ensureSession();
-    await loadViewingSession();
-    setupEventListeners();
 
     // Handle URL parameter ?session=... (переход с Dashboard)
-    handleUrlSessionParameter();
+    const urlParams = new URLSearchParams(window.location.search);
+    const urlSessionId = urlParams.get('session');
+    if (urlSessionId) {
+        log.info('Loading session from URL parameter', { sessionId: urlSessionId.slice(0, 8) });
+        await loadConversation(urlSessionId);
+        window.history.replaceState({}, '', window.location.pathname);
+    } else {
+        await loadViewingSession();
+    }
+
+    setupEventListeners();
 
     refreshProviderStatus();
     statusRefreshInterval = setInterval(refreshProviderStatus, 30000);
     log.info('Provider status refresh started (every 30s)');
 });
 
-// === Handle URL parameter ?session=... ===
-function handleUrlSessionParameter() {
-    const urlParams = new URLSearchParams(window.location.search);
-    const sessionId = urlParams.get('session');
-    if (sessionId) {
-        log.info('Loading session from URL parameter', { sessionId: sessionId.slice(0, 8) });
-        loadConversation(sessionId);
-        window.history.replaceState({}, '', window.location.pathname);
-    }
-}
+
 
 // ============================================================
 // === Session Lifecycle (API Gateway) ===
@@ -54,13 +54,22 @@ function handleUrlSessionParameter() {
 
 async function ensureSession() {
     const savedId = localStorage.getItem('activeSessionId');
+    const savedViewingId = localStorage.getItem('viewingSessionId');
 
     if (savedId) {
         try {
             const session = await window.apiGateway.sessions.get(savedId);
             if (session) {
                 activeSessionId = savedId;
-                viewingSessionId = localStorage.getItem('viewingSessionId') || savedId;
+                viewingSessionId = savedViewingId || savedId;
+
+                if (viewingSessionId === activeSessionId) {
+                    currentSessionTitle = session.title;
+                } else if (savedViewingId) {
+                    const viewingSession = await window.apiGateway.sessions.get(savedViewingId);
+                    currentSessionTitle = viewingSession?.title;
+                }
+                updateChatHeaderTitle();
                 log.info('Restored session', {
                     active: savedId.slice(0, 8),
                     viewing: viewingSessionId.slice(0, 8)
@@ -76,6 +85,8 @@ async function ensureSession() {
         const data = await window.apiGateway.sessions.create();
         activeSessionId = data.id;
         viewingSessionId = data.id;
+        currentSessionTitle = data.title || '';
+        updateChatHeaderTitle();
         localStorage.setItem('activeSessionId', activeSessionId);
         localStorage.setItem('viewingSessionId', viewingSessionId);
         log.info('Created new session', { sessionId: activeSessionId.slice(0, 8) });
@@ -107,6 +118,14 @@ function updateReturnButtonVisibility() {
     } else {
         btn.style.display = 'none';
     }
+}
+
+function updateChatHeaderTitle() {
+    const titleEl = document.getElementById('chatHeaderTitle');
+    if (!titleEl) return;
+
+    const title = currentSessionTitle || 'Chat';
+    titleEl.textContent = title;
 }
 
 // ============================================================
@@ -774,7 +793,26 @@ async function deleteQAPair(questionId) {
 // === Conversation Management ===
 // ============================================================
 
-function saveConversation() {
+async function saveConversation() {
+    const targetSessionId = viewingSessionId || activeSessionId;
+
+    try {
+        const session = await window.apiGateway.sessions.get(targetSessionId);
+        const currentTitle = session?.title || '';
+        const currentCategory = session?.category || 'General';
+
+        const nameInput = document.getElementById('conversationName');
+        const categoryInput = document.getElementById('conversationCategory');
+        nameInput.value = currentTitle;
+        categoryInput.value = currentCategory;
+    } catch (error) {
+        log.error('Failed to load session data for save modal', error);
+        const nameInput = document.getElementById('conversationName');
+        const categoryInput = document.getElementById('conversationCategory');
+        nameInput.value = currentSessionTitle || '';
+        categoryInput.value = 'General';
+    }
+
     document.getElementById('saveModal').classList.add('active');
 }
 
@@ -791,11 +829,27 @@ async function confirmSave() {
         return;
     }
 
+    const targetSessionId = viewingSessionId || activeSessionId;
+
     try {
-        await window.apiGateway.sessions.update(activeSessionId, {
-            title: name,
-            category: category || 'General'
-        });
+        const session = await window.apiGateway.sessions.get(targetSessionId);
+        const oldTitle = session?.title || '';
+        const oldCategory = session?.category || 'General';
+
+        const updates = {};
+        if (name !== oldTitle) {
+            updates.title = name;
+        }
+        if (category && category !== oldCategory) {
+            updates.category = category;
+        }
+
+        if (Object.keys(updates).length > 0) {
+            await window.apiGateway.sessions.update(targetSessionId, updates);
+        }
+
+        currentSessionTitle = name;
+        updateChatHeaderTitle();
         showToast('Conversation saved!', 'success');
         closeSaveModal();
         log.info(`Conversation saved: ${name}`);
@@ -843,6 +897,15 @@ async function loadConversation(sessionId) {
     updateReturnButtonVisibility();
 
     try {
+        const session = await window.apiGateway.sessions.get(sessionId);
+        currentSessionTitle = session?.title || '';
+        updateChatHeaderTitle();
+    } catch (e) {
+        currentSessionTitle = '';
+        updateChatHeaderTitle();
+    }
+
+    try {
         const messages = await window.apiGateway.sessions.getMessages(sessionId);
         renderMessagesFromAPI(messages);
         closeLoadModal();
@@ -859,6 +922,14 @@ async function returnToCurrent() {
         showToast('You are already on the current chat', 'info');
         return;
     }
+
+    try {
+        const session = await window.apiGateway.sessions.get(activeSessionId);
+        currentSessionTitle = session?.title || '';
+    } catch (e) {
+        currentSessionTitle = '';
+    }
+    updateChatHeaderTitle();
 
     viewingSessionId = activeSessionId;
     localStorage.setItem('viewingSessionId', viewingSessionId);
@@ -879,7 +950,6 @@ async function clearChat() {
     if (!confirm('Clear current chat and start new?')) return;
 
     try {
-
         const currentSessionId = localStorage.getItem('viewingSessionId');
         const currentSession = await window.apiGateway.sessions.get(currentSessionId);
         let newArchiveTitle = '';
@@ -891,10 +961,12 @@ async function clearChat() {
             newArchiveTitle = `unsavedSession ${unsavedCount + 1}`;
             await window.apiGateway.sessions.update(currentSessionId, { title: newArchiveTitle });
         }
-        
+
         const newSession = await window.apiGateway.sessions.create();
         activeSessionId = currentSessionId;
         viewingSessionId = newSession.id;
+        currentSessionTitle = newSession.title || '';
+        updateChatHeaderTitle();
         localStorage.setItem('activeSessionId', activeSessionId);
         localStorage.setItem('viewingSessionId', viewingSessionId);
 
@@ -1088,6 +1160,30 @@ function updateStats(metrics) {
     const outputTokens = metrics.outputTokens || 0;
     if (el('inputTokens')) el('inputTokens').textContent = `~${inputTokens}`;
     if (el('outputTokens')) el('outputTokens').textContent = `~${outputTokens}`;
+
+    updateStatsModal(metrics);
+}
+
+function updateStatsModal(metrics) {
+    if (!metrics) return;
+    const el = id => document.getElementById(id);
+    el('modalTps').textContent = metrics.tps ? `${metrics.tps} tok/s` : '-';
+    el('modalPromptSpeed').textContent = metrics.promptTps ? `${metrics.promptTps} tok/s` : '-';
+    el('modalTtft').textContent = metrics.ttft ? `${metrics.ttft}s` : '-';
+    el('modalLoadTime').textContent = metrics.loadTime ? `${metrics.loadTime}s` : '-';
+    el('modalTotalTime').textContent = metrics.totalTime ? `${metrics.totalTime}s` : '-';
+    el('modalInputTokens').textContent = `~${metrics.inputTokens || 0}`;
+    el('modalOutputTokens').textContent = `~${metrics.outputTokens || 0}`;
+    el('modalContextLoad').textContent = `${metrics.contextLoad || 0}%`;
+    el('modalQuestionCount').textContent = questions.length;
+}
+
+function openStatsModal() {
+    document.getElementById('statsModal').classList.add('active');
+}
+
+function closeStatsModal() {
+    document.getElementById('statsModal').classList.remove('active');
 }
 
 function updateQuestionsList() {
