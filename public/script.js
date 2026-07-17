@@ -16,6 +16,10 @@ let questionCounter = 0;
 let statusRefreshInterval = null;
 let currentContextLength = null;
 
+// === Token Accumulation ===
+let totalInputTokens = 0;
+let totalOutputTokens = 0;
+
 // === Two-Pointer System ===
 let activeSessionId = null;   // Буфер (рабочая сессия)
 let viewingSessionId = null;  // Отображаемая сессия
@@ -486,7 +490,7 @@ async function updateModelInfo() {
         currentContextLength = null;
     }
 
-    updateContextBar({ inputTokens: 0, outputTokens: 0 });
+    updateContextBar();
 }
 
 // ============================================================
@@ -576,7 +580,6 @@ async function sendMessage() {
         }
 
         addBotMessage(data.response, currentModel, data.metrics, data.imageData, questionId);
-        updateStats(data.metrics);
         log.info(`Response received from ${currentModel}`, { metrics: data.metrics });
 
     } catch (error) {
@@ -689,6 +692,13 @@ function addBotMessage(message, model, metrics = null, imageData = null, questio
     `;
     chatMessages.appendChild(messageDiv);
     chatMessages.scrollTop = chatMessages.scrollHeight;
+
+    // Accumulate tokens from this response
+    if (metrics && (metrics.inputTokens || metrics.outputTokens)) {
+        totalInputTokens += metrics.inputTokens || 0;
+        totalOutputTokens += metrics.outputTokens || 0;
+        updateStats(metrics);
+    }
 }
 
 // ============================================================
@@ -977,6 +987,8 @@ async function clearChat() {
         questions = [];
         questionCounter = 0;
         currentConversation = [];
+        totalInputTokens = 0;
+        totalOutputTokens = 0;
         document.getElementById('chatMessages').innerHTML = `
             <div class="message bot-message">
                 <div class="message-content">
@@ -1160,16 +1172,20 @@ function updateStats(metrics) {
     if (el('loadTime')) el('loadTime').textContent = metrics.loadTime ? `${metrics.loadTime}s` : '-';
     if (el('totalTime')) el('totalTime').textContent = metrics.totalTime ? `${metrics.totalTime}s` : '-';
 
-    const inputTokens = metrics.inputTokens || 0;
-    const outputTokens = metrics.outputTokens || 0;
-    if (el('inputTokens')) el('inputTokens').textContent = `~${inputTokens}`;
-    if (el('outputTokens')) el('outputTokens').textContent = `~${outputTokens}`;
+    // Display accumulated totals (not just the last response)
+    if (el('inputTokens')) el('inputTokens').textContent = `~${totalInputTokens}`;
+    if (el('outputTokens')) el('outputTokens').textContent = `~${totalOutputTokens}`;
+    if (el('contextLoad')) {
+        const totalUsed = totalInputTokens + totalOutputTokens;
+        const pct = currentContextLength ? Math.round((totalUsed / currentContextLength) * 100) : 0;
+        el('contextLoad').textContent = `${pct}%`;
+    }
 
-    updateContextBar(metrics);
+    updateContextBar();
     updateStatsModal(metrics);
 }
 
-function updateContextBar(metrics) {
+function updateContextBar() {
     const bar = document.getElementById('chatContextBar');
     const fill = document.getElementById('chatContextFill');
     const value = document.getElementById('chatContextValue');
@@ -1184,7 +1200,7 @@ function updateContextBar(metrics) {
 
     bar.classList.add('active');
 
-    const used = (metrics.inputTokens || 0) + (metrics.outputTokens || 0);
+    const used = totalInputTokens + totalOutputTokens;
     const total = currentContextLength || 0;
     const pct = total > 0 ? Math.round((used / total) * 100) : 0;
 
@@ -1204,14 +1220,17 @@ function updateContextBar(metrics) {
 function updateStatsModal(metrics) {
     if (!metrics) return;
     const el = id => document.getElementById(id);
+    // Per-response performance metrics (unchanged)
     el('modalTps').textContent = metrics.tps ? `${metrics.tps} tok/s` : '-';
     el('modalPromptSpeed').textContent = metrics.promptTps ? `${metrics.promptTps} tok/s` : '-';
     el('modalTtft').textContent = metrics.ttft ? `${metrics.ttft}s` : '-';
     el('modalLoadTime').textContent = metrics.loadTime ? `${metrics.loadTime}s` : '-';
     el('modalTotalTime').textContent = metrics.totalTime ? `${metrics.totalTime}s` : '-';
-    el('modalInputTokens').textContent = `~${metrics.inputTokens || 0}`;
-    el('modalOutputTokens').textContent = `~${metrics.outputTokens || 0}`;
-    el('modalContextLoad').textContent = `${metrics.contextLoad || 0}%`;
+    // Accumulated session totals
+    const totalUsed = totalInputTokens + totalOutputTokens;
+    el('modalInputTokens').textContent = `~${totalInputTokens}`;
+    el('modalOutputTokens').textContent = `~${totalOutputTokens}`;
+    el('modalContextLoad').textContent = currentContextLength ? `${Math.round((totalUsed / currentContextLength) * 100)}%` : '0%';
     el('modalQuestionCount').textContent = questions.length;
 }
 
