@@ -148,6 +148,49 @@ body {
     text-overflow: ellipsis;
 }
 
+.chat-context-bar {
+    height: 8px;
+    padding: 0 20px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: #f8f9fa;
+    border-bottom: 1px solid #e0e0e0;
+    opacity: 0.5;
+    pointer-events: none;
+    transition: opacity 0.2s;
+}
+
+.chat-context-bar.active {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+.chat-context-progress {
+    flex: 4;
+    height: 6px;
+    background: #e0e0e0;
+    border-radius: 3px;
+    overflow: hidden;
+}
+
+.chat-context-fill {
+    height: 100%;
+    width: 0%;
+    background: #10b981;
+    border-radius: 3px;
+    transition: width 0.3s, background-color 0.3s;
+}
+
+.chat-context-value {
+    flex: 1;
+    font-size: 0.72em;
+    font-weight: 600;
+    color: #6c757d;
+    text-align: right;
+    white-space: nowrap;
+}
+
 .chat-buttons {
     padding: 15px 20px;
     background: #f8f9fa;

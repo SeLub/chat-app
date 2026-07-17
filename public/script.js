@@ -447,6 +447,8 @@ async function updateModelInfo() {
         modelNameEl.textContent = 'No model selected';
         modelSizeEl.textContent = '-';
         modelContextEl.textContent = '-';
+        const bar = document.getElementById('chatContextBar');
+        if (bar) bar.classList.remove('active');
         return;
     }
 
@@ -483,6 +485,8 @@ async function updateModelInfo() {
         modelContextEl.textContent = '-';
         currentContextLength = null;
     }
+
+    updateContextBar({ inputTokens: 0, outputTokens: 0 });
 }
 
 // ============================================================
@@ -924,7 +928,7 @@ async function returnToCurrent() {
     }
 
     try {
-        const session = await window.apiGateway.sessions.get(activeSessionId);
+        const session = await windаow.apiGateway.sessions.get(activeSessionId);
         currentSessionTitle = session?.title || '';
     } catch (e) {
         currentSessionTitle = '';
@@ -1161,7 +1165,40 @@ function updateStats(metrics) {
     if (el('inputTokens')) el('inputTokens').textContent = `~${inputTokens}`;
     if (el('outputTokens')) el('outputTokens').textContent = `~${outputTokens}`;
 
+    updateContextBar(metrics);
     updateStatsModal(metrics);
+}
+
+function updateContextBar(metrics) {
+    const bar = document.getElementById('chatContextBar');
+    const fill = document.getElementById('chatContextFill');
+    const value = document.getElementById('chatContextValue');
+    if (!bar || !fill || !value) return;
+
+    if (!currentModel) {
+        bar.classList.remove('active');
+        fill.style.width = '0%';
+        value.textContent = '0 / -';
+        return;
+    }
+
+    bar.classList.add('active');
+
+    const used = (metrics.inputTokens || 0) + (metrics.outputTokens || 0);
+    const total = currentContextLength || 0;
+    const pct = total > 0 ? Math.round((used / total) * 100) : 0;
+
+    fill.style.width = pct + '%';
+
+    if (pct <= 50) {
+        fill.style.backgroundColor = '#10b981';
+    } else if (pct <= 75) {
+        fill.style.backgroundColor = '#f59e0b';
+    } else {
+        fill.style.backgroundColor = '#ef4444';
+    }
+
+    value.textContent = `${used} / ${total}`;
 }
 
 function updateStatsModal(metrics) {
