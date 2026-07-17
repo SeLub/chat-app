@@ -431,7 +431,7 @@ async function updateModelInfo() {
         return;
     }
 
-    modelNameEl.textContent = currentModel;
+    modelNameEl.textContent = currentModel.split('/').pop().replace('.gguf', '');
 
     try {
         const data = await window.apiGateway.models.show(currentModel, currentProvider);
@@ -1102,7 +1102,7 @@ function updateQuestionsList() {
 
     questionsList.innerHTML = questions.map(q => `
         <div class="question-item" onclick="jumpToQuestion('${q.id}')">
-            <div class="question-number">Q${q.number} • ${escapeHtml(q.model)}</div>
+            <div class="question-number">Q${q.number} • ${escapeHtml(q.model.split('/').pop().replace('.gguf', ''))}</div>
             <div class="question-text">${escapeHtml(q.text)}</div>
         </div>
     `).join('');
