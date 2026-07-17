@@ -27,34 +27,18 @@
         <!-- Middle Panel: Chat -->
         <div class="middle-panel">
             <div class="chat-header">
-                <div class="selected-model-indicator">
-                    <span class="model-icon">🤖</span>
-                    <span class="model-name" id="selectedModelName">No model selected</span>
-                    <div class="model-info-inline">
-                        <span class="info-badge">
-                            <span class="badge-label">Size:</span>
-                            <span id="modelSize">-</span>
-                        </span>
-                        <span class="info-separator">•</span>
-                        <span class="info-badge">
-                            <span class="badge-label">Ctx:</span>
-                            <span id="modelContext">-</span>
-                        </span>
-                    </div>
+                <div class="chat-header-left">
+                    <span class="chat-header-icon">💬</span>
+                    <span class="chat-header-title" id="chatHeaderTitle">New Chat</span>
                 </div>
-                <div class="chat-actions">
-                    <a href="/dashboard.html" class="action-btn dashboard-btn">📊 Dashboard</a>
-                    <div class="dropdown">
-                        <button class="action-btn" onclick="toggleDropdown()">Menu ▼</button>
-                        <div class="dropdown-content" id="dropdownMenu">
-                            <button class="dropdown-item" onclick="saveConversation()">💾 Save Conversation</button>
-                            <button class="dropdown-item" onclick="showLoadModal()">📂 Load Conversation</button>
-                            <button class="dropdown-item" onclick="returnToCurrent()">⬅️ Return to Current</button>
-                            <button class="dropdown-item" onclick="clearChat()">🗑️ Clear Current Chat</button>
-                            <button class="dropdown-item" onclick="exportConversation()">📤 Export to File</button>
-                        </div>
-                    </div>
-                </div>
+                <a href="/dashboard.html" class="action-btn dashboard-btn">📊 Dashboard</a>
+            </div>
+            <div class="chat-buttons">
+                            <button onclick="saveConversation()">💾 Save Conversation</button>
+                            <button onclick="showLoadModal()">📂 Load Conversation</button>
+                            <button onclick="returnToCurrent()">⬅️ Return to Current</button>
+                            <button onclick="clearChat()">🗑️ Clear Current Chat</button>
+                            <button onclick="exportConversation()">📤 Export to File</button>
             </div>
             <div class="chat-messages" id="chatMessages">
                 <div class="message bot-message">
@@ -81,10 +65,77 @@
                     <input type="file" id="codeInput" style="display: none;" multiple accept=".js,.ts,.jsx,.tsx,.py,.java,.html,.css,.scss,.json,.xml,.yaml,.yml,.md,.txt,.sql,.php,.rb,.go,.rs,.cpp,.c,.h,.cs,.swift,.kt,.scala,.sh,.bat,.dockerfile,.gitignore,.env" onchange="handleCodeUpload(event)">
                 </div>
                 <div class="file-preview" id="filePreview"></div>
-                <div style="margin-top: 10px; font-size: 0.85em; color: #666;">
-                    ⚠️ Large documents may be truncated to fit the model's context window<br>
-                    ⚠️ Images require vision models (llama3.2-vision, llava, gemma3, etc.)<br>
-                    💡 Code files will be analyzed for structure, patterns, and recommendations
+            </div>
+            <div class="stat-footer">
+                <div class="stat-footer-row">
+                    <span class="model-icon">🤖</span>
+                    <span class="model-name" id="selectedModelName">No model selected</span>
+                    <span class="info-badge">
+                        <span class="badge-label">Size:</span>
+                        <span id="modelSize">-</span>
+                    </span>
+                    <span class="info-separator">•</span>
+                    <span class="info-badge">
+                        <span class="badge-label">Ctx:</span>
+                        <span id="modelContext">-</span>
+                    </span>
+                    <span class="stat-item-inline">
+                        <span class="stat-label">Total Time:</span>
+                        <span class="stat-value" id="totalTime">-</span>
+                    </span>
+                    <button class="tps-button" id="tps" onclick="openStatsModal()">TPS</button>
+                </div>
+            </div>
+
+            <div class="modal" id="statsModal">
+                <div class="modal-content stats-modal-content">
+                    <div class="modal-header">📊 Detailed Statistics</div>
+                    <div class="stats-modal-body">
+                        <div class="stats-grid">
+                            <div class="stats-grid-item highlight">
+                                <span class="stats-grid-label">TPS</span>
+                                <span class="stats-grid-value" id="modalTps">-</span>
+                            </div>
+                            <div class="stats-grid-item">
+                                <span class="stats-grid-label">Prompt Speed</span>
+                                <span class="stats-grid-value" id="modalPromptSpeed">-</span>
+                            </div>
+                            <div class="stats-grid-item">
+                                <span class="stats-grid-label">TTFT</span>
+                                <span class="stats-grid-value" id="modalTtft">-</span>
+                            </div>
+                            <div class="stats-grid-item">
+                                <span class="stats-grid-label">Load Time</span>
+                                <span class="stats-grid-value" id="modalLoadTime">-</span>
+                            </div>
+                            <div class="stats-grid-item">
+                                <span class="stats-grid-label">Total Time</span>
+                                <span class="stats-grid-value" id="modalTotalTime">-</span>
+                            </div>
+                        </div>
+                        <div class="stats-divider"></div>
+                        <div class="stats-grid">
+                            <div class="stats-grid-item">
+                                <span class="stats-grid-label">Input Tokens</span>
+                                <span class="stats-grid-value" id="modalInputTokens">-</span>
+                            </div>
+                            <div class="stats-grid-item">
+                                <span class="stats-grid-label">Output Tokens</span>
+                                <span class="stats-grid-value" id="modalOutputTokens">-</span>
+                            </div>
+                            <div class="stats-grid-item">
+                                <span class="stats-grid-label">Context Load</span>
+                                <span class="stats-grid-value" id="modalContextLoad">-</span>
+                            </div>
+                            <div class="stats-grid-item">
+                                <span class="stats-grid-label">Questions</span>
+                                <span class="stats-grid-value" id="modalQuestionCount">-</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-actions">
+                        <button class="action-btn" onclick="closeStatsModal()">Close</button>
+                    </div>
                 </div>
             </div>
         </div>
@@ -151,29 +202,7 @@
                         <div class="stat-item">
                             <span class="stat-label">Context Load:</span>
                             <span class="stat-value" id="contextLoad">0%</span>
-                        </div>
-                        
-                        <h3>Last Response</h3>
-                        <div class="stat-item">
-                            <span class="stat-label">TPS:</span>
-                            <span class="stat-value" id="tps">-</span>
-                        </div>
-                        <div class="stat-item">
-                            <span class="stat-label">Prompt Speed:</span>
-                            <span class="stat-value" id="promptSpeed">-</span>
-                        </div>
-                        <div class="stat-item">
-                            <span class="stat-label">TTFT:</span>
-                            <span class="stat-value" id="ttft">-</span>
-                        </div>
-                        <div class="stat-item">
-                            <span class="stat-label">Load Time:</span>
-                            <span class="stat-value" id="loadTime">-</span>
-                        </div>
-                        <div class="stat-item">
-                            <span class="stat-label">Total Time:</span>
-                            <span class="stat-value" id="totalTime">-</span>
-                        </div>
+                        </div>                       
                     </div>
                 </div>
             </div>
