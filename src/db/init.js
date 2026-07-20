@@ -108,6 +108,14 @@ export function initializeSchema(database) {
         CREATE INDEX IF NOT EXISTS idx_attachments_path ON attachments(file_path);
         CREATE INDEX IF NOT EXISTS idx_project_files_project ON project_files(project_id);
         CREATE INDEX IF NOT EXISTS idx_project_files_hash ON project_files(content_hash);
+
+        CREATE TABLE IF NOT EXISTS context_config (
+            session_id      TEXT PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE,
+            mode            TEXT DEFAULT 'standard',
+            retain_percent  INTEGER DEFAULT 100,
+            manual_include  TEXT DEFAULT '[]',
+            updated_at      TEXT DEFAULT (datetime('now'))
+        );
     `);
 }
 

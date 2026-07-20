@@ -115,6 +115,31 @@ const sessionsApi = {
     },
 
     /**
+     * Получить Q&A пары сессии (для ручного режима контекста)
+     * @param {string} id - UUID сессии
+     */
+    getQAPairs(id) {
+        return request('GET', `/api/sessions/${id}/qa-pairs`);
+    },
+
+    /**
+     * Получить конфигурацию контекста сессии
+     * @param {string} id - UUID сессии
+     */
+    getContextConfig(id) {
+        return request('GET', `/api/sessions/${id}/context-config`);
+    },
+
+    /**
+     * Обновить конфигурацию контекста сессии
+     * @param {string} id - UUID сессии
+     * @param {Object} config - { mode, trimPercent, manualInclude }
+     */
+    updateContextConfig(id, config) {
+        return request('PATCH', `/api/sessions/${id}/context-config`, { body: config });
+    },
+
+    /**
      * Создать новую сессию
      * @param {string} title - название (опционально)
      * @param {string} mode - 'chat' | 'project'
@@ -189,7 +214,7 @@ const attachmentsApi = {
 const chatApi = {
     /**
      * Отправить сообщение в чат
-     * @param {Object} data - { sessionId, message, model, attachments, questionId, contextLength }
+     * @param {Object} data - { sessionId, message, model, attachments, questionId, contextLength, retainPercent }
      * @param {string} provider - 'ollama' | 'llama.cpp'
      */
     send(data, provider) {
