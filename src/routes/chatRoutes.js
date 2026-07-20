@@ -21,7 +21,13 @@ router.post('/',
     providerMiddleware,
     upload.fields([
         { name: 'file', maxCount: 1 },        // одно изображение/документ
-        { name: 'codeFiles', maxCount: 50 }   // до 50 code файлов
+        { name: 'codeFiles', maxCount: 50 },  // до 50 code файлов
+        { name: 'message', maxCount: 1 },     // текст сообщения
+        { name: 'model', maxCount: 1 },       // модель
+        { name: 'sessionId', maxCount: 1 },   // ID сессии
+        { name: 'questionId', maxCount: 1 },  // ID вопроса
+        { name: 'contextLength', maxCount: 1 }, // контекст модели
+        { name: 'retainPercent', maxCount: 1 } // % истории
     ]),
     chatHandler
 );

@@ -15,6 +15,7 @@ let uploadedCodeFiles = [];
 let questionCounter = 0;
 let statusRefreshInterval = null;
 let currentContextLength = null;
+let currentRetainPercent = 100;
 
 // === Token Accumulation ===
 let totalInputTokens = 0;
@@ -525,6 +526,10 @@ async function sendMessage() {
     
     if (currentContextLength) {
         formData.append('contextLength', currentContextLength);
+    }
+
+    if (currentRetainPercent !== 100) {
+        formData.append('retainPercent', currentRetainPercent);
     }
 
     // Добавляем загруженные файлы

@@ -5,12 +5,13 @@ import { saveImageFiles } from '../services/imageService.js';
 import { isImageFile } from '../utils/imageUtils.js';
 import { createLogger } from '../utils/logger.js';
 import * as sessionService from '../services/sessionService.js';
+import { getContextConfig } from '../services/contextBuilder.js';
 
 const log = createLogger('ChatController');
 
 export async function chatHandler(req, res) {
-    // === ИСПРАВЛЕНИЕ 1: добавляем questionId в деструктуризацию ===
-    let { message, model, sessionId, attachments: attachmentMeta, questionId, contextLength } = req.body;
+    // === Деструктуризация параметров запроса ===
+    let { message, model, sessionId, attachments: attachmentMeta, questionId, contextLength, retainPercent } = req.body;
     const file = req.files?.file?.[0];
     const codeFiles = req.files?.codeFiles || [];
 
@@ -21,10 +22,11 @@ export async function chatHandler(req, res) {
         hasFile: !!file,
         codeFiles: codeFiles.length,
         attachmentsCount: attachmentMeta?.length || 0,
-        questionId  // ← логируем для отладки
+        questionId
     });
 
     try {
+        // === Обработка URL ===
         const { processedText } = await processUrlsFromText(message);
         message = processedText;
 
@@ -37,7 +39,7 @@ export async function chatHandler(req, res) {
             return res.status(400).json({ error: 'Embedding models cannot generate text responses' });
         }
 
-        // Legacy file upload support (FormData)
+        // === Обработка файлов ===
         if (codeFiles.length > 0) {
             try {
                 const { formattedMessage } = await processCodeFiles(codeFiles);
@@ -55,7 +57,6 @@ export async function chatHandler(req, res) {
                     const imageData = await saveImageFiles(file.buffer, file.originalname);
                     const base64Image = file.buffer.toString('base64');
 
-                    // === ИСПРАВЛЕНИЕ 2: используем questionId из request ===
                     const visionQuestionId = questionId || `q_${Date.now()}`;
 
                     try {
@@ -70,7 +71,6 @@ export async function chatHandler(req, res) {
                             stream: false
                         });
 
-                        // === ИСПРАВЛЕНИЕ 3: сохраняем vision сообщения в SQLite ===
                         if (sessionId) {
                             const session = sessionService.getSession(sessionId);
                             if (session) {
@@ -97,7 +97,7 @@ export async function chatHandler(req, res) {
                             model,
                             imageData,
                             metrics: result.metrics,
-                            questionId: visionQuestionId  // ← возвращаем тот же questionId
+                            questionId: visionQuestionId
                         });
                     } catch (error) {
                         log.error('Vision model error', { error: error.message });
@@ -113,51 +113,60 @@ export async function chatHandler(req, res) {
             }
         }
 
+        // === Валидация ===
         contextLength = parseInt(contextLength, 10) || 131072;
 
         if (!sessionId) {
             return res.status(400).json({ error: 'sessionId is required' });
         }
 
-        // Verify session exists in SQLite
         const session = sessionService.getSession(sessionId);
         if (!session) {
             return res.status(404).json({ error: 'Session not found' });
         }
 
+        // === Получаем конфигурацию контекста ===
+        const config = getContextConfig(sessionId);
+        // retainPercent из запроса (фронтенд) > config из БД > 100 по умолчанию
+        retainPercent = parseInt(retainPercent, 10) || (config.retainPercent ?? 100);
+
         try {
-            // Build context from SQLite history
+            // === Строим контекст из истории сессии с обрезкой ===
+            // buildContext теперь делает всё: загружает файлы, группирует Q&A, обрезает
             const currentAttachments = attachmentMeta || [];
-            const messages = await sessionService.buildContext(sessionId, currentAttachments);
+            const contextResult = await sessionService.buildContext(
+                sessionId,
+                currentAttachments,
+                contextLength,  // контекст модели (передаём из запроса, не хардкодим!)
+                retainPercent    // % бюджета для истории
+            );
 
-            // Add current user message to context
-            const contextMessages = [...messages, { role: 'user', content: message }];
+            // === Добавляем текущий вопрос ===
+            // Текущий вопрос — неизменяемая часть контекста, добавляется ПОСЛЕ buildContext
+            const contextMessages = [...contextResult.conversation, { role: 'user', content: message }];
 
-            // Truncate context if needed
-            let truncatedMessages = contextMessages;
-            const maxChars = contextLength * 4;
-            let totalChars = contextMessages.reduce((sum, m) => sum + (m.content?.length || 0), 0);
+            log.info('Context built', {
+                contextSize: contextResult.contextSize,
+                retainPercent: contextResult.retainPercent,
+                fixedChars: contextResult.info?.fixedChars ?? 0,
+                availableChars: contextResult.info?.availableChars ?? 0,
+                targetChars: contextResult.info?.targetChars ?? 0,
+                totalQAPairs: contextResult.info?.totalQAPairs ?? 0,
+                includedQAPairs: contextResult.info?.includedQAPairs ?? 0,
+                removedQAPairs: contextResult.info?.removedQAPairs ?? 0,
+                messagesCount: contextMessages.length
+            });
 
-            if (totalChars > maxChars) {
-                const keepSystem = contextMessages[0]?.role === 'system';
-                let i = keepSystem ? 1 : 0;
-                while (i < contextMessages.length - 1 && totalChars > maxChars) {
-                    totalChars -= (contextMessages[i].content?.length || 0);
-                    i++;
-                }
-                truncatedMessages = [keepSystem ? contextMessages[0] : null, ...contextMessages.slice(i)].filter(Boolean);
-            }
-
+            // === Вызов LLM ===
             const result = await req.provider.chat({
                 model,
-                messages: truncatedMessages,
+                messages: contextMessages,
                 stream: false
             });
 
-            // === ИСПРАВЛЕНИЕ 4: используем questionId из request ===
+            // === Сохраняем в БД ===
             const finalQuestionId = questionId || `q_${Date.now()}`;
 
-            // Save user message to SQLite
             sessionService.addMessage(sessionId, {
                 role: 'user',
                 content: message,
@@ -166,7 +175,6 @@ export async function chatHandler(req, res) {
                 attachmentsMeta: currentAttachments
             });
 
-            // Save assistant response to SQLite
             sessionService.addMessage(sessionId, {
                 role: 'assistant',
                 content: result.response,
@@ -179,7 +187,7 @@ export async function chatHandler(req, res) {
                 response: result.response,
                 model,
                 metrics: result.metrics,
-                questionId: finalQuestionId  // ← возвращаем тот же questionId
+                questionId: finalQuestionId
             });
         } catch (error) {
             log.error('Chat error', { error: error.message, code: error.code });

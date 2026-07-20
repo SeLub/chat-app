@@ -2,7 +2,7 @@
 import * as sessionRepo from '../db/sessionRepo.js';
 import * as messageRepo from '../db/messageRepo.js';
 import * as attachmentRepo from '../db/attachmentRepo.js';
-import { buildLLMContext } from './contextBuilder.js';
+import { buildLLMContext, getQAPairs, updateContextConfig, getContextConfig, removeQAPairs } from './contextBuilder.js';
 
 // === Sessions ===
 export function createNewSession(title = null, mode = 'chat', projectId = null) {
@@ -43,8 +43,32 @@ export function deleteMessagesByQuestionId(questionId) {
 }
 
 // === Context ===
-export async function buildContext(sessionId, currentAttachments = []) {
-    return await buildLLMContext(sessionId, currentAttachments);
+/**
+ * Построить контекст для LLM с обрезкой истории.
+ * @param {string} sessionId
+ * @param {Array}  currentAttachments - файлы, прикреплённые к текущему сообщению
+ * @param {number} contextSize        - контекст модели в токенах
+ * @param {number} retainPercent      - % доступного бюджета для истории (0-100)
+ * @returns {{ conversation: Array, contextSize: number, retainPercent: number, info: Object }}
+ */
+export async function buildContext(sessionId, currentAttachments = [], contextSize = 131072, retainPercent = 100) {
+    return await buildLLMContext(sessionId, currentAttachments, contextSize, retainPercent);
+}
+
+export function getQAPairsForSession(sessionId) {
+    return getQAPairs(sessionId);
+}
+
+export function updateSessionContextConfig(sessionId, config) {
+    return updateContextConfig(sessionId, config);
+}
+
+export function getSessionContextConfig(sessionId) {
+    return getContextConfig(sessionId);
+}
+
+export function removeSessionQAPairs(sessionId, questionIds) {
+    return removeQAPairs(sessionId, questionIds);
 }
 
 // === Attachments ===

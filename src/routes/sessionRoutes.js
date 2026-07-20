@@ -1,6 +1,7 @@
 // src/routes/sessionRoutes.js
 import { Router } from 'express';
 import * as sessionService from '../services/sessionService.js';
+import { getContextConfig, updateContextConfig } from '../services/contextBuilder.js';
 
 const router = Router();
 
@@ -41,6 +42,55 @@ router.get('/:id/messages', (req, res) => {
         }
         const messages = sessionService.getMessagesBySession(req.params.id);
         res.json(messages);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// === НОВОЕ: GET /api/sessions/:id/context-config ===
+router.get('/:id/context-config', (req, res) => {
+    try {
+        const session = sessionService.getSession(req.params.id);
+        if (!session) {
+            return res.status(404).json({ error: 'Session not found' });
+        }
+        const config = getContextConfig(req.params.id);
+        res.json(config);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// === НОВОЕ: PATCH /api/sessions/:id/context-config ===
+router.patch('/:id/context-config', (req, res) => {
+    try {
+        const session = sessionService.getSession(req.params.id);
+        if (!session) {
+            return res.status(404).json({ error: 'Session not found' });
+        }
+
+        const { mode, trimPercent, manualInclude } = req.body;
+        const config = updateContextConfig(req.params.id, {
+            mode: mode || 'standard',
+            trimPercent: trimPercent ?? 100,
+            manualInclude: manualInclude || []
+        });
+
+        res.json({ ok: true, config });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// === НОВОЕ: GET /api/sessions/:id/qa-pairs ===
+router.get('/:id/qa-pairs', (req, res) => {
+    try {
+        const session = sessionService.getSession(req.params.id);
+        if (!session) {
+            return res.status(404).json({ error: 'Session not found' });
+        }
+        const qaPairs = sessionService.getQAPairsForSession(req.params.id);
+        res.json(qaPairs);
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
