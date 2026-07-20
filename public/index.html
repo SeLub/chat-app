@@ -148,48 +148,60 @@
 
         <!-- Right Panel: Models & Statistics -->
         <div class="right-panel">
-            <!-- Section 1: Models -->
+            <!-- Models Section -->
             <div class="right-section models-section-container">
-                <div class="section-header">
-                    🤖 Models
-                </div>
+                <div class="section-header">🤖 Models</div>
                 <div class="section-content">
                     <!-- Provider Selection -->
                     <div class="provider-selection">
                         <h3>Provider</h3>
                         <div class="provider-radios">
                             <label class="radio-label" data-provider="ollama">
-                                <input type="radio" name="provider" value="ollama" checked onchange="handleProviderChange()">
+                                <input type="radio" name="provider" value="ollama" checked>
                                 <span class="provider-name">Ollama</span>
-                                <span class="status-indicator" id="status-ollama" title="Checking...">
+                                <span class="status-indicator" id="status-ollama">
                                     <span class="status-dot"></span>
                                 </span>
                             </label>
                             <label class="radio-label" data-provider="llama_cpp">
-                                <input type="radio" name="provider" value="llama_cpp" onchange="handleProviderChange()">
+                                <input type="radio" name="provider" value="llama_cpp">
                                 <span class="provider-name">llama.cpp</span>
-                                <span class="status-indicator" id="status-llama_cpp" title="Checking...">
+                                <span class="status-indicator" id="status-llama_cpp">
                                     <span class="status-dot"></span>
                                 </span>
                             </label>
                         </div>
                     </div>
-
+                    
                     <!-- Model Selection -->
                     <div class="model-selection">
                         <h3>Select Model</h3>
-                        <select class="model-dropdown" id="modelDropdown" onchange="handleModelSelect()">
+                        <select id="modelDropdown" class="model-dropdown">
                             <option value="">Loading models...</option>
                         </select>
                     </div>
                 </div>
             </div>
-
-            <!-- Section 2: Statistics -->
-            <div class="right-section stats-section-container">
-                <div class="section-header">
-                    📊 Statistics
+            
+            <!-- System Prompt Section (НОВОЕ) -->
+            <div class="right-section sysprompt-section-container">
+                <div class="section-header">📝 System Prompt</div>
+                <div class="section-content">
+                    <textarea 
+                        id="syspromptTextarea" 
+                        class="sysprompt-textarea" 
+                        placeholder="Enter system prompt for the AI assistant..."
+                        rows="8"
+                    ></textarea>
+                    <div class="sysprompt-hint">
+                        <small>Instructions for the AI. Saved per session.</small>
+                    </div>
                 </div>
+            </div>
+            
+            <!-- Statistics Section -->
+            <div class="right-section stats-section-container">
+                <div class="section-header">📊 Statistics</div>
                 <div class="section-content">
                     <div class="stats-section">
                         <h3>Session Stats</h3>
@@ -208,7 +220,7 @@
                         <div class="stat-item">
                             <span class="stat-label">Context Load:</span>
                             <span class="stat-value" id="contextLoad">0%</span>
-                        </div>                       
+                        </div>
                     </div>
                 </div>
             </div>

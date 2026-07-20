@@ -34,6 +34,13 @@ export function getMessagesBySession(sessionId) {
     return messageRepo.getMessagesBySession(sessionId);
 }
 
+// === НОВОЕ: Возвращает сгруппированные Q&A пары (Вариант B) ===
+// Используется для /api/sessions/:id/messages, чтобы фронтенд получал 
+// и список вопросов (keys), и ответы (values) из одного источника.
+export function getGroupedMessages(sessionId) {
+    return getQAPairs(sessionId);
+}
+
 export function addMessage(sessionId, message) {
     return messageRepo.addMessage(sessionId, message);
 }
@@ -51,7 +58,7 @@ export function deleteMessagesByQuestionId(questionId) {
  * @param {number} retainPercent      - % доступного бюджета для истории (0-100)
  * @returns {{ conversation: Array, contextSize: number, retainPercent: number, info: Object }}
  */
-export async function buildContext(sessionId, currentAttachments = [], contextSize = 131072, retainPercent = 100) {
+export async function buildContext(sessionId, currentAttachments = [], contextSize = 65536, retainPercent = 80) {
     return await buildLLMContext(sessionId, currentAttachments, contextSize, retainPercent);
 }
 

@@ -1878,3 +1878,67 @@ body {
     background: #e0e0e0;
     margin: 16px 0;
 }
+
+/* === System Prompt Section === */
+.sysprompt-section-container {
+    flex: 0 0 auto;
+    border-bottom: 2px solid #e0e0e0;
+    max-height: 300px;
+    display: flex;
+    flex-direction: column;
+}
+
+.sysprompt-textarea {
+    width: 100%;
+    min-height: 120px;
+    max-height: 200px;
+    padding: 10px;
+    border: 2px solid #e0e0e0;
+    border-radius: 6px;
+    font-size: 0.85em;
+    font-family: inherit;
+    resize: vertical;
+    transition: border-color 0.2s;
+    line-height: 1.4;
+}
+
+.sysprompt-textarea:focus {
+    outline: none;
+    border-color: #667eea;
+}
+
+.sysprompt-hint {
+    margin-top: 8px;
+    color: #6c757d;
+    font-size: 0.75em;
+    text-align: center;
+}
+
+/* Адаптивность для правой панели */
+.right-panel {
+    display: flex;
+    flex-direction: column;
+}
+
+.right-section {
+    display: flex;
+    flex-direction: column;
+}
+
+.models-section-container {
+    flex: 0 0 auto;
+    border-bottom: 2px solid #e0e0e0;
+}
+
+.sysprompt-section-container {
+    flex: 0 0 auto;
+    border-bottom: 2px solid #e0e0e0;
+    max-height: 300px;
+}
+
+.stats-section-container {
+    flex: 1 1 auto;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}

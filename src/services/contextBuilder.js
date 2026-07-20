@@ -26,7 +26,7 @@ import { getDb } from '../db/init.js';
  * @param {number} retainPercent - сколько % от доступного бюджета оставить для истории (0-100)
  * @returns {{ conversation: Array, trimmed: boolean, info: Object }}
  */
-export function cutContext(conversation, contextSize, retainPercent = 100) {
+export function cutContext(conversation, contextSize, retainPercent ) {
     // === Шаг 1: Разделяем неизменяемую часть и Q&A историю ===
     //
     // НЕИЗМЕНЯЕМАЯ ЧАСТЬ (fixedChars):
@@ -171,25 +171,29 @@ export function cutContext(conversation, contextSize, retainPercent = 100) {
 // ============================================================
 // === Build LLM Context (основная функция) ===
 // ============================================================
-
 /**
  * Строит контекст для LLM из истории сессии.
- *
  * @param {string} sessionId
  * @param {Array}  currentAttachments - файлы, прикреплённые к текущему сообщению
  * @param {number} contextSize        - контекст модели в токенах (например, 131072)
  * @param {number} retainPercent      - % доступного бюджета для истории (0-100)
  * @returns {{ conversation: Array, contextSize: number, retainPercent: number, info: Object }}
  */
-export async function buildLLMContext(sessionId, currentAttachments = [], contextSize = 131072, retainPercent = 100) {
+export async function buildLLMContext(sessionId, currentAttachments = [], contextSize = 131072, retainPercent = 80) { // === ИЗМЕНЕНО: дефолт 80 ===
     const db = getDb();
+    
+    // === НОВОЕ: Получаем sysprompt сессии ===
+    const session = db.prepare('SELECT sysprompt FROM sessions WHERE id = ?').get(sessionId);
+    const sysprompt = (session?.sysprompt && session.sysprompt.trim() !== '') 
+        ? session.sysprompt.trim() 
+        : "You are a helpful assistant."; // Дефолтный промпт, если в БД пусто
 
     // Загружаем сообщения из БД
     const messages = db.prepare(
         'SELECT role, content, attachments_meta, question_id FROM messages WHERE session_id = ? ORDER BY sort_order ASC'
     ).all(sessionId);
 
-    // Загружаем файлы
+    // Загружаем файлы (без изменений)
     const allFileIds = new Set();
     for (const msg of messages) {
         const meta = JSON.parse(msg.attachments_meta || '[]');
@@ -208,8 +212,11 @@ export async function buildLLMContext(sessionId, currentAttachments = [], contex
 
     // Формируем conversation массив
     const conversation = [];
+    
+    // 1. System Prompt (ВСЕГДА первый)
+    conversation.push({ role: 'system', content: sysprompt });
 
-    // File context (system role) — неизменяемая часть
+    // 2. File context (system role)
     if (Object.keys(fileContents).length > 0) {
         let fileContext = 'The user has shared the following files:\n\n';
         for (const [fileId, file] of Object.entries(fileContents)) {
@@ -218,7 +225,7 @@ export async function buildLLMContext(sessionId, currentAttachments = [], contex
         conversation.push({ role: 'system', content: fileContext });
     }
 
-    // Add messages with questionId for grouping
+    // 3. Add messages with questionId for grouping
     for (const msg of messages) {
         const enriched = { role: msg.role, content: msg.content };
         if (msg.question_id) enriched.questionId = msg.question_id;
@@ -241,14 +248,15 @@ export async function buildLLMContext(sessionId, currentAttachments = [], contex
 // ============================================================
 
 /**
- * Получить Q&A пары сессии для ручного режима контекста
+ * Получить Q&A пары сессии для отображения в UI
  * @param {string} sessionId
- * @returns {Array} массив { questionId, questionText, answerText, questionChars, answerChars, totalChars, sortOrder }
+ * @returns {Array} массив { questionId, questionText, answerText, questionChars, answerChars, totalChars, sortOrder, model }
  */
 export function getQAPairs(sessionId) {
     const db = getDb();
+    // === ИЗМЕНЕНО: добавлено поле model в SELECT ===
     const messages = db.prepare(
-        'SELECT role, content, question_id, sort_order FROM messages WHERE session_id = ? ORDER BY sort_order ASC'
+        'SELECT role, content, question_id, sort_order, model FROM messages WHERE session_id = ? ORDER BY sort_order ASC'
     ).all(sessionId);
 
     const qaPairs = [];
@@ -263,17 +271,20 @@ export function getQAPairs(sessionId) {
                 questionChars: msg.content.length,
                 answerChars: 0,
                 totalChars: msg.content.length,
-                sortOrder: msg.sort_order
+                sortOrder: msg.sort_order,
+                model: msg.model || 'unknown' // === ИЗМЕНЕНО: сохраняем модель вопроса ===
             };
         } else if (msg.role === 'assistant' && currentQuestion) {
             currentQuestion.answerText = msg.content;
             currentQuestion.answerChars = msg.content.length;
             currentQuestion.totalChars = currentQuestion.questionChars + msg.content.length;
+            // Если у ассистента есть модель, обновляем (на случай, если она отличается, но обычно она та же)
+            if (msg.model) currentQuestion.model = msg.model; 
+            
             qaPairs.push(currentQuestion);
             currentQuestion = null;
         }
     }
-
     return qaPairs;
 }
 
