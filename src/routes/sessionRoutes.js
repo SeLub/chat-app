@@ -40,7 +40,8 @@ router.get('/:id/messages', (req, res) => {
         if (!session) {
             return res.status(404).json({ error: 'Session not found' });
         }
-        const messages = sessionService.getMessagesBySession(req.params.id);
+        // Используем getGroupedMessages вместо getMessagesBySession
+        const messages = sessionService.getGroupedMessages(req.params.id);
         res.json(messages);
     } catch (error) {
         res.status(500).json({ error: error.message });
@@ -142,6 +143,8 @@ router.patch('/:id', (req, res) => {
         if (req.body.category !== undefined) updates.category = req.body.category;
         if (req.body.model !== undefined) updates.model = req.body.model;
         if (req.body.provider !== undefined) updates.provider = req.body.provider;
+        // === НОВОЕ: Разрешаем обновление sysprompt ===
+        if (req.body.sysprompt !== undefined) updates.sysprompt = req.body.sysprompt;
 
         const session = sessionService.getSession(req.params.id);
         if (!session) {

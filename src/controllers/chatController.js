@@ -114,7 +114,7 @@ export async function chatHandler(req, res) {
         }
 
         // === Валидация ===
-        contextLength = parseInt(contextLength, 10) || 131072;
+        contextLength = parseInt(contextLength, 10) || 65536;
 
         if (!sessionId) {
             return res.status(400).json({ error: 'sessionId is required' });
@@ -127,8 +127,8 @@ export async function chatHandler(req, res) {
 
         // === Получаем конфигурацию контекста ===
         const config = getContextConfig(sessionId);
-        // retainPercent из запроса (фронтенд) > config из БД > 100 по умолчанию
-        retainPercent = parseInt(retainPercent, 10) || (config.retainPercent ?? 100);
+        // retainPercent из запроса (фронтенд) > config из БД > 80 по умолчанию
+        retainPercent = parseInt(retainPercent, 10) || (config.retainPercent ?? 80);
 
         try {
             // === Строим контекст из истории сессии с обрезкой ===

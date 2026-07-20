@@ -15,7 +15,10 @@ let uploadedCodeFiles = [];
 let questionCounter = 0;
 let statusRefreshInterval = null;
 let currentContextLength = null;
-let currentRetainPercent = 100;
+let currentRetainPercent = 80; // === ИЗМЕНЕНО: было 100, стало 80 ===
+// === ИЗМЕНЕНО: Дефолтный системный промпт ===
+const DEFAULT_SYSPROMPT = "Ты — полезный и компетентAI-ассистент. Отвечай четко, структурированно и по существу. Если не знаешь ответа, так и скажи.";
+let currentSysprompt = DEFAULT_SYSPROMPT; 
 
 // === Token Accumulation ===
 let totalInputTokens = 0;
@@ -32,7 +35,7 @@ window.addEventListener('DOMContentLoaded', async () => {
     loadSelectedProvider();
     loadModels();
     await ensureSession();
-
+    
     // Handle URL parameter ?session=... (переход с Dashboard)
     const urlParams = new URLSearchParams(window.location.search);
     const urlSessionId = urlParams.get('session');
@@ -43,14 +46,12 @@ window.addEventListener('DOMContentLoaded', async () => {
     } else {
         await loadViewingSession();
     }
-
+    
     setupEventListeners();
-
     refreshProviderStatus();
     statusRefreshInterval = setInterval(refreshProviderStatus, 30000);
     log.info('Provider status refresh started (every 30s)');
 });
-
 
 
 // ============================================================
@@ -60,21 +61,17 @@ window.addEventListener('DOMContentLoaded', async () => {
 async function ensureSession() {
     const savedId = localStorage.getItem('activeSessionId');
     const savedViewingId = localStorage.getItem('viewingSessionId');
-
+    
     if (savedId) {
         try {
             const session = await window.apiGateway.sessions.get(savedId);
             if (session) {
                 activeSessionId = savedId;
                 viewingSessionId = savedViewingId || savedId;
-
-                if (viewingSessionId === activeSessionId) {
-                    currentSessionTitle = session.title;
-                } else if (savedViewingId) {
-                    const viewingSession = await window.apiGateway.sessions.get(savedViewingId);
-                    currentSessionTitle = viewingSession?.title;
-                }
-                updateChatHeaderTitle();
+                
+                // === НОВОЕ: Применяем данные сессии (включая System Prompt) ===
+                applySessionData(session);
+                
                 log.info('Restored session', {
                     active: savedId.slice(0, 8),
                     viewing: viewingSessionId.slice(0, 8)
@@ -85,7 +82,7 @@ async function ensureSession() {
             log.warn('Saved session not found, creating new one');
         }
     }
-
+    
     try {
         const data = await window.apiGateway.sessions.create();
         activeSessionId = data.id;
@@ -94,6 +91,10 @@ async function ensureSession() {
         updateChatHeaderTitle();
         localStorage.setItem('activeSessionId', activeSessionId);
         localStorage.setItem('viewingSessionId', viewingSessionId);
+        
+        // === НОВОЕ: Применяем дефолтный System Prompt для новой сессии ===
+        applySessionData({ sysprompt: '' }); 
+        
         log.info('Created new session', { sessionId: activeSessionId.slice(0, 8) });
     } catch (error) {
         log.error('Failed to create session', error);
@@ -136,10 +137,8 @@ function updateChatHeaderTitle() {
 // ============================================================
 // === Нормализация сообщений из БД ===
 // ============================================================
-
 function normalizeMessage(msg) {
     if (!msg) return msg;
-
     return {
         id: msg.id,
         sessionId: msg.session_id || msg.sessionId,
@@ -178,17 +177,16 @@ function normalizeMessage(msg) {
 }
 
 // ============================================================
-// === Render Messages from API ===
+// === Render Messages from API (СТРОГО Вариант B: Q&A пары) ===
 // ============================================================
-
 function renderMessagesFromAPI(messages) {
     const chatMessages = document.getElementById('chatMessages');
     chatMessages.innerHTML = '';
     questions = [];
     currentConversation = [];
     questionCounter = 0;
-
-    if (messages.length === 0) {
+    
+    if (!messages || messages.length === 0) {
         chatMessages.innerHTML = `
             <div class="message bot-message">
                 <div class="message-content">
@@ -202,73 +200,79 @@ function renderMessagesFromAPI(messages) {
         updateQuestionsList();
         return;
     }
-
-    for (const rawMsg of messages) {
-        const msg = normalizeMessage(rawMsg);
+    
+    // Мы ВСЕГДА ожидаем формат Q&A пар теперь
+    for (const qaPair of messages) {
         questionCounter++;
-        const questionId = msg.questionId || `q_${questionCounter}_restored`;
-
-        if (msg.role === 'user') {
-            questions.push({
-                id: questionId,
-                text: msg.content,
-                model: msg.model,
-                number: questionCounter
-            });
-
-            const messageDiv = document.createElement('div');
-            messageDiv.className = 'message user-message';
-            messageDiv.dataset.questionId = questionId;
-
-            let attachmentsHtml = '';
-            if (msg.attachmentsMeta && msg.attachmentsMeta.length > 0) {
-                attachmentsHtml = '<div class="message-attachments">' +
-                    msg.attachmentsMeta.map(a =>
-                        `<span class="file-badge">📎 ${escapeHtml(a.name)} (${formatSize(a.size)}) [${escapeHtml(a.type)}]</span>`
-                    ).join('') +
-                    '</div>';
-            }
-
-            messageDiv.innerHTML = `
-                <div class="message-content">
-                    <div class="message-header">
-                        <div class="message-model">Q${questionCounter} • You • ${escapeHtml(msg.model || 'unknown')}</div>
-                        <div class="message-nav-buttons">
-                            <button class="nav-btn prev-btn" onclick="jumpToPreviousQuestion('${questionId}')">↑ Prev</button>
-                            <button class="nav-btn next-btn" onclick="jumpToNextQuestion('${questionId}')">Next ↓</button>
-                        </div>
-                    </div>
-                    <div class="message-text">${escapeHtml(msg.content)}</div>
-                    ${attachmentsHtml}
-                    <div class="message-actions">
-                        <button class="message-action-btn" onclick="copyQuestion('${questionId}')">📋 Copy Question</button>
-                        <button class="message-action-btn" onclick="deleteQAPair('${questionId}')">🗑️ Delete</button>
+        const questionId = qaPair.questionId || `q_${questionCounter}_restored`;
+        
+        // === ИЗМЕНЕНО: корректное извлечение имени модели из пути ===
+        const modelName = (qaPair.model || 'unknown').split('/').pop().replace('.gguf', '');
+        
+        // Добавляем вопрос в список для левой панели
+        questions.push({
+            id: questionId,
+            text: qaPair.questionText,
+            model: qaPair.model || 'unknown',
+            number: questionCounter
+        });
+        
+        // 1. Рендерим вопрос пользователя
+        const userMsgDiv = document.createElement('div');
+        userMsgDiv.className = 'message user-message';
+        userMsgDiv.dataset.questionId = questionId;
+        
+        let attachmentsHtml = '';
+        if (qaPair.attachmentsMeta && qaPair.attachmentsMeta.length > 0) {
+            attachmentsHtml = '<div class="message-attachments">' +
+                qaPair.attachmentsMeta.map(a =>
+                    `<span class="file-badge">📎 ${escapeHtml(a.name)} (${formatSize(a.size)}) [${escapeHtml(a.type)}]</span>`
+                ).join('') +
+                '</div>';
+        }
+        
+        userMsgDiv.innerHTML = `
+            <div class="message-content">
+                <div class="message-header">
+                    <div class="message-model">Q${questionCounter} • You • ${escapeHtml(modelName)}</div>
+                    <div class="message-nav-buttons">
+                        <button class="nav-btn prev-btn" onclick="jumpToPreviousQuestion('${questionId}')">↑ Prev</button>
+                        <button class="nav-btn next-btn" onclick="jumpToNextQuestion('${questionId}')">Next ↓</button>
                     </div>
                 </div>
-            `;
-            chatMessages.appendChild(messageDiv);
-        } else if (msg.role === 'assistant') {
-            const messageDiv = document.createElement('div');
-            messageDiv.className = 'message bot-message';
-            messageDiv.dataset.questionId = questionId;
-
+                <div class="message-text">${escapeHtml(qaPair.questionText)}</div>
+                ${attachmentsHtml}
+                <div class="message-actions">
+                    <button class="message-action-btn" onclick="copyQuestion('${questionId}')">📋 Copy Question</button>
+                    <button class="message-action-btn" onclick="deleteQAPair('${questionId}')">🗑️ Delete</button>
+                </div>
+            </div>
+        `;
+        chatMessages.appendChild(userMsgDiv);
+        
+        // 2. Рендерим ответ бота (если есть)
+        if (qaPair.answerText) {
+            const botMsgDiv = document.createElement('div');
+            botMsgDiv.className = 'message bot-message';
+            botMsgDiv.dataset.questionId = questionId;
+            
             let imageHtml = '';
-            if (msg.imageData && msg.imageData.thumbnailUrl) {
+            if (qaPair.imageData && qaPair.imageData.thumbnailUrl) {
                 imageHtml = `
                     <div class="image-preview-container">
-                        <img src="${msg.imageData.thumbnailUrl}" class="image-preview" onclick="showFullImage('${msg.imageData.fullUrl}')">
-                        <div class="image-filename">${escapeHtml(msg.imageData.filename || '')}</div>
+                        <img src="${qaPair.imageData.thumbnailUrl}" class="image-preview" onclick="showFullImage('${qaPair.imageData.fullUrl}')">
+                        <div class="image-filename">${escapeHtml(qaPair.imageData.filename || '')}</div>
                     </div>
                 `;
             }
-
-            messageDiv.innerHTML = `
+            
+            botMsgDiv.innerHTML = `
                 <div class="message-content">
                     <div class="message-header">
-                        <div class="message-model">🤖 ${escapeHtml(msg.model || 'unknown')}</div>
+                        <div class="message-model">🤖 ${escapeHtml(modelName)}</div>
                     </div>
                     ${imageHtml}
-                    <div class="message-text">${formatMarkdown(msg.content)}</div>
+                    <div class="message-text">${formatMarkdown(qaPair.answerText)}</div>
                     <div class="message-actions">
                         <button class="message-action-btn" onclick="jumpToQuestion('${questionId}')">🔼 Question</button>
                         <button class="message-action-btn" onclick="copyQAPair('${questionId}')">📋 Copy Q&A</button>
@@ -276,17 +280,26 @@ function renderMessagesFromAPI(messages) {
                     </div>
                 </div>
             `;
-            chatMessages.appendChild(messageDiv);
+            chatMessages.appendChild(botMsgDiv);
         }
-
+        
+        // Добавляем в currentConversation для функций копирования
         currentConversation.push({
-            role: msg.role,
-            content: msg.content,
+            role: 'user',
+            content: qaPair.questionText,
             questionId: questionId,
-            model: msg.model
+            model: qaPair.model
         });
+        if (qaPair.answerText) {
+            currentConversation.push({
+                role: 'assistant',
+                content: qaPair.answerText,
+                questionId: questionId,
+                model: qaPair.model
+            });
+        }
     }
-
+    
     updateQuestionsList();
 }
 
@@ -417,19 +430,25 @@ async function loadModels() {
 function handleModelSelect() {
     const dropdown = document.getElementById('modelDropdown');
     const selectedOption = dropdown.options[dropdown.selectedIndex];
-
+    
     if (!selectedOption || !selectedOption.value) {
         currentModel = null;
         currentContextLength = null;
+        log.info('Model deselected by user');
         updateModelInfo();
         return;
     }
-
+    
     currentModel = selectedOption.value;
-    currentProvider = selectedOption.dataset.provider;
+    // Берем провайдера из dataset, или оставляем текущий, если dataset пуст
+    currentProvider = selectedOption.dataset.provider || currentProvider; 
+    
     localStorage.setItem('selectedModel', currentModel);
     localStorage.setItem('selectedProvider', currentProvider);
-    log.info(`Model selected: ${currentModel} (${currentProvider})`);
+    
+    // === НОВОЕ: Четкое логирование выбора ===
+    log.info(`✅ Model selected: ${currentModel} (Provider: ${currentProvider})`);
+    
     updateModelInfo();
 }
 
@@ -495,28 +514,44 @@ async function updateModelInfo() {
 }
 
 // ============================================================
-// === Chat Functionality ===
+// === Chat Functionality (С ИЗМЕНЕНИЯМИ ДЛЯ SYSTEM PROMPT) ===
 // ============================================================
-
 async function sendMessage() {
     const input = document.getElementById('chatInput');
     const message = input.value.trim();
+    
     if (!message) return;
-
+    
     if (!currentModel) {
         showToast('Please select a model first', 'error');
         return;
     }
-
+    
     input.value = '';
-
+    
     // Генерируем questionId на фронтенде
     questionCounter++;
     const questionId = `q_${questionCounter}_${Date.now()}`;
-
+    
     // Добавляем вопрос в UI
     addQuestion(message, currentModel, questionId);
-
+    
+    // === НОВОЕ: Проверяем System Prompt ===
+    const syspromptTextarea = document.getElementById('syspromptTextarea');
+    const newSysprompt = syspromptTextarea ? syspromptTextarea.value.trim() : '';
+    
+    // Если sysprompt изменился — сохраняем в БД
+    if (newSysprompt !== currentSysprompt) {
+        try {
+            await window.apiGateway.sessions.update(viewingSessionId, { sysprompt: newSysprompt });
+            currentSysprompt = newSysprompt;
+            log.info('System prompt updated', { length: newSysprompt.length });
+        } catch (error) {
+            log.error('Failed to save system prompt', error);
+            showToast('Failed to save system prompt', 'error');
+        }
+    }
+    
     // Формируем FormData для отправки файлов
     const formData = new FormData();
     formData.append('message', message);
@@ -527,33 +562,34 @@ async function sendMessage() {
     if (currentContextLength) {
         formData.append('contextLength', currentContextLength);
     }
-
-    if (currentRetainPercent !== 100) {
+    
+    // === ИЗМЕНЕНО: retainPercent теперь 80 по умолчанию ===
+    if (currentRetainPercent !== 80) {
         formData.append('retainPercent', currentRetainPercent);
     }
-
+    
     // Добавляем загруженные файлы
     if (uploadedFile) {
         formData.append('file', uploadedFile);
     }
-
+    
     // Добавляем code files
     uploadedCodeFiles.forEach((file) => {
         formData.append('codeFiles', file);
     });
-
+    
     try {
         log.info(`Sending message to ${currentProvider}/${currentModel}`, {
             hasFile: !!uploadedFile,
             codeFilesCount: uploadedCodeFiles.length
         });
-
+        
         const response = await fetch('/api/chat', {
             method: 'POST',
             headers: { 'X-Provider': currentProvider },
             body: formData
         });
-
+        
         if (response.status === 503) {
             const data = await response.json();
             addBotMessage(
@@ -563,7 +599,7 @@ async function sendMessage() {
             refreshProviderStatus();
             return;
         }
-
+        
         if (!response.ok) {
             const data = await response.json().catch(() => ({ error: 'Unknown error' }));
             addBotMessage(
@@ -572,9 +608,9 @@ async function sendMessage() {
             );
             return;
         }
-
+        
         const data = await response.json();
-
+        
         if (data.error) {
             let errorMessage = data.error;
             if (data.error.includes('ECONNREFUSED')) {
@@ -583,10 +619,9 @@ async function sendMessage() {
             addBotMessage(`❌ ${errorMessage}`, currentModel, null, null, questionId);
             return;
         }
-
+        
         addBotMessage(data.response, currentModel, data.metrics, data.imageData, questionId);
         log.info(`Response received from ${currentModel}`, { metrics: data.metrics });
-
     } catch (error) {
         log.error('Network error sending message', error);
         addBotMessage(
@@ -594,7 +629,7 @@ async function sendMessage() {
             currentModel, null, null, questionId
         );
     }
-
+    
     // Reset file state
     uploadedFile = null;
     uploadedCodeFiles = [];
@@ -907,29 +942,56 @@ function closeLoadModal() {
     document.getElementById('loadModal').classList.remove('active');
 }
 
+// ============================================================
+// === System Prompt Helper ===
+// ============================================================
+function applySessionData(session) {
+    if (!session) return;
+    
+    // 1. Обновляем заголовок
+    if (viewingSessionId === activeSessionId || viewingSessionId === session.id) {
+        currentSessionTitle = session.title || '';
+        updateChatHeaderTitle();
+    }
+    
+    // 2. Загружаем System Prompt с дефолтным фоллбэком
+    const syspromptTextarea = document.getElementById('syspromptTextarea');
+    if (syspromptTextarea) {
+        const sysprompt = (session.sysprompt && session.sysprompt.trim() !== '') 
+            ? session.sysprompt.trim() 
+            : DEFAULT_SYSPROMPT;
+            
+        syspromptTextarea.value = sysprompt;
+        currentSysprompt = sysprompt;
+        log.info('System prompt applied', { 
+            length: sysprompt.length, 
+            isDefault: sysprompt === DEFAULT_SYSPROMPT 
+        });
+    }
+}
+
 async function loadConversation(sessionId) {
     if (!sessionId) return;
-
+    
     viewingSessionId = sessionId;
     localStorage.setItem('viewingSessionId', viewingSessionId);
-
     updateReturnButtonVisibility();
-
+    
     try {
         const session = await window.apiGateway.sessions.get(sessionId);
-        currentSessionTitle = session?.title || '';
-        updateChatHeaderTitle();
+        // === НОВОЕ: Используем универсальную функцию ===
+        applySessionData(session);
     } catch (e) {
         currentSessionTitle = '';
         updateChatHeaderTitle();
     }
-
+    
     try {
         const messages = await window.apiGateway.sessions.getMessages(sessionId);
         renderMessagesFromAPI(messages);
         closeLoadModal();
         showToast('Conversation loaded!', 'success');
-        log.info(`Loaded conversation ${sessionId.slice(0, 8)} (viewing, buffer preserved: ${activeSessionId.slice(0, 8)})`);
+        log.info(`Loaded conversation ${sessionId.slice(0, 8)}`);
     } catch (error) {
         log.error('Failed to load conversation', error);
         showToast('Failed to load conversation', 'error');
@@ -1401,6 +1463,11 @@ function setupEventListeners() {
             if (menu) menu.classList.remove('show');
         }
     });
+
+        const modelDropdown = document.getElementById('modelDropdown');
+        if (modelDropdown) {
+            modelDropdown.addEventListener('change', handleModelSelect);
+        }
 
     const chatInput = document.getElementById('chatInput');
     if (chatInput) {

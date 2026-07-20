@@ -40,6 +40,7 @@ export function initializeSchema(database) {
             project_id      TEXT REFERENCES projects(id),
             model           TEXT,
             provider        TEXT DEFAULT 'ollama',
+            sysprompt       TEXT, /* === НОВОЕ: Системный промпт сессии === */
             message_count   INTEGER DEFAULT 0,
             is_archived     INTEGER DEFAULT 0,
             created_at      TEXT DEFAULT (datetime('now')),
