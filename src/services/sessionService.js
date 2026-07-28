@@ -49,17 +49,17 @@ export function deleteMessagesByQuestionId(questionId) {
     return messageRepo.deleteMessagesByQuestionId(questionId);
 }
 
-// === Context ===
 /**
  * Построить контекст для LLM с обрезкой истории.
  * @param {string} sessionId
  * @param {Array}  currentAttachments - файлы, прикреплённые к текущему сообщению
- * @param {number} contextSize        - контекст модели в токенах
- * @param {number} retainPercent      - % доступного бюджета для истории (0-100)
- * @returns {{ conversation: Array, contextSize: number, retainPercent: number, info: Object }}
+ * @param {number} contextSize        - контекст модели в токенах (по умолчанию 65536)
+ * @param {number} retainPercent      - % доступного бюджета для истории (0-100, по умолчанию 80)
+ * @param {string[]|null} includeQuestionIds - массив ID вопросов, включенных в контекст (null = все)
+ * @returns {Promise<{ conversation: Array, contextSize: number, retainPercent: number, info: Object }>}
  */
-export async function buildContext(sessionId, currentAttachments = [], contextSize = 65536, retainPercent = 80) {
-    return await buildLLMContext(sessionId, currentAttachments, contextSize, retainPercent);
+export async function buildContext(sessionId, currentAttachments = [], contextSize = 65536, retainPercent = 80, includeQuestionIds = null) {
+    return await buildLLMContext(sessionId, currentAttachments, contextSize, retainPercent, includeQuestionIds);
 }
 
 export function getQAPairsForSession(sessionId) {

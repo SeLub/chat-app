@@ -4,166 +4,88 @@ import { getDb } from '../db/init.js';
 // ============================================================
 // === cutContext — чистая математика обрезки Q&A истории ===
 // ============================================================
-
 /**
- * Обрезает историю Q&A пар до заданного процента от контекста модели.
- *
- * Логика (чистая математика, без предсказаний):
- *
- *   1. contextSize — контекст модели в токенах (например, 131072)
- *   2. fixedChars — всё, что НЕ обрезается:
- *        - системный промпт
- *        - извлечённый текст URL
- *        - извлечённый текст файлов/документов/кода
- *        - текст текущего вопроса
- *   3. availableChars = contextSize * 4 - fixedChars
- *   4. targetChars = availableChars * retainPercent / 100
- *   5. Берём Q&A пары с конца (новые), складываем, пока не упрёмся в targetChars
- *   6. Старые пары, которые не уложились — отбрасываются
- *
- * @param {Array} conversation   - полный массив сообщений [{role, content, questionId?}]
- * @param {number} contextSize   - контекст модели в токенах (например, 131072)
- * @param {number} retainPercent - сколько % от доступного бюджета оставить для истории (0-100)
- * @returns {{ conversation: Array, trimmed: boolean, info: Object }}
+ * Обрезает историю Q&A пар.
+ * @param {Array} qaHistory - массив сообщений из БД (только user и assistant)
+ * @param {number} targetChars - доступный бюджет в символах для истории
+ * @param {string[]|null} includeQuestionIds - массив ID для Manual режима (null = все)
+ * @returns {{ truncatedHistory: Array, info: Object }}
  */
-export function cutContext(conversation, contextSize, retainPercent ) {
-    // === Шаг 1: Разделяем неизменяемую часть и Q&A историю ===
-    //
-    // НЕИЗМЕНЯЕМАЯ ЧАСТЬ (fixedChars):
-    //   - system-сообщения (системный промпт + file context)
-    //   - последнее user-сообщение (текущий вопрос + URL + файлы)
-    //
-    // ИЗМЕНЯЕМАЯ ЧАСТЬ (Q&A история):
-    //   - все user-сообщения кроме последнего
-    //   - все assistant-сообщения
-
-    let fixedChars = 0;
-    const systemMessages = [];
-    let lastUserIndex = -1;
-
-    // Находим индекс последнего user-сообщения (текущий вопрос)
-    for (let i = conversation.length - 1; i >= 0; i--) {
-        if (conversation[i].role === 'user') {
-            lastUserIndex = i;
-            break;
-        }
-    }
-
-    // Считаем fixedChars и отделяем system-сообщения
-    const qaMessages = [];  // Q&A история (подлежит обрезке)
-
-    for (let i = 0; i < conversation.length; i++) {
-        const msg = conversation[i];
-        const chars = msg.content?.length || 0;
-
-        if (msg.role === 'system') {
-            // Системное сообщение = системный промпт или file context
-            // Это НЕ обрезается
-            fixedChars += chars;
-            systemMessages.push(msg);
-        } else if (i === lastUserIndex) {
-            // Текущий вопрос пользователя — НЕ обрезается
-            fixedChars += chars;
-        } else if (msg.role === 'user' || msg.role === 'assistant') {
-            // История Q&A — подлежит обрезке
-            qaMessages.push({
-                role: msg.role,
-                content: msg.content,
-                chars: chars,
-                questionId: msg.questionId || null,
-                index: i
+export function cutContext(qaHistory, targetChars, includeQuestionIds = null) {
+    // 1. Группируем сообщения в пары с помощью Map (ключ = questionId)
+    const qaMap = new Map();
+    
+    for (const msg of qaHistory) {
+        if (msg.role === 'user' && msg.question_id) {
+            qaMap.set(msg.question_id, {
+                question: msg,
+                answer: null,
+                totalChars: msg.content.length,
+                questionId: msg.question_id,
+                sortOrder: msg.sort_order
             });
+        } else if (msg.role === 'assistant' && msg.question_id) {
+            const pair = qaMap.get(msg.question_id);
+            if (pair) {
+                pair.answer = msg;
+                pair.totalChars += msg.content.length;
+            }
         }
     }
 
-    // === Шаг 2: Группируем Q&A сообщения в пары (user + assistant) ===
-    // Создаём Map: номер Q&A пары → { messages: [...], totalChars: N, questionId }
-    const qaPairs = [];
-    let currentPair = null;
+    // Преобразуем Map в массив и сортируем по порядку (sortOrder)
+    let qaPairs = Array.from(qaMap.values()).sort((a, b) => a.sortOrder - b.sortOrder);
+    const totalQAPairs = qaPairs.length;
 
-    for (const msg of qaMessages) {
-        if (msg.role === 'user') {
-            currentPair = {
-                messages: [msg],
-                totalChars: msg.chars,
-                questionId: msg.questionId,
-                index: msg.index
-            };
-        } else if (msg.role === 'assistant' && currentPair) {
-            currentPair.messages.push(msg);
-            currentPair.totalChars += msg.chars;
-            qaPairs.push(currentPair);
-            currentPair = null;
-        }
+    // 2. Фильтрация для Manual режима
+    let filteredPairs = qaPairs;
+    if (includeQuestionIds && Array.isArray(includeQuestionIds) && includeQuestionIds.length > 0) {
+        filteredPairs = qaPairs.filter(pair => includeQuestionIds.includes(pair.questionId));
     }
 
-    // Если есть незакрытый user (без ответа) — добавляем как отдельную пару
-    if (currentPair) {
-        qaPairs.push(currentPair);
-    }
-
-    // === Шаг 3: Чистая математика обрезки ===
-    // contextSize в токенах → символы (умножаем на 4)
-    const maxChars = contextSize * 4;
-
-    // Доступный бюджет для истории (после вычета неизменяемой части)
-    const availableChars = Math.max(maxChars - fixedChars, 0);
-
-    // Целевой бюджет с учётом retainPercent
-    const targetChars = Math.floor(availableChars * (retainPercent / 100));
-
-    // Берём Q&A пары с конца (новые), пока не уложимся в targetChars
+    // 3. LIFO обрезка (идём с конца, от новых к старым)
     const selected = [];
     let currentSum = 0;
-
-    for (let i = qaPairs.length - 1; i >= 0; i--) {
-        const pair = qaPairs[i];
+    
+    for (let i = filteredPairs.length - 1; i >= 0; i--) {
+        const pair = filteredPairs[i];
         if (currentSum + pair.totalChars <= targetChars) {
-            selected.unshift(pair);  // Добавляем в начало (хронологический порядок)
-            currentSum += pair.totalChars;
+            selected.unshift(pair); // Добавляем в начало, чтобы сохранить хронологический порядок
+            currentSum += pair.totalChars
+        } else {
+            break; // Строгий LIFO: если текущая не влезает, старые тем более
         }
-        // Если не укладывается — пропускаем (старые пары, которые обрезаются)
     }
 
-    // === Шаг 4: Собираем результат ===
-    const result = [];
-
-    // 1. System-сообщения (неизменяемые)
-    for (const msg of systemMessages) {
-        result.push(msg);
-    }
-
-    // 2. Selected Q&A пары (история)
+    // 4. Собираем итоговый плоский массив сообщений для LLM
+    const truncatedHistory = [];
     for (const pair of selected) {
-        for (const msg of pair.messages) {
-            result.push(msg);
+        truncatedHistory.push(pair.question);
+        if (pair.answer) {
+            truncatedHistory.push(pair.answer);
         }
     }
 
-    // 3. Текущий вопрос (неизменяемый)
-    if (lastUserIndex >= 0) {
-        result.push(conversation[lastUserIndex]);
+    // 5. Вычисляем excludedIndices (1-based номера вопросов, которых НЕТ в selected)
+    // Мы смотрим на исходный массив qaPairs, чтобы нумерация Q1, Q2... была сквозной
+    const excludedIndices = [];
+    for (let i = 0; i < qaPairs.length; i++) {
+        if (!selected.includes(qaPairs[i])) {
+            excludedIndices.push(i + 1);
+        }
     }
-
-    const trimmed = selected.length < qaPairs.length;
-    const removedPairs = qaPairs.length - selected.length;
-    const removedChars = qaPairs.reduce((sum, p) => sum + p.totalChars, 0) - currentSum;
+    excludedIndices.sort((a, b) => a - b);
 
     return {
-        conversation: result,
-        trimmed,
+        truncatedHistory,
         info: {
-            contextSize,
-            maxChars,
-            fixedChars,
-            availableChars,
             targetChars,
             actualHistoryChars: currentSum,
-            retainPercent,
-            totalQAPairs: qaPairs.length,
+            totalQAPairs,
             includedQAPairs: selected.length,
-            removedQAPairs: removedPairs,
-            removedChars
+            removedQAPairs: filteredPairs.length - selected.length,
+            removedChars: filteredPairs.reduce((sum, p) => sum + p.totalChars, 0) - currentSum,
+            excludedIndices
         }
     };
 }
@@ -175,25 +97,28 @@ export function cutContext(conversation, contextSize, retainPercent ) {
  * Строит контекст для LLM из истории сессии.
  * @param {string} sessionId
  * @param {Array}  currentAttachments - файлы, прикреплённые к текущему сообщению
- * @param {number} contextSize        - контекст модели в токенах (например, 131072)
+ * @param {number} contextSize        - контекст модели в токенах (например, 65536)
  * @param {number} retainPercent      - % доступного бюджета для истории (0-100)
  * @returns {{ conversation: Array, contextSize: number, retainPercent: number, info: Object }}
  */
-export async function buildLLMContext(sessionId, currentAttachments = [], contextSize = 131072, retainPercent = 80) { // === ИЗМЕНЕНО: дефолт 80 ===
+// ============================================================
+// === Build LLM Context (основная функция) ===
+// ============================================================
+export async function buildLLMContext(sessionId, currentAttachments = [], contextSize = 65536, retainPercent = 80, includeQuestionIds = null) {
     const db = getDb();
     
-    // === НОВОЕ: Получаем sysprompt сессии ===
+    // 1. Получаем системный промпт
     const session = db.prepare('SELECT sysprompt FROM sessions WHERE id = ?').get(sessionId);
     const sysprompt = (session?.sysprompt && session.sysprompt.trim() !== '') 
         ? session.sysprompt.trim() 
-        : "You are a helpful assistant."; // Дефолтный промпт, если в БД пусто
+        : "Ты — полезный и компетентный ИИ-ассистент. Отвечай четко, структурированно и по существу.";
 
-    // Загружаем сообщения из БД
+    // 2. Получаем историю из БД (только user и assistant)
     const messages = db.prepare(
-        'SELECT role, content, attachments_meta, question_id FROM messages WHERE session_id = ? ORDER BY sort_order ASC'
+        'SELECT role, content, attachments_meta, question_id, sort_order FROM messages WHERE session_id = ? ORDER BY sort_order ASC'
     ).all(sessionId);
 
-    // Загружаем файлы (без изменений)
+    // 3. Собираем файлы
     const allFileIds = new Set();
     for (const msg of messages) {
         const meta = JSON.parse(msg.attachments_meta || '[]');
@@ -201,45 +126,51 @@ export async function buildLLMContext(sessionId, currentAttachments = [], contex
     }
     currentAttachments.forEach(a => { if (a.fileId) allFileIds.add(a.fileId); });
 
-    const fileContents = {};
+    let filesContext = '';
     if (allFileIds.size > 0) {
         const placeholders = [...allFileIds].map(() => '?').join(',');
         const rows = db.prepare(
             `SELECT id, filename, extracted_text FROM attachments WHERE id IN (${placeholders})`
         ).all(...[...allFileIds]);
-        rows.forEach(r => { fileContents[r.id] = { filename: r.filename, text: r.extracted_text }; });
-    }
-
-    // Формируем conversation массив
-    const conversation = [];
-    
-    // 1. System Prompt (ВСЕГДА первый)
-    conversation.push({ role: 'system', content: sysprompt });
-
-    // 2. File context (system role)
-    if (Object.keys(fileContents).length > 0) {
-        let fileContext = 'The user has shared the following files:\n\n';
-        for (const [fileId, file] of Object.entries(fileContents)) {
-            fileContext += `--- FILE: ${file.filename} ---\n${file.text}\n\n`;
+        
+        filesContext = 'The user has shared the following files:\n\n';
+        for (const r of rows) {
+            filesContext += `--- FILE: ${r.filename} ---\n${r.extracted_text}\n\n`;
         }
-        conversation.push({ role: 'system', content: fileContext });
     }
 
-    // 3. Add messages with questionId for grouping
-    for (const msg of messages) {
-        const enriched = { role: msg.role, content: msg.content };
-        if (msg.question_id) enriched.questionId = msg.question_id;
-        conversation.push(enriched);
-    }
+    // 4. Расчёт бюджетов
+    const fixedChars = sysprompt.length + filesContext.length;
+    const maxChars = contextSize * 4;
+    const availableChars = Math.max(maxChars - fixedChars, 0);
+    const targetChars = Math.floor(availableChars * (retainPercent / 100));
 
-    // Вызываем cutContext — чистая математика
-    const result = cutContext(conversation, contextSize, retainPercent);
+    // 5. Вызываем чистую функцию обрезки истории
+    const { truncatedHistory, info } = cutContext(messages, targetChars, includeQuestionIds);
+
+    // 6. Собираем финальный контекст
+    const finalConversation = [];
+    finalConversation.push({ role: 'system', content: sysprompt });
+    
+    if (filesContext) {
+        finalConversation.push({ role: 'system', content: filesContext });
+    }
+    
+    // Добавляем обрезанную историю
+    finalConversation.push(...truncatedHistory);
+
+    // Примечание: Текущий вопрос (prompt) добавляется в chatController.js ПОСЛЕ этой функции!
 
     return {
-        conversation: result.conversation,
+        conversation: finalConversation,
         contextSize,
         retainPercent,
-        info: result.info
+        info: {
+            ...info,
+            fixedChars,
+            availableChars,
+            targetChars
+        }
     };
 }
 
@@ -342,7 +273,7 @@ export function updateContextConfig(sessionId, config) {
     // context_config создаётся при инициализации БД в initializeSchema()
 
     const mode = config.mode || 'standard';
-    const retainPercent = Math.min(Math.max(config.retainPercent ?? 100, 10), 100);
+    const retainPercent = Math.min(Math.max(config.retainPercent ?? 80, 10), 100);
     const manualInclude = config.manualInclude || [];
 
     db.prepare(`
@@ -365,18 +296,15 @@ export function updateContextConfig(sessionId, config) {
  */
 export function getContextConfig(sessionId) {
     const db = getDb();
-
     const config = db.prepare(
         'SELECT mode, retain_percent, manual_include FROM context_config WHERE session_id = ?'
     ).get(sessionId);
-
     if (!config) {
-        return { mode: 'standard', retainPercent: 100, manualInclude: [] };
+        return { mode: 'standard', retainPercent: 80, manualInclude: [] };
     }
-
     return {
         mode: config.mode || 'standard',
-        retainPercent: config.retain_percent ?? 100,
+        retainPercent: config.retain_percent ?? 80,
         manualInclude: JSON.parse(config.manual_include || '[]')
     };
 }
