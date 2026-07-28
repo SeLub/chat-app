@@ -325,11 +325,16 @@ function handleProviderChange() {
     const selectedRadio = document.querySelector('input[name="provider"]:checked');
     if (selectedRadio) {
         const newProvider = selectedRadio.value;
-        log.info(`Provider changed: ${currentProvider} → ${newProvider}`);
-        currentProvider = newProvider;
-        saveSelectedProvider();
-        loadModels();
-        refreshProviderStatus();
+        
+        // Обновляем только если провайдер действительно изменился
+        if (currentProvider !== newProvider) {
+            log.info(`Provider changed: ${currentProvider} → ${newProvider}`);
+            currentProvider = newProvider;
+            
+            saveSelectedProvider(); // Сохраняет в localStorage
+            loadModels();           // Загружает модели для НОВОГО провайдера
+            refreshProviderStatus(); // Обновляет индикаторы статуса
+        }
     }
 }
 
@@ -1457,6 +1462,7 @@ function showToast(message, type = 'info') {
 }
 
 function setupEventListeners() {
+    // 1. Закрытие dropdown при клике вне его
     document.addEventListener('click', (e) => {
         if (!e.target.closest('.dropdown')) {
             const menu = document.getElementById('dropdownMenu');
@@ -1464,11 +1470,19 @@ function setupEventListeners() {
         }
     });
 
-        const modelDropdown = document.getElementById('modelDropdown');
-        if (modelDropdown) {
-            modelDropdown.addEventListener('change', handleModelSelect);
-        }
+    // === НОВОЕ: Слушатель изменения провайдера (РАДИО-КНОПКИ) ===
+    const providerRadios = document.querySelectorAll('input[name="provider"]');
+    providerRadios.forEach(radio => {
+        radio.addEventListener('change', handleProviderChange);
+    });
 
+    // === НОВОЕ: Слушатель изменения модели (ВЫПАДАЮЩИЙ СПИСОК) ===
+    const modelDropdown = document.getElementById('modelDropdown');
+    if (modelDropdown) {
+        modelDropdown.addEventListener('change', handleModelSelect);
+    }
+
+    // 3. Обработка Enter в основном поле ввода
     const chatInput = document.getElementById('chatInput');
     if (chatInput) {
         chatInput.addEventListener('keydown', (e) => {
@@ -1479,6 +1493,7 @@ function setupEventListeners() {
         });
     }
 
+    // 4. Обработка Ctrl+Enter в модальном окне multiline
     const multilineInput = document.getElementById('multilineInput');
     if (multilineInput) {
         multilineInput.addEventListener('keydown', (e) => {
