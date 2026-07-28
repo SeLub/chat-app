@@ -162,14 +162,14 @@ This enables step 5 below.
 ## Data Flow Detail
 
 ### First message (no prior history):
-1. Frontend sends `{ message: "Hello", model: "phi4", sessionId: "abc", contextLength: 131072 }`
+1. Frontend sends `{ message: "Hello", model: "phi4", sessionId: "abc", contextLength: 65536 }`
 2. Backend stores user message in session: `[{ role: 'user', content: 'Hello', model: 'phi4' }]`
 3. Backend calls `provider.chat({ model: 'phi4', messages: [...] })` → Ollama `/api/chat`
 4. Backend stores assistant response in session: `[{ user: ... }, { assistant: "Hi there..." } ]`
 5. Response returned to frontend.
 
 ### Second message (history exists):
-1. Frontend sends `{ message: "What was my first question?", model: "phi4", sessionId: "abc", contextLength: 131072 }`
+1. Frontend sends `{ message: "What was my first question?", model: "phi4", sessionId: "abc", contextLength: 65536 }`
 2. Backend retrieves history from session, appends new user message: `[{ user: 'Hello' }, { assistant: 'Hi there...' }, { user: 'What was my first question?' }]`
 3. If total chars > `contextLength * 4`, truncate oldest entries.
 4. Backend calls `provider.chat({ model, messages: trimmed })` — full context sent to LLM.
