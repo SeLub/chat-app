@@ -1942,3 +1942,16 @@ body {
     display: flex;
     flex-direction: column;
 }
+
+/* === Context Notice === */
+.context-notice {
+    font-size: 0.85em;
+    color: #f59e0b; /* Янтарный цвет для внимания */
+    font-style: italic;
+    background: rgba(245, 158, 11, 0.1);
+    padding: 8px 12px;
+    border-radius: 6px;
+    border-left: 3px solid #f59e0b;
+    margin-bottom: 12px;
+    line-height: 1.4;
+}

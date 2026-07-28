@@ -11,7 +11,8 @@ const log = createLogger('ChatController');
 
 export async function chatHandler(req, res) {
     // === Деструктуризация параметров запроса ===
-    let { message, model, sessionId, attachments: attachmentMeta, questionId, contextLength, retainPercent } = req.body;
+    let { message, model, sessionId, attachments: attachmentMeta, questionId, contextLength, retainPercent, includeQuestionIds } = req.body;
+
     const file = req.files?.file?.[0];
     const codeFiles = req.files?.codeFiles || [];
 
@@ -113,60 +114,81 @@ export async function chatHandler(req, res) {
             }
         }
 
-        // === Валидация ===
+    // === Валидация ===
         contextLength = parseInt(contextLength, 10) || 65536;
-
         if (!sessionId) {
             return res.status(400).json({ error: 'sessionId is required' });
         }
-
+        
         const session = sessionService.getSession(sessionId);
         if (!session) {
             return res.status(404).json({ error: 'Session not found' });
         }
 
-        // === Получаем конфигурацию контекста ===
         const config = getContextConfig(sessionId);
-        // retainPercent из запроса (фронтенд) > config из БД > 80 по умолчанию
-        retainPercent = parseInt(retainPercent, 10) || (config.retainPercent ?? 80);
+        let rp = parseInt(retainPercent, 10);
+        retainPercent = (isNaN(rp) ? (config.retainPercent ?? 80) : rp);
+
+        // Дополнительная защита от некорректных значений
+        retainPercent = Math.min(Math.max(retainPercent, 10), 100);
 
         try {
             // === Строим контекст из истории сессии с обрезкой ===
             // buildContext теперь делает всё: загружает файлы, группирует Q&A, обрезает
+
+            let parsedIncludeIds = null;
+                    if (req.body.includeQuestionIds) {
+                        try {
+                            parsedIncludeIds = typeof req.body.includeQuestionIds === 'string' 
+                                ? JSON.parse(req.body.includeQuestionIds) 
+                                : req.body.includeQuestionIds;
+                        } catch (e) {
+                            log.warn('Failed to parse includeQuestionIds', e);
+                        }
+                    }
+            
+            log.info('📤 IncludeQuestionIds parsed', { 
+                hasIds: !!parsedIncludeIds, 
+                count: parsedIncludeIds?.length || 0,
+                ids: parsedIncludeIds 
+            });
+
+
             const currentAttachments = attachmentMeta || [];
             const contextResult = await sessionService.buildContext(
                 sessionId,
                 currentAttachments,
-                contextLength,  // контекст модели (передаём из запроса, не хардкодим!)
-                retainPercent    // % бюджета для истории
+                contextLength,
+                retainPercent,
+                parsedIncludeIds // === Передаем массив ID ===
             );
 
-            // === Добавляем текущий вопрос ===
-            // Текущий вопрос — неизменяемая часть контекста, добавляется ПОСЛЕ buildContext
             const contextMessages = [...contextResult.conversation, { role: 'user', content: message }];
-
+            
             log.info('Context built', {
                 contextSize: contextResult.contextSize,
                 retainPercent: contextResult.retainPercent,
                 fixedChars: contextResult.info?.fixedChars ?? 0,
-                availableChars: contextResult.info?.availableChars ?? 0,
-                targetChars: contextResult.info?.targetChars ?? 0,
                 totalQAPairs: contextResult.info?.totalQAPairs ?? 0,
                 includedQAPairs: contextResult.info?.includedQAPairs ?? 0,
                 removedQAPairs: contextResult.info?.removedQAPairs ?? 0,
-                messagesCount: contextMessages.length
+                excludedIndices: contextResult.info?.excludedIndices ?? [] // Логируем для отладки
             });
 
-            // === Вызов LLM ===
+            let totalQAPairs = contextResult.info?.totalQAPairs ?? 0
+
+            // В chatController.js
+            const isManualMode = parsedIncludeIds && parsedIncludeIds.length < totalQAPairs;
+
             const result = await req.provider.chat({
                 model,
                 messages: contextMessages,
-                stream: false
+                stream: false,
+                cache_prompt: !isManualMode,  // Кэш только в Standard
+                n_keep: isManualMode ? 0 : undefined
             });
 
-            // === Сохраняем в БД ===
             const finalQuestionId = questionId || `q_${Date.now()}`;
-
             sessionService.addMessage(sessionId, {
                 role: 'user',
                 content: message,
@@ -174,7 +196,6 @@ export async function chatHandler(req, res) {
                 questionId: finalQuestionId,
                 attachmentsMeta: currentAttachments
             });
-
             sessionService.addMessage(sessionId, {
                 role: 'assistant',
                 content: result.response,
@@ -187,7 +208,8 @@ export async function chatHandler(req, res) {
                 response: result.response,
                 model,
                 metrics: result.metrics,
-                questionId: finalQuestionId
+                questionId: finalQuestionId,
+                excludedIndices: contextResult.info.excludedIndices || [] // === НОВОЕ: возвращаем фронтенду ===
             });
         } catch (error) {
             log.error('Chat error', { error: error.message, code: error.code });
