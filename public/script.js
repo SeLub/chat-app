@@ -19,7 +19,7 @@ let currentRetainPercent = 80; // === ИЗМЕНЕНО: было 100, стало
 let contextMode = 'standard'; // 'standard' | 'manual'
 let selectedQuestionIds = []; // Массив ID вопросов, включенных в контекст
 // === Дефолтный системный промпт ===
-const DEFAULT_SYSPROMPT = "Ты — полезный и компетентAI-ассистент. Отвечай четко, структурированно и по существу. Если не знаешь ответа, так и скажи.";
+const DEFAULT_SYSPROMPT = "Ты Senior Developer. Отвечай четко, структурированно и по существу. Ты мыслишь архитектурно, производительность, системность.";
 let currentSysprompt = DEFAULT_SYSPROMPT; 
 
 // === Token Accumulation ===
@@ -1027,7 +1027,7 @@ async function returnToCurrent() {
     }
 
     try {
-        const session = await windаow.apiGateway.sessions.get(activeSessionId);
+        const session = await window.apiGateway.sessions.get(activeSessionId);
         currentSessionTitle = session?.title || '';
     } catch (e) {
         currentSessionTitle = '';
@@ -1079,6 +1079,7 @@ async function clearChat() {
         totalInputTokens = 0;
         totalOutputTokens = 0;
         resetContextState();
+
         document.getElementById('chatMessages').innerHTML = `
             <div class="message bot-message">
                 <div class="message-content">
