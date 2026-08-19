@@ -272,6 +272,24 @@ const providersApi = {
 };
 
 // ============================================================
+// === STT (Speech-to-Text) API ===
+// ============================================================
+const sttApi = {
+    /**
+     * Отправить аудио Blob для транскрипции
+     * @param {Blob} audioBlob - WAV аудиофайл
+     */
+    transcribe(audioBlob) {
+        const formData = new FormData();
+        formData.append('audio', audioBlob, 'recording.wav');
+        
+        return request('POST', '/api/stt/transcribe', {
+            body: formData
+        });
+    }
+};
+
+// ============================================================
 // === Экспорт для использования в других модулях ===
 // ============================================================
 
@@ -284,6 +302,7 @@ if (typeof window !== 'undefined') {
         chat: chatApi,
         models: modelsApi,
         providers: providersApi,
+        stt: sttApi,
         ApiError
     };
 }

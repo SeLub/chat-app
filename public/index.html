@@ -37,7 +37,7 @@
                 <div class="chat-context-progress" id="chatContextProgress">
                     <div class="chat-context-fill" id="chatContextFill"></div>
                 </div>
-                <span class="chat-context-value" id="chatContextValue">0 / -</span>
+                <span class="chat-context-value" id="chatContextValue">0/0 Q&A • 0%</span>
             </div>
             <div class="chat-buttons">
                             <button onclick="saveConversation()">💾 Save Conversation</button>
@@ -59,6 +59,7 @@
             <div class="chat-input-container">
                 <div class="input-wrapper">
                     <textarea class="chat-input" id="chatInput" placeholder="Type your message..." rows="1"></textarea>
+                    <button id="micBtn" class="mic-btn" title="Голосовой ввод (нажмите для старта/стопа)"> 🎤 </button>
                     <button class="send-btn" id="sendBtn" onclick="sendMessage()">Send</button>
                 </div>
                 <div class="input-actions">

@@ -1954,3 +1954,35 @@ body {
     margin-bottom: 12px;
     line-height: 1.4;
 }
+
+    .mic-btn {
+        background: #e0e0e0;
+        border: none;
+        border-radius: 50%;
+        width: 40px;
+        height: 40px;
+        cursor: pointer;
+        font-size: 1.2rem;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: all 0.3s ease;
+        margin-right: 8px;
+    }
+
+    .mic-btn:hover {
+        background: #d0d0d0;
+    }
+
+    /* Анимация пульсации при записи */
+    .mic-btn.recording {
+        background: #ff4444;
+        color: white;
+        animation: pulse-red 1.5s infinite;
+    }
+
+    @keyframes pulse-red {
+        0% { box-shadow: 0 0 0 0 rgba(255, 68, 68, 0.7); }
+        70% { box-shadow: 0 0 0 10px rgba(255, 68, 68, 0); }
+        100% { box-shadow: 0 0 0 0 rgba(255, 68, 68, 0); }
+    }
