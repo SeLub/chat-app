@@ -209,7 +209,16 @@ export async function chatHandler(req, res) {
                 model,
                 metrics: result.metrics,
                 questionId: finalQuestionId,
-                excludedIndices: contextResult.info.excludedIndices || [] // === НОВОЕ: возвращаем фронтенду ===
+                excludedIndices: contextResult.info.excludedIndices || [],
+                contextInfo: {
+                    contextSize: contextResult.contextSize,
+                    fixedChars: contextResult.info.fixedChars,
+                    actualHistoryChars: contextResult.info.actualHistoryChars,
+                    totalChars: contextResult.info.fixedChars + contextResult.info.actualHistoryChars,
+                    targetChars: contextResult.info.targetChars,
+                    includedQAPairs: contextResult.info.includedQAPairs,
+                    totalQAPairs: contextResult.info.totalQAPairs
+                }
             });
         } catch (error) {
             log.error('Chat error', { error: error.message, code: error.code });

@@ -612,7 +612,7 @@ async function sendMessage() {
         }
         
         addBotMessage(data.response, currentModel, data.metrics, data.imageData, questionId, data.excludedIndices || []);
-        
+        updateContextBar(data.contextInfo); 
         log.info(`Response received from ${currentModel}`, { metrics: data.metrics });
     } catch (error) {
         log.error('Network error sending message', error);
@@ -1276,36 +1276,27 @@ function updateStats(metrics) {
     updateStatsModal(metrics);
 }
 
-function updateContextBar() {
+function updateContextBar(contextInfo) {
     const bar = document.getElementById('chatContextBar');
     const fill = document.getElementById('chatContextFill');
     const value = document.getElementById('chatContextValue');
-    if (!bar || !fill || !value) return;
-
-    if (!currentModel) {
-        bar.classList.remove('active');
-        fill.style.width = '0%';
-        value.textContent = '0 / -';
-        return;
-    }
-
+    
+    if (!bar || !fill || !value || !contextInfo) return;
+    
     bar.classList.add('active');
-
-    const used = totalInputTokens + totalOutputTokens;
-    const total = currentContextLength || 0;
-    const pct = total > 0 ? Math.round((used / total) * 100) : 0;
-
+    const maxChars = contextInfo.contextSize * 4;
+    const pct = Math.round((contextInfo.totalChars / maxChars) * 100);
     fill.style.width = pct + '%';
-
+    
     if (pct <= 50) {
-        fill.style.backgroundColor = '#10b981';
+        fill.style.backgroundColor = '#10b981'; // Зелёный
     } else if (pct <= 75) {
-        fill.style.backgroundColor = '#f59e0b';
+        fill.style.backgroundColor = '#f59e0b'; // Янтарный
     } else {
-        fill.style.backgroundColor = '#ef4444';
+        fill.style.backgroundColor = '#ef4444'; // Красный
     }
-
-    value.textContent = `${used} / ${total}`;
+    
+    value.textContent = `${contextInfo.includedQAPairs}/${contextInfo.totalQAPairs} Q&A • ${pct}%`;
 }
 
 function updateStatsModal(metrics) {
@@ -1636,4 +1627,157 @@ function setupEventListeners() {
             }
         });
     }
+
+    // 5. Запись голоса при клике на кнопку микрофона
+    const micBtn = document.getElementById('micBtn');
+    if (micBtn) {
+        micBtn.addEventListener('click', toggleRecording);
+    }
+}
+
+// === ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ ДЛЯ ЗАПИСИ АУДИО ===
+let isRecording = false;
+let mediaRecorder = null;
+let audioChunks = [];
+const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+
+// === УТИЛИТА КОНВЕРТАЦИИ В WAV (проверенная) ===
+function bufferToWave(abuffer, len) {
+    let numOfChan = abuffer.numberOfChannels,
+        length = len * numOfChan * 2 + 44,
+        buffer = new ArrayBuffer(length),
+        view = new DataView(buffer),
+        channels = [], i, sample, offset = 0, pos = 0;
+
+    // Записываем WAV-заголовок
+    const setUint16 = (data) => { view.setUint16(pos, data, true); pos += 2; };
+    const setUint32 = (data) => { view.setUint32(pos, data, true); pos += 4; };
+
+    setUint32(0x46464952);                         // "RIFF"
+    setUint32(length - 8);                         // file length - 8
+    setUint32(0x45564157);                         // "WAVE"
+    setUint32(0x20746d66);                         // "fmt " chunk
+    setUint32(16);                                 // length = 16
+    setUint16(1);                                  // PCM (uncompressed)
+    setUint16(numOfChan);
+    setUint32(abuffer.sampleRate);
+    setUint32(abuffer.sampleRate * 2 * numOfChan); // avg. bytes/sec
+    setUint16(numOfChan * 2);                      // block-align
+    setUint16(16);                                 // 16-bit
+    setUint32(0x61746164);                         // "data" - chunk
+    setUint32(length - pos - 4);                   // chunk length
+
+    // Интерливинг каналов и масштабирование до 16-bit signed int
+    for(i = 0; i < abuffer.numberOfChannels; i++)
+        channels.push(abuffer.getChannelData(i));
+
+    while(pos < length) {
+        for(i = 0; i < numOfChan; i++) {
+            sample = Math.max(-1, Math.min(1, channels[i][offset]));
+            sample = (0.5 + sample < 0 ? sample * 32768 : sample * 32767)|0;
+            view.setInt16(pos, sample, true);
+            pos += 2;
+        }
+        offset++;
+    }
+    return new Blob([buffer], {type: "audio/wav"});
+}
+
+// === ЛОГИКА ЗАПИСИ И ОТПРАВКИ ===
+async function toggleRecording() {
+    const micBtn = document.getElementById('micBtn');
+
+    if (!isRecording) {
+        // --- СТАРТ ЗАПИСИ ---
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ 
+                audio: { echoCancellation: true, noiseSuppression: true, sampleRate: 16000 } 
+            });
+            
+            mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+            audioChunks = [];
+
+            mediaRecorder.ondataavailable = (event) => {
+                if (event.data.size > 0) audioChunks.push(event.data);
+            };
+
+            mediaRecorder.onstop = async () => {
+                stream.getTracks().forEach(track => track.stop());
+                await processAndTranscribeAudio();
+            };
+
+            mediaRecorder.start(100);
+            isRecording = true;
+            micBtn.classList.add('recording');
+            micBtn.title = "Идет запись... Нажмите для остановки";
+            log.info('Recording started');
+            
+        } catch (err) {
+            log.error('Microphone access denied', err);
+            showToast('Доступ к микрофону запрещен. Проверьте настройки браузера.', 'error');
+        }
+    } else {
+        // --- СТОП ЗАПИСИ ---
+        if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+            mediaRecorder.stop();
+            
+            // 🔑 ИСПРАВЛЕНИЕ: МГНОВЕННО сбрасываем визуальное состояние кнопки
+            isRecording = false;
+            micBtn.classList.remove('recording');
+            micBtn.title = "Обработка аудио...";
+            micBtn.disabled = true; // Блокируем кнопку, чтобы не начали новую запись во время обработки
+        }
+    }
+}
+
+async function processAndTranscribeAudio() {
+    const chatInput = document.getElementById('chatInput');
+    const micBtn = document.getElementById('micBtn');
+    
+    log.info('Processing audio...');
+    
+    try {
+        // 1. Конвертация WebM -> WAV
+        const webmBlob = new Blob(audioChunks, { type: 'audio/webm' });
+        if (webmBlob.size < 1000) {
+            showToast('Запись слишком короткая', 'error');
+            return;
+        }
+
+        const arrayBuffer = await webmBlob.arrayBuffer();
+        const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+        const wavBlob = bufferToWave(audioBuffer, audioBuffer.length);
+
+        // 2. Отправка на бэкенд
+        log.info('Sending to STT API...');
+        const result = await window.apiGateway.stt.transcribe(wavBlob);
+        
+        // 3. Добавление текста в input (НЕ отправка!)
+        if (result.text && result.text.trim()) {
+            const currentText = chatInput.value.trim();
+            const separator = currentText ? ' ' : '';
+            chatInput.value = currentText + separator + result.text.trim();
+            
+            chatInput.focus();
+            showToast('Текст добавлен в поле ввода', 'success');
+            log.info('Transcription appended to input', { text: result.text });
+        } else {
+            showToast('Не удалось распознать речь', 'warn');
+        }
+
+    } catch (error) {
+        log.error('STT processing failed', error);
+        showToast('Ошибка распознавания: ' + (error.message || 'Неизвестная ошибка'), 'error');
+    } finally {
+        // 🔑 ИСПРАВЛЕНИЕ: Разблокируем кнопку и возвращаем подсказку только после завершения
+        micBtn.disabled = false;
+        micBtn.title = "Голосовой ввод (нажмите для старта/стопа)";
+    }
+}
+
+function resetMicState() {
+    const micBtn = document.getElementById('micBtn');
+    isRecording = false;
+    micBtn.classList.remove('recording');
+    micBtn.title = "Голосовой ввод (нажмите для старта/стопа)";
 }

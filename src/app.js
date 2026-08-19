@@ -3,6 +3,7 @@ import express from 'express';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import sttRoutes from './routes/sttRoutes.js'; 
 
 // Единый обработчик ошибок провайдеров
 import { createLogger } from './utils/logger.js';
@@ -42,6 +43,7 @@ app.use('/api/chat', chatRoutes);
 app.use('/api/images', imageRoutes);
 app.use('/api/sessions', sessionRoutes);
 app.use('/api/attachments', attachmentRoutes);
+app.use('/api/stt', sttRoutes);
 app.use((err, req, res, next) => {
     // Ошибки подключения к провайдеру
     if (err.code === 'ECONNREFUSED' || err.code === 'ENOTFOUND' || err.code === 'ETIMEDOUT') {
