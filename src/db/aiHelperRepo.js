@@ -1,56 +1,38 @@
 // src/db/aiHelperRepo.js
-import Database from 'better-sqlite3';
-import path from 'path';
-import fs from 'fs';
-import { fileURLToPath } from 'url';
+import { getDb } from './init.js';
 import { createLogger } from '../utils/logger.js';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const PROJECT_ROOT = path.resolve(__dirname, '..', '..');
-const DB_PATH = path.join(PROJECT_ROOT, 'ai_helper.db');
 
 const log = createLogger('AIHelperRepo');
 
-let db = null;
-
 /**
- * Инициализирует БД (создает таблицы, если их нет)
- * @returns {Promise<Database>}
+ * Инициализирует БД (создает таблицы и индексы, если их нет)
+ * Использует существующий инстанс БД из init.js
+ * @returns {Promise<import('better-sqlite3').Database>}
  */
 export async function initDb() {
     try {
-        if (!fs.existsSync(path.dirname(DB_PATH))) {
-            fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
-        }
+        const db = getDb();
+        
+        db.exec(`
+            CREATE TABLE IF NOT EXISTS ai_helper_sessions (
+                id TEXT PRIMARY KEY,
+                created_at INTEGER DEFAULT (strftime('%s', 'now')),
+                updated_at INTEGER DEFAULT (strftime('%s', 'now'))
+            );
 
-        if (!db) {
-            db = new Database(DB_PATH);
-            db.pragma('journal_mode = WAL');
-            db.pragma('foreign_keys = ON');
+            CREATE TABLE IF NOT EXISTS ai_helper_messages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT NOT NULL,
+                role TEXT NOT NULL,
+                text TEXT NOT NULL,
+                timestamp INTEGER NOT NULL,
+                FOREIGN KEY (session_id) REFERENCES ai_helper_sessions(id) ON DELETE CASCADE
+            );
 
-            db.exec(`
-                CREATE TABLE IF NOT EXISTS ai_helper_sessions (
-                    id TEXT PRIMARY KEY,
-                    created_at INTEGER DEFAULT (strftime('%s', 'now')),
-                    updated_at INTEGER DEFAULT (strftime('%s', 'now'))
-                );
+            CREATE INDEX IF NOT EXISTS idx_ai_helper_messages_session ON ai_helper_messages(session_id, timestamp);
+        `);
 
-                CREATE TABLE IF NOT EXISTS ai_helper_messages (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    session_id TEXT NOT NULL,
-                    role TEXT NOT NULL,
-                    text TEXT NOT NULL,
-                    timestamp INTEGER NOT NULL,
-                    FOREIGN KEY (session_id) REFERENCES ai_helper_sessions(id) ON DELETE CASCADE
-                );
-
-                CREATE INDEX IF NOT EXISTS idx_ai_helper_messages_session ON ai_helper_messages(session_id, timestamp);
-            `);
-
-            log.info('AI Helper DB initialized', { path: DB_PATH });
-        }
-
+        log.info('AI Helper DB tables initialized');
         return db;
     } catch (error) {
         log.error('Failed to initialize AI Helper DB', { error: error.message });
@@ -64,14 +46,15 @@ export async function initDb() {
  */
 export async function createSession(sessionId) {
     try {
-        const database = db || await initDb();
-
-        database.prepare(`
+        const db = getDb();
+        const now = Math.floor(Date.now() / 1000);
+        
+        db.prepare(`
             INSERT INTO ai_helper_sessions (id, created_at, updated_at)
-            VALUES (@id, strftime('%s', 'now'), strftime('%s', 'now'))
-        `).run({ id: sessionId });
+            VALUES (?, ?, ?)
+        `).run(sessionId, now, now);
 
-        log.info('Session created', { sessionId: sessionId.slice(0, 8) });
+        log.info('AI Helper session created', { sessionId: sessionId.slice(0, 8) });
     } catch (error) {
         log.error('Failed to create session', { sessionId: sessionId.slice(0, 8), error: error.message });
         throw error;
@@ -83,33 +66,24 @@ export async function createSession(sessionId) {
  * @param {string} sessionId
  * @param {string} role - 'user' | 'interlocutor'
  * @param {string} text - распознанный текст
- * @param {number} timestamp - Unix timestamp в миллисекундах
+ * @param {number} timestampMs - Unix timestamp в миллисекундах (от клиента)
  */
-export async function addMessage(sessionId, role, text, timestamp) {
+export async function addMessage(sessionId, role, text, timestampMs) {
     try {
-        const database = db || await initDb();
+        const db = getDb();
+        // Конвертируем мс в секунды для согласованности с SQLite strftime
+        const timestampSec = Math.floor(timestampMs / 1000);
 
-        const timestampSeconds = Math.floor(timestamp / 1000);
-
-        database.prepare(`
+        db.prepare(`
             INSERT INTO ai_helper_messages (session_id, role, text, timestamp)
-            VALUES (@session_id, @role, @text, @timestamp)
-        `).run({
-            session_id: sessionId,
-            role: role,
-            text: text,
-            timestamp: timestampSeconds
-        });
+            VALUES (?, ?, ?, ?)
+        `).run(sessionId, role, text, timestampSec);
 
-        database.prepare(`
-            UPDATE ai_helper_sessions SET updated_at = strftime('%s', 'now') WHERE id = @id
-        `).run({ id: sessionId });
+        db.prepare(`
+            UPDATE ai_helper_sessions SET updated_at = strftime('%s', 'now') WHERE id = ?
+        `).run(sessionId);
 
-        log.info('Message added', {
-            sessionId: sessionId.slice(0, 8),
-            role,
-            textLength: text.length
-        });
+        log.debug('Message added', { sessionId: sessionId.slice(0, 8), role, textLength: text.length });
     } catch (error) {
         log.error('Failed to add message', { sessionId: sessionId.slice(0, 8), error: error.message });
         throw error;
@@ -124,27 +98,24 @@ export async function addMessage(sessionId, role, text, timestamp) {
  */
 export async function getRecentMessages(sessionId, limit = 10) {
     try {
-        const database = db || await initDb();
-
-        const rows = database.prepare(`
-            SELECT role, text, timestamp
+        const db = getDb();
+        
+        const rows = db.prepare(`
+            SELECT role, text, timestamp 
             FROM ai_helper_messages
-            WHERE session_id = @session_id
+            WHERE session_id = ?
             ORDER BY timestamp ASC
-            LIMIT @limit
-        `).all({ session_id: sessionId, limit });
+            LIMIT ?
+        `).all(sessionId, limit);
 
+        // Конвертируем секунды обратно в миллисекунды для фронтенда
         const messages = rows.map(row => ({
             role: row.role,
             text: row.text,
             timestamp: row.timestamp * 1000
         }));
 
-        log.debug('Messages retrieved', {
-            sessionId: sessionId.slice(0, 8),
-            count: messages.length
-        });
-
+        log.debug('Messages retrieved', { sessionId: sessionId.slice(0, 8), count: messages.length });
         return messages;
     } catch (error) {
         log.error('Failed to get messages', { sessionId: sessionId.slice(0, 8), error: error.message });
@@ -153,32 +124,21 @@ export async function getRecentMessages(sessionId, limit = 10) {
 }
 
 /**
- * Удаляет сессию и все её сообщения
+ * Удаляет сессию и все её сообщения (в транзакции)
  * @param {string} sessionId
  */
 export async function clearSession(sessionId) {
     try {
-        const database = db || await initDb();
-
-        database.transaction(() => {
-            database.prepare('DELETE FROM ai_helper_messages WHERE session_id = @id').run({ id: sessionId });
-            database.prepare('DELETE FROM ai_helper_sessions WHERE id = @id').run({ id: sessionId });
+        const db = getDb();
+        
+        db.transaction(() => {
+            db.prepare('DELETE FROM ai_helper_messages WHERE session_id = ?').run(sessionId);
+            db.prepare('DELETE FROM ai_helper_sessions WHERE id = ?').run(sessionId);
         })();
 
-        log.info('Session cleared', { sessionId: sessionId.slice(0, 8) });
+        log.info('AI Helper session cleared', { sessionId: sessionId.slice(0, 8) });
     } catch (error) {
         log.error('Failed to clear session', { sessionId: sessionId.slice(0, 8), error: error.message });
         throw error;
-    }
-}
-
-/**
- * Закрывает подключение к БД
- */
-export function closeDb() {
-    if (db) {
-        db.close();
-        db = null;
-        log.info('AI Helper DB closed');
     }
 }
