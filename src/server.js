@@ -4,11 +4,17 @@ import 'dotenv/config';
 
 import app from './app.js';
 import { createLogger } from './utils/logger.js';
+import { setupAIHelperWsServer } from './ws/aiHelperWs.js';
+import http from 'http';
 
 const log = createLogger('Server');
 const port = process.env.PORT || 3000;
 
-app.listen(port, '0.0.0.0', () => {
+const server = http.createServer(app);
+
+setupAIHelperWsServer(server);
+
+server.listen(port, '0.0.0.0', () => {
     log.info(`Server running on http://localhost:${port}`);
     log.info(`Default provider: ${process.env.DEFAULT_PROVIDER || 'ollama'}`);
     log.info(`Ollama: ${process.env.OLLAMA_URL || 'http://localhost:11434'} (enabled: ${process.env.OLLAMA_ENABLED !== 'false'})`);
