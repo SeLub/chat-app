@@ -1781,3 +1781,18 @@ function resetMicState() {
     micBtn.classList.remove('recording');
     micBtn.title = "Голосовой ввод (нажмите для старта/стопа)";
 }
+
+function openAIHelper() {
+    // Проверяем, не открыто ли уже окно
+    if (window.aiHelperWindow && !window.aiHelperWindow.closed) {
+        window.aiHelperWindow.focus();
+        return;
+    }
+    
+    // Открываем оверлей в новом маленьком окне без панелей браузера
+    window.aiHelperWindow = window.open(
+        '/ai-helper-overlay.html', 
+        'AIHelper', 
+        'width=400,height=550,resizable=yes,scrollbars=no,status=no,location=no,menubar=no'
+    );
+}
