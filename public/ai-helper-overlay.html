@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Helper</title>
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        #aiHelperOverlay {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            width: 380px;
+            max-height: 520px;
+            background: rgba(30, 30, 30, 0.92);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 12px;
+            color: #e0e0e0;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            font-size: 13px;
+            z-index: 9999;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+            user-select: none;
+        }
+
+        #aiHelperOverlay.dragging {
+            opacity: 0.85;
+        }
+
+        #aiHelperOverlay.minimized {
+            max-height: 36px;
+            overflow: hidden;
+        }
+
+        #aiHelperOverlay.minimized #aiHelperBody {
+            display: none;
+        }
+
+        .ai-helper-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 10px 14px;
+            background: rgba(0, 0, 0, 0.3);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+            cursor: grab;
+            flex-shrink: 0;
+        }
+
+        .ai-helper-header:active {
+            cursor: grabbing;
+        }
+
+        .ai-helper-title {
+            font-weight: 600;
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .ai-helper-close {
+            background: none;
+            border: none;
+            color: #999;
+            font-size: 18px;
+            cursor: pointer;
+            padding: 2px 6px;
+            border-radius: 4px;
+            line-height: 1;
+        }
+
+        .ai-helper-close:hover {
+            color: #fff;
+            background: rgba(255, 255, 255, 0.1);
+        }
+
+        .ai-helper-body {
+            padding: 12px;
+            overflow-y: auto;
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .ai-helper-status {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 12px;
+            background: rgba(255, 255, 255, 0.04);
+            border-radius: 8px;
+            font-size: 12px;
+        }
+
+        .ai-helper-status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            display: inline-block;
+            flex-shrink: 0;
+        }
+
+        .ai-helper-status-dot.active {
+            background: #4caf50;
+            box-shadow: 0 0 6px rgba(76, 175, 80, 0.6);
+        }
+
+        .ai-helper-status-dot.inactive {
+            background: #777;
+        }
+
+        .ai-helper-buttons {
+            display: flex;
+            gap: 8px;
+        }
+
+        .ai-helper-btn {
+            flex: 1;
+            padding: 8px 12px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            background: rgba(255, 255, 255, 0.06);
+            color: #e0e0e0;
+            font-size: 12px;
+            cursor: pointer;
+            transition: all 0.2s;
+            text-align: center;
+        }
+
+        .ai-helper-btn:hover {
+            background: rgba(255, 255, 255, 0.12);
+        }
+
+        .ai-helper-btn:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+
+        .ai-helper-btn.btn-start {
+            background: rgba(33, 150, 243, 0.2);
+            border-color: rgba(33, 150, 243, 0.4);
+        }
+
+        .ai-helper-btn.btn-start:hover {
+            background: rgba(33, 150, 243, 0.35);
+        }
+
+        .ai-helper-btn.btn-stop {
+            background: rgba(244, 67, 54, 0.2);
+            border-color: rgba(244, 67, 54, 0.4);
+        }
+
+        .ai-helper-btn.btn-stop:hover {
+            background: rgba(244, 67, 54, 0.35);
+        }
+
+        .ai-helper-btn.btn-hint {
+            background: rgba(156, 39, 176, 0.2);
+            border-color: rgba(156, 39, 176, 0.4);
+        }
+
+        .ai-helper-btn.btn-hint:hover {
+            background: rgba(156, 39, 176, 0.35);
+        }
+
+        .ai-helper-btn.btn-hint:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+
+        .ai-helper-transcript {
+            flex: 1;
+            min-height: 100px;
+            max-height: 200px;
+            overflow-y: auto;
+            background: rgba(0, 0, 0, 0.25);
+            border-radius: 8px;
+            padding: 8px;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .ai-helper-transcript:empty::after {
+            content: 'No transcript yet...';
+            color: #666;
+            font-size: 11px;
+            text-align: center;
+            padding: 20px;
+        }
+
+        .ai-helper-msg {
+            padding: 6px 10px;
+            border-radius: 6px;
+            font-size: 12px;
+            line-height: 1.4;
+            word-wrap: break-word;
+        }
+
+        .ai-helper-msg.user {
+            background: rgba(33, 150, 243, 0.15);
+            border-left: 3px solid rgba(33, 150, 243, 0.5);
+        }
+
+        .ai-helper-msg.interlocutor {
+            background: rgba(76, 175, 80, 0.15);
+            border-left: 3px solid rgba(76, 175, 80, 0.5);
+        }
+
+        .ai-helper-msg-label {
+            font-weight: 600;
+            margin-bottom: 2px;
+            font-size: 11px;
+            opacity: 0.7;
+        }
+
+        .ai-helper-msg-text {
+            color: #d0d0d0;
+        }
+
+        .ai-helper-hint-area {
+            min-height: 60px;
+            max-height: 120px;
+            background: rgba(0, 0, 0, 0.25);
+            border-radius: 8px;
+            padding: 10px 12px;
+            overflow-y: auto;
+            font-size: 13px;
+            line-height: 1.5;
+            color: #c8e6c9;
+        }
+
+        .ai-helper-hint-area:empty::after {
+            content: 'AI hint will appear here...';
+            color: #666;
+            font-size: 11px;
+        }
+
+        .ai-helper-hint-area .hint-char {
+            opacity: 0;
+            transition: opacity 0.15s ease;
+        }
+
+        .ai-helper-hint-area .hint-char.visible {
+            opacity: 1;
+        }
+
+        .ai-helper-footer {
+            padding: 8px 12px;
+            border-top: 1px solid rgba(255, 255, 255, 0.06);
+            display: flex;
+            justify-content: center;
+        }
+
+        .ai-helper-footer .ai-helper-btn {
+            width: 100%;
+            max-width: 200px;
+        }
+
+        @media (max-width: 420px) {
+            #aiHelperOverlay {
+                width: calc(100vw - 20px);
+                right: 10px;
+                top: 10px;
+                max-height: 70vh;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div id="aiHelperOverlay">
+        <div class="ai-helper-header" id="aiHelperHeader">
+            <span class="ai-helper-title">🎧 AI Helper</span>
+            <button class="ai-helper-close" id="aiHelperClose" title="Close">×</button>
+        </div>
+        <div class="ai-helper-body">
+            <div class="ai-helper-status">
+                <span class="ai-helper-status-dot inactive" id="aiHelperStatusDot"></span>
+                <span id="aiHelperStatusText">⚪ Ожидание</span>
+            </div>
+            <div class="ai-helper-buttons">
+                <button class="ai-helper-btn btn-start" id="aiHelperStartBtn">▶ Начать захват</button>
+                <button class="ai-helper-btn btn-stop" id="aiHelperStopBtn" disabled>⏹ Остановить</button>
+            </div>
+            <div class="ai-helper-transcript" id="aiHelperTranscript"></div>
+            <div class="ai-helper-hint-area" id="aiHelperHintArea"></div>
+            <div class="ai-helper-footer">
+                <button class="ai-helper-btn btn-hint" id="aiHelperHintBtn" disabled>💡 Подсказать</button>
+            </div>
+        </div>
+    </div>
+    <script src="ai-helper.js"></script>
+</body>
+</html>
