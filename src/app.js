@@ -16,6 +16,20 @@ const app = express();
 
 // Middleware
 app.use(express.json());
+
+// === COOP/COEP только для AI Helper и его ассетов ===
+const coepHeaders = (req, res, next) => {
+    res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
+    res.setHeader('Cross-Origin-Embedder-Policy', 'credentialless');
+    next();
+};
+
+app.use('/vad-assets', coepHeaders);
+app.get('/ai-helper-overlay.html', coepHeaders, (req, res) => {
+    res.sendFile(path.join(__dirname, '..', 'public', 'ai-helper-overlay.html'));
+});
+// =====================================================
+
 app.use(express.static(path.join(__dirname, '..', 'public')));
 
 // Создание директорий для загрузок
