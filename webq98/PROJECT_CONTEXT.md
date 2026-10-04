@@ -174,6 +174,9 @@ Multi-Provider AI Chat — десктопный инструмент для ра
 | 11 | Контекст-состояние: state = contextMode + selectedQuestionIds + retainPercent; qaPairs удалён (деривация из messages) | одна модель данных, §4.3 |
 | 12 | Manual-режим отправляет selectedQuestionIds как есть (новый вопрос может не входить) | поведение эталона сохранено |
 | 13 | selectedProvider/selectedModel восстанавливаются из localStorage при init | паритет с эталоном loadSelectedProvider |
+| 14 | init: при ?session= активная сессия восстанавливается/создаётся ДО switchToViewing | семантика буфера активной сессии |
+| 15 | sendMessage ловит ApiError → bot-сообщение «Network error» | паритет эталона |
+| 16 | Sidebar «New Chat» пока на старой семантике; подключение к clearChat/newChat — ТЗ-2.3 | граница ТЗ-1.2 |
 
 ## 8. Запрещено
 
