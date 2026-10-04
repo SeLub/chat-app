@@ -619,6 +619,11 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       } else {
         errorMsg = `❌ **Error**\n\n${result.error}`;
       }
+      const providers = useProviderStore.getState().providers;
+      const fallback = providers.find((p) => p.status === 'connected' && p.name !== currentProvider);
+      if (fallback) {
+        errorMsg += `\n\n💡 Switch to ${fallback.name} to continue.`;
+      }
       get().addBotMessage(errorMsg, currentModel);
       useProviderStore.getState().refreshStatus();
       return;
