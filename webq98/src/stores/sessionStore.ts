@@ -207,6 +207,20 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     const params = new URLSearchParams(window.location.search);
     const urlSession = params.get('session');
     if (urlSession) {
+      // Ensure active is set before switchToViewing
+      if (savedActive) {
+        set({ activeSessionId: savedActive });
+      } else {
+        try {
+          const data = await apiGateway.sessions.create();
+          if (data) {
+            set({ activeSessionId: data.id });
+            localStorage.setItem('activeSessionId', data.id);
+          }
+        } catch {
+          /* ignore */
+        }
+      }
       await get().switchToViewing(urlSession);
       window.history.replaceState({}, '', window.location.pathname);
       return;
@@ -550,19 +564,30 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     }
 
     // Call API
-    const result = await apiGateway.chat.send(
-      {
-        sessionId: viewingSessionId,
-        message,
-        model: currentModel,
-        questionId,
-        contextLength: useProviderStore.getState().currentContextLength ?? undefined,
-        retainPercent: get().retainPercent,
-        includeQuestionIds,
-      },
-      currentProvider,
-      files,
-    );
+    let result: Awaited<ReturnType<typeof apiGateway.chat.send>>;
+    try {
+      result = await apiGateway.chat.send(
+        {
+          sessionId: viewingSessionId,
+          message,
+          model: currentModel,
+          questionId,
+          contextLength: useProviderStore.getState().currentContextLength ?? undefined,
+          retainPercent: get().retainPercent,
+          includeQuestionIds,
+        },
+        currentProvider,
+        files,
+      );
+    } catch (e) {
+      // ApiError with status 0 (network) or any network error
+      const msg = e instanceof Error ? e.message : String(e);
+      get().addBotMessage(
+        `❌ **Network error**\n\n${msg}\n\nПроверь соединение с сервером.`,
+        currentModel,
+      );
+      return;
+    }
 
     if (!result) {
       // null response — network error already logged by apiGateway
@@ -650,11 +675,11 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   },
 
   resetContextState: () => {
-    const { viewingSessionId } = get();
-    if (!viewingSessionId) return;
+    const { activeSessionId } = get();
+    if (!activeSessionId) return;
     try {
-      localStorage.removeItem(`contextMode_${viewingSessionId}`);
-      localStorage.removeItem(`selectedIds_${viewingSessionId}`);
+      localStorage.removeItem(`contextMode_${activeSessionId}`);
+      localStorage.removeItem(`selectedIds_${activeSessionId}`);
     } catch {
       /* ignore */
     }
@@ -677,6 +702,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   },
 
   toggleQuestionSelection: (id: string) => {
+    if (get().contextMode === 'standard') return;
     set((state) => {
       const exists = state.selectedQuestionIds.includes(id);
       return {
@@ -689,6 +715,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   },
 
   selectAllQuestions: () => {
+    if (get().contextMode === 'standard') return;
     const allIds = get().messages
       .filter((m) => m.role === 'user')
       .map((m) => m.questionId);
@@ -697,6 +724,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   },
 
   deselectAllQuestions: () => {
+    if (get().contextMode === 'standard') return;
     set({ selectedQuestionIds: [] });
     get().saveContextState();
   },

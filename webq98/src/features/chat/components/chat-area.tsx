@@ -5,34 +5,44 @@ import {
   X,
   Copy,
   Check,
+  FileCode,
+  File,
+  Image as ImageIcon,
 } from 'lucide-react';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useProviderStore } from '@/stores/providerStore';
+import { useUIStore } from '@/stores/uiStore';
 import { useState, useRef, useEffect, useCallback } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import type { ChatMessage } from '@/types';
 
-interface AttachmentFile {
+const FILE_EXTENSIONS = new Set([
+  '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.csv',
+]);
+
+function isFileSlot(name: string, type: string): boolean {
+  if (type.startsWith('image/')) return true;
+  const ext = name.substring(name.lastIndexOf('.'));
+  return FILE_EXTENSIONS.has(ext.toLowerCase());
+}
+
+interface FilePreview {
   file: File;
   preview?: string;
 }
 
 export function ChatArea() {
-  const messages = useSessionStore((s: { messages: ChatMessage[] }) => s.messages);
-  const addBotMessage = useSessionStore((s) => s.addBotMessage);
-  const addMessage = useSessionStore((s: { addMessage: (msg: ChatMessage) => void }) => s.addMessage);
-  const viewingSessionId = useSessionStore((s: { viewingSessionId: string | null }) => s.viewingSessionId);
-  const currentModel = useProviderStore((s: { currentModel: string | null }) => s.currentModel);
-  const currentProvider = useProviderStore((s: { currentProvider: string }) => s.currentProvider);
-  const refreshStatus = useProviderStore((s: { refreshStatus: () => Promise<void> }) => s.refreshStatus);
+  const messages = useSessionStore((s) => s.messages);
+  const contextInfo = useSessionStore((s) => s.contextInfo);
+  const currentModel = useProviderStore((s) => s.currentModel);
+  const refreshStatus = useProviderStore((s) => s.refreshStatus);
+  const sendMessage = useSessionStore((s) => s.sendMessage);
 
   const [inputValue, setInputValue] = useState('');
   const [isSending, setIsSending] = useState(false);
-  const [attachments, setAttachments] = useState<AttachmentFile[]>([]);
+  const [fileSlot, setFileSlot] = useState<FilePreview | null>(null);
+  const [codeFiles, setCodeFiles] = useState<FilePreview[]>([]);
   const [copiedId, setCopiedId] = useState<string | null>(null);
-  const [streamingContent, setStreamingContent] = useState('');
-  const [isStreamActive, setIsStreamActive] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -40,7 +50,7 @@ export function ChatArea() {
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, streamingContent]);
+  }, [messages]);
 
   useEffect(() => {
     if (textareaRef.current) {
@@ -49,82 +59,75 @@ export function ChatArea() {
     }
   }, [inputValue]);
 
-  const handleSend = useCallback(async () => {
-    if (!inputValue.trim() || isSending || !viewingSessionId || !currentModel) return;
+  const clearAttachments = useCallback(() => {
+    setFileSlot(null);
+    setCodeFiles([]);
+  }, []);
 
-    const questionId = `q_${Date.now()}`;
-    const userMessage: ChatMessage = {
-      role: 'user',
-      content: inputValue.trim(),
-      questionId,
-      model: currentModel,
-    };
+  const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files) return;
 
-    addMessage(userMessage);
-    setStreamingContent('');
-    setIsStreamActive(true);
-    setIsSending(true);
-    setInputValue('');
+    const newFileSlot: FilePreview[] = [];
+    const newCodeFiles: FilePreview[] = [];
 
-    const formData = new FormData();
-    formData.append('question', inputValue.trim());
-    formData.append('model', currentModel);
-    formData.append('questionId', questionId);
-    formData.append('provider', currentProvider);
+    for (const file of Array.from(files)) {
+      const preview = file.type.startsWith('image/') ? URL.createObjectURL(file) : undefined;
+      const item = { file, preview };
 
-    for (const att of attachments) {
-      if (att.file) {
-        formData.append('file', att.file);
+      if (isFileSlot(file.name, file.type)) {
+        newFileSlot.push(item);
+      } else {
+        newCodeFiles.push(item);
       }
     }
 
+    if (newFileSlot.length > 0) {
+      setFileSlot(newFileSlot[0]);
+    }
+    if (newCodeFiles.length > 0) {
+      setCodeFiles((prev) => [...prev, ...newCodeFiles]);
+    }
+
+    e.target.value = '';
+  }, []);
+
+  const removeFileSlot = useCallback(() => {
+    setFileSlot(null);
+  }, []);
+
+  const removeCodeFile = useCallback((index: number) => {
+    setCodeFiles((prev) => prev.filter((_, i) => i !== index));
+  }, []);
+
+  const collectFiles = useCallback((): { file?: File; codeFiles?: File[] } | undefined => {
+    if (!fileSlot && codeFiles.length === 0) return undefined;
+    return {
+      file: fileSlot?.file,
+      codeFiles: codeFiles.length > 0 ? codeFiles.map((f) => f.file) : undefined,
+    };
+  }, [fileSlot, codeFiles]);
+
+  const handleSend = useCallback(async () => {
+    if (!inputValue.trim() || isSending) return;
+    const text = inputValue.trim();
+    const files = collectFiles();
+    setInputValue('');
+    clearAttachments();
+    setIsSending(true);
     try {
-      const response = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'X-Provider': currentProvider },
-        body: formData,
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ error: response.statusText }));
-        throw new Error(errorData.error || `HTTP ${response.status}`);
-      }
-
-      const reader = response.body?.getReader();
-      if (!reader) {
-        const data = await response.json();
-        addBotMessage(data.response, data.model, data.metrics, data.excludedIndices);
-        setIsStreamActive(false);
-        refreshStatus();
-        return;
-      }
-
-      const decoder = new TextDecoder();
-      let fullResponse = '';
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        const chunk = decoder.decode(value, { stream: true });
-        fullResponse += chunk;
-        setStreamingContent(fullResponse);
-      }
-
-      addBotMessage(fullResponse, currentModel, undefined, undefined);
-      refreshStatus();
-    } catch (error) {
-      console.error('Failed to send message:', error);
-      addBotMessage(
-        `Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
-        currentModel,
+      await sendMessage(text, files);
+      await refreshStatus();
+    } catch (e) {
+      useUIStore.getState().addToast(
+        e instanceof Error ? e.message : 'Failed to send',
+        'error',
       );
     } finally {
       setIsSending(false);
-      setIsStreamActive(false);
-      setAttachments([]);
+      inputRef.current?.focus();
     }
-  }, [inputValue, isSending, viewingSessionId, currentModel, currentProvider, attachments, addMessage, addBotMessage, refreshStatus]);
+  }, [inputValue, isSending, sendMessage, collectFiles, clearAttachments, refreshStatus]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -133,34 +136,13 @@ export function ChatArea() {
     }
   };
 
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files) return;
-
-    const newAttachments: AttachmentFile[] = Array.from(files).map((file) => ({
-      file,
-      preview: file.type.startsWith('image/') ? URL.createObjectURL(file) : undefined,
-    }));
-
-    setAttachments((prev) => [...prev, ...newAttachments]);
-    e.target.value = '';
-  };
-
-  const removeAttachment = (index: number) => {
-    setAttachments((prev) => prev.filter((_, i) => i !== index));
-  };
-
   const handleCopy = (content: string, id: string) => {
     navigator.clipboard.writeText(content);
     setCopiedId(id);
     setTimeout(() => setCopiedId(null), 2000);
   };
 
-  const sortedMessages = [...messages].sort((a, b) => {
-    const aIdx = parseInt(a.questionId.replace('q_', '')) || 0;
-    const bIdx = parseInt(b.questionId.replace('q_', '')) || 0;
-    return aIdx - bIdx;
-  });
+  const inputRef = useRef<HTMLTextAreaElement>(null);
 
   const groupedByQuestion: Array<{
     questionId: string;
@@ -170,7 +152,7 @@ export function ChatArea() {
   }> = [];
 
   let currentGroup: typeof groupedByQuestion[number] | null = null;
-  for (const msg of sortedMessages) {
+  for (const msg of messages) {
     if (msg.role === 'user') {
       if (currentGroup) groupedByQuestion.push(currentGroup);
       currentGroup = {
@@ -185,10 +167,22 @@ export function ChatArea() {
   }
   if (currentGroup) groupedByQuestion.push(currentGroup);
 
+  const pct = contextInfo
+    ? Math.round(contextInfo.totalChars / (contextInfo.contextSize * 4) * 100)
+    : 0;
+
+  const pctColor = contextInfo
+    ? pct <= 50
+      ? 'text-success'
+      : pct <= 75
+        ? 'text-warning'
+        : 'text-destructive'
+    : '';
+
   return (
     <main className="flex-1 flex flex-col overflow-hidden bg-background">
       <div className="flex-1 overflow-y-auto p-4 space-y-6">
-        {groupedByQuestion.length === 0 && !isStreamActive ? (
+        {groupedByQuestion.length === 0 && !isSending ? (
           <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
             <MessageSquare className="w-12 h-12 mb-4 opacity-20" />
             <p className="text-lg font-medium">Start a conversation</p>
@@ -249,7 +243,7 @@ export function ChatArea() {
               </div>
             ))}
 
-            {isStreamActive && streamingContent && (
+            {isSending && (
               <div className="flex items-start gap-3">
                 <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center flex-shrink-0 mt-0.5">
                   <span className="text-xs font-medium text-primary">AI</span>
@@ -259,10 +253,8 @@ export function ChatArea() {
                     <span className="text-xs font-medium text-muted-foreground">AI</span>
                     <Loader2 className="w-3 h-3 animate-spin text-muted-foreground" />
                   </div>
-                  <div className="prose prose-sm max-w-none text-sm text-foreground bg-card border border-border rounded-lg p-4">
-                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                      {streamingContent}
-                    </ReactMarkdown>
+                  <div className="text-sm text-muted-foreground italic">
+                    модель думает...
                   </div>
                 </div>
               </div>
@@ -272,22 +264,38 @@ export function ChatArea() {
         <div ref={messagesEndRef} />
       </div>
 
-      {attachments.length > 0 && (
-        <div className="px-4 py-2 border-t border-border bg-card flex gap-2 overflow-x-auto">
-          {attachments.map((att, idx) => (
-            <div key={idx} className="relative flex-shrink-0 w-16 h-16 rounded-lg overflow-hidden border border-border">
-              {att.preview ? (
-                <img src={att.preview} alt={att.file.name} className="w-full h-full object-cover" />
+      {(fileSlot || codeFiles.length > 0) && (
+        <div className="px-4 py-2 border-t border-border bg-card flex gap-2 overflow-x-auto items-center">
+          {fileSlot && (
+            <div className="relative flex-shrink-0 w-16 h-16 rounded-lg overflow-hidden border border-border">
+              {fileSlot.preview ? (
+                <img src={fileSlot.preview} alt={fileSlot.file.name} className="w-full h-full object-cover" />
               ) : (
                 <div className="w-full h-full flex items-center justify-center bg-muted">
-                  <FileCode className="w-5 h-5 text-muted-foreground" />
+                  {fileSlot.file.type.startsWith('image/') ? (
+                    <ImageIcon className="w-5 h-5 text-muted-foreground" />
+                  ) : (
+                    <File className="w-5 h-5 text-muted-foreground" />
+                  )}
                 </div>
               )}
               <button
-                onClick={() => removeAttachment(idx)}
+                onClick={removeFileSlot}
                 className="absolute top-0.5 right-0.5 w-4 h-4 bg-destructive text-white rounded-full flex items-center justify-center"
               >
                 <X className="w-2.5 h-2.5" />
+              </button>
+            </div>
+          )}
+          {codeFiles.map((cf, idx) => (
+            <div key={`code-${idx}`} className="relative flex-shrink-0 flex items-center gap-1 px-2 py-1 bg-secondary border border-border rounded-md text-xs text-foreground">
+              <FileCode className="w-3 h-3 text-muted-foreground flex-shrink-0" />
+              <span className="max-w-[100px] truncate">{cf.file.name}</span>
+              <button
+                onClick={() => removeCodeFile(idx)}
+                className="ml-0.5 hover:text-destructive transition-colors"
+              >
+                <X className="w-3 h-3" />
               </button>
             </div>
           ))}
@@ -300,7 +308,7 @@ export function ChatArea() {
             ref={fileInputRef}
             type="file"
             multiple
-            accept="image/*,.txt,.log,.py,.js,.ts,.jsx,.tsx,.json,.xml,.html,.css,.md,.sql"
+            accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,.log,.py,.js,.ts,.jsx,.tsx,.json,.xml,.html,.css,.md,.java,.c,.cpp,.h,.go,.rs,.rb,.php,.swift,.kt,.sh,.yaml,.yml,.toml,.ini,.cfg,.conf,.env"
             onChange={handleFileSelect}
             className="hidden"
           />
@@ -331,7 +339,13 @@ export function ChatArea() {
         </div>
         <div className="flex items-center justify-between mt-2 text-xs text-muted-foreground">
           <div className="flex items-center gap-2">
-            <span>Context: available</span>
+            {contextInfo ? (
+              <span className={pctColor}>
+                {contextInfo.includedQAPairs}/{contextInfo.totalQAPairs} Q&A • {pct}%
+              </span>
+            ) : (
+              <span>–</span>
+            )}
           </div>
           <span>Press Enter to send, Shift+Enter for newline</span>
         </div>
@@ -355,28 +369,6 @@ function MessageSquare(props: { className?: string }) {
       strokeLinejoin="round"
     >
       <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-    </svg>
-  );
-}
-
-function FileCode(props: { className?: string }) {
-  return (
-    <svg
-      {...props}
-      xmlns="http://www.w3.org/2000/svg"
-      width="24"
-      height="24"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" />
-      <path d="M14 2v4a2 2 0 0 0 2 2h4" />
-      <path d="m9 15-2-2 2-2" />
-      <path d="m12 17 2-2-2-2" />
     </svg>
   );
 }
