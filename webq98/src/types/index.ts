@@ -63,17 +63,7 @@ export interface ModelDetail {
   };
 }
 
-export interface QAPair {
-  id: string;
-  questionId: string;
-  questionText: string;
-  answerText: string;
-  model: string;
-  attachmentsMeta: AttachmentMeta[];
-  metrics?: ResponseMetrics;
-  imageData?: ImageData;
-  excludedFromContext: boolean;
-}
+export interface QuestionRef { id: string; text: string; model: string; number: number }
 
 export interface AttachmentMeta {
   name: string;
@@ -111,11 +101,7 @@ export interface Session {
   project_id?: string;
 }
 
-export interface ContextConfig {
-  mode: 'standard' | 'manual';
-  trimPercent: number;
-  manualInclude: string[];
-}
+
 
 export interface ChatMessage {
   role: 'user' | 'assistant';
@@ -125,7 +111,7 @@ export interface ChatMessage {
   metrics?: ResponseMetrics;
   attachmentsMeta?: AttachmentMeta[];
   imageData?: ImageData;
-  excludedFromContext?: boolean;
+  excludedIndices?: number[];
 }
 
 export interface ToastMessage {

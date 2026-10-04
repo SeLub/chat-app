@@ -26,13 +26,15 @@ export function SettingsPanel() {
   const currentContextLength = useProviderStore((s) => s.currentContextLength);
   const refreshStatus = useProviderStore((s) => s.refreshStatus);
   const sysprompt = useSessionStore((s) => s.sysprompt);
+  const setSysprompt = useSessionStore((s) => s.setSysprompt);
   const updateSysprompt = useSessionStore((s) => s.updateSysprompt);
-  const contextConfig = useSessionStore((s) => s.contextConfig);
-  const updateContextConfig = useSessionStore((s) => s.updateContextConfig);
+  const contextMode = useSessionStore((s) => s.contextMode);
+  const retainPercent = useSessionStore((s) => s.retainPercent);
+  const toggleContextMode = useSessionStore((s) => s.toggleContextMode);
+  const setRetainPercent = useSessionStore((s) => s.setRetainPercent);
 
   const [syspromptInput, setSyspromptInput] = useState(sysprompt);
-  const [trimPercent, setTrimPercent] = useState(contextConfig.trimPercent);
-  const [contextMode, setContextMode] = useState<'standard' | 'manual'>(contextConfig.mode as 'standard' | 'manual');
+  const [retainInput, setRetainInput] = useState(retainPercent);
   const [showDetail, setShowDetail] = useState(false);
 
   useEffect(() => {
@@ -40,29 +42,27 @@ export function SettingsPanel() {
   }, [sysprompt]);
 
   useEffect(() => {
-    setTrimPercent(contextConfig.trimPercent);
-  }, [contextConfig.trimPercent]);
-
-  useEffect(() => {
-    setContextMode(contextConfig.mode as 'standard' | 'manual');
-  }, [contextConfig.mode]);
+    setRetainInput(retainPercent);
+  }, [retainPercent]);
 
   const handleSyspromptChange = (val: string) => {
     setSyspromptInput(val);
+    setSysprompt(val);
   };
 
-  const handleSyspromptSave = async () => {
+  const handleSyspromptBlur = async () => {
     await updateSysprompt(syspromptInput);
   };
 
-  const handleTrimChange = (val: number) => {
-    setTrimPercent(val);
-    updateContextConfig({ trimPercent: val });
+  const handleRetainChange = (val: number) => {
+    setRetainInput(val);
+    setRetainPercent(val);
   };
 
   const handleContextModeChange = (mode: 'standard' | 'manual') => {
-    setContextMode(mode);
-    updateContextConfig({ mode });
+    if (mode !== contextMode) {
+      toggleContextMode();
+    }
   };
 
   return (
@@ -175,7 +175,7 @@ export function SettingsPanel() {
           <textarea
             value={syspromptInput}
             onChange={(e) => handleSyspromptChange(e.target.value)}
-            onBlur={handleSyspromptSave}
+            onBlur={handleSyspromptBlur}
             className="w-full h-32 px-3 py-2 text-xs bg-secondary border border-border rounded-md resize-none focus:outline-none focus:ring-1 focus:ring-primary"
             placeholder="Enter system prompt..."
           />
@@ -215,14 +215,14 @@ export function SettingsPanel() {
             </div>
             <div>
               <label className="text-xs text-muted-foreground mb-1 block">
-                Retain: {trimPercent}%
+                Retain: {retainInput}%
               </label>
               <input
                 type="range"
                 min={10}
                 max={100}
-                value={trimPercent}
-                onChange={(e) => handleTrimChange(Number(e.target.value))}
+                value={retainInput}
+                onChange={(e) => handleRetainChange(Number(e.target.value))}
                 className="w-full accent-primary"
               />
             </div>

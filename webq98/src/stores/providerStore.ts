@@ -157,11 +157,22 @@ export const useProviderStore = create<ProviderStore>((set, get) => ({
     initialized = true;
 
     await get().refreshStatus();
-    const currentProvider = localStorage.getItem('selectedProvider') as 'ollama' | 'llama.cpp' | null;
-    if (currentProvider && currentProvider !== get().currentProvider) {
-      set({ currentProvider });
+    const savedProvider = localStorage.getItem('selectedProvider');
+    if (savedProvider === 'ollama' || savedProvider === 'llama.cpp') {
+      if (savedProvider !== get().currentProvider) {
+        set({ currentProvider: savedProvider as 'ollama' | 'llama.cpp' });
+      }
     }
     await get().loadModels(get().currentProvider);
+
+    // Restore selected model
+    const savedModel = localStorage.getItem('selectedModel');
+    if (savedModel) {
+      const models = get().models;
+      if (models.some((m) => m.name === savedModel)) {
+        get().selectModel(savedModel);
+      }
+    }
   },
 
   startPolling() {
