@@ -25,10 +25,11 @@ export function Dashboard() {
   const [groupOpen, setGroupOpen] = useState<Record<string, boolean>>({});
   const editInputRef = useRef<HTMLInputElement>(null);
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+  /* eslint-disable react-hooks/exhaustive-deps */
   useEffect(() => {
     loadSessions();
-  }, [searchQuery]);
+  }, [searchQuery]); // loadSessions is stable (createContextualApi)
+  /* eslint-enable react-hooks/exhaustive-deps */
 
   useEffect(() => {
     if (editingId && editInputRef.current) {
