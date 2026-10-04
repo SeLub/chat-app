@@ -132,7 +132,11 @@ export const useProviderStore = create<ProviderStore>((set, get) => ({
 
         const oldStatus = previousStatuses[name];
         if (oldStatus === 'connected' && status !== 'connected') {
-          useUIStore.getState().addToast(`${name} недоступен`, 'error');
+          const fallback = providers.find((p) => p.status === 'connected' && p.name !== name);
+          const msg = fallback
+            ? `${name} недоступен. 💡 Переключись на ${fallback.name} для продолжения`
+            : `${name} недоступен`;
+          useUIStore.getState().addToast(msg, 'error');
         }
 
         return {
