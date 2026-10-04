@@ -132,7 +132,7 @@ export const useProviderStore = create<ProviderStore>((set, get) => ({
 
         const oldStatus = previousStatuses[name];
         if (oldStatus === 'connected' && status !== 'connected') {
-          const fallback = providers.find((p) => p.status === 'connected' && p.name !== name);
+          const fallback = rawProviders.find((r) => r.status === 'connected' && r.name !== name);
           const msg = fallback
             ? `${name} недоступен. 💡 Переключись на ${fallback.name} для продолжения`
             : `${name} недоступен`;
