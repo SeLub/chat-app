@@ -1,4 +1,5 @@
 import { logger } from './logger';
+import type { ChatRequestData, ChatResponse, ModelListResponse, ModelShowResponse, ProviderStatusResponse } from '@/types';
 
 export class ApiError extends Error {
   constructor(
@@ -67,7 +68,7 @@ export const sessionsApi = {
     if (options?.offset) params.append('offset', String(options.offset));
     if (options?.search) params.append('search', options.search);
     const qs = params.toString();
-    return request<{ id: string; title: string; category: string; message_count: number; model?: string; provider?: string; sysprompt: string; created_at: string; updated_at: string }[]>(
+    return request<Array<{ id: string; title: string; category: string; message_count: number; model?: string; provider?: string; sysprompt: string; created_at: string; updated_at: string }>>(
       'GET',
       `/api/sessions${qs ? '?' + qs : ''}`,
     );
@@ -92,25 +93,6 @@ export const sessionsApi = {
       `/api/sessions/${id}/messages`,
     );
   },
-  getQAPairs(id: string) {
-    return request<Array<{ questionId: string; questionText: string; answerText?: string; model?: string }>>(
-      'GET',
-      `/api/sessions/${id}/qa-pairs`,
-    );
-  },
-  getContextConfig(id: string) {
-    return request<{ mode: string; trimPercent: number; manualInclude: string[] }>(
-      'GET',
-      `/api/sessions/${id}/context-config`,
-    );
-  },
-  updateContextConfig(id: string, config: { mode?: string; trimPercent?: number; manualInclude?: string[] }) {
-    return request<{ ok: boolean; config: unknown }>(
-      'PATCH',
-      `/api/sessions/${id}/context-config`,
-      { body: config },
-    );
-  },
   create(title?: string, mode?: 'chat' | 'project', projectId?: string) {
     const body: Record<string, string | undefined> = {};
     if (title) body.title = title;
@@ -132,52 +114,56 @@ export const sessionsApi = {
   },
 };
 
-// === Attachments API ===
-export const attachmentsApi = {
-  extract(paths: string[], sessionId: string) {
-    return request<{ results: unknown[]; errors: string[] }>(
-      'POST',
-      '/api/attachments/extract',
-      { body: { paths, sessionId } },
-    );
-  },
-  get(fileId: string) {
-    return request<{ id: string; text: string }>('GET', `/api/attachments/${fileId}`);
-  },
-};
-
 // === Chat API ===
 export const chatApi = {
   send(
-    data: FormData,
+    data: ChatRequestData,
     provider: string,
-  ) {
-    return request<{
-      response: string;
-      model: string;
-      imageData?: unknown;
-      metrics?: unknown;
-      excludedIndices?: number[];
-      contextInfo?: unknown;
-    }>(
+    files?: { file?: File; codeFiles?: File[] },
+  ): Promise<ChatResponse | null> {
+    const formData = new FormData();
+    formData.append('message', data.message);
+    formData.append('model', data.model);
+    formData.append('sessionId', data.sessionId);
+    formData.append('questionId', data.questionId);
+    formData.append('retainPercent', String(data.retainPercent));
+
+    if (data.contextLength !== undefined) {
+      formData.append('contextLength', String(data.contextLength));
+    }
+
+    formData.append('includeQuestionIds', JSON.stringify(data.includeQuestionIds));
+
+    if (files?.file) {
+      formData.append('file', files.file);
+    }
+
+    if (files?.codeFiles) {
+      for (const codeFile of files.codeFiles) {
+        formData.append('codeFiles', codeFile);
+      }
+    }
+
+    return request<ChatResponse>(
       'POST',
       '/api/chat',
-      { body: data, provider },
+      { body: formData, provider },
     );
   },
 };
 
 // === Models API ===
 export const modelsApi = {
-  list(provider: string) {
-    return request<{ connected: boolean; models: Array<{ name: string; size: number; contextLength?: number; type?: string }> }>(
+  list(provider: string): Promise<ModelListResponse | null> {
+    logger.debug('API GET /api/models', { provider });
+    return request<ModelListResponse>(
       'GET',
       '/api/models',
       { provider },
     );
   },
-  show(name: string, provider: string) {
-    return request<{ details?: { size: number }; parameters?: { context_length?: number } }>(
+  show(name: string, provider: string): Promise<ModelShowResponse | null> {
+    return request<ModelShowResponse>(
       'POST',
       '/api/show',
       { body: { name }, provider },
@@ -187,11 +173,8 @@ export const modelsApi = {
 
 // === Providers API ===
 export const providersApi = {
-  list() {
-    return request<Array<{ name: string; url: string; enabled: boolean }>>('GET', '/api/providers');
-  },
-  status() {
-    return request<Array<{ name: string; status: string; latencyMs?: number; error?: string }>>(
+  status(): Promise<ProviderStatusResponse | null> {
+    return request<ProviderStatusResponse>(
       'GET',
       '/api/providers/status',
     );
@@ -213,7 +196,6 @@ export const sttApi = {
 
 export const apiGateway = {
   sessions: sessionsApi,
-  attachments: attachmentsApi,
   chat: chatApi,
   models: modelsApi,
   providers: providersApi,
