@@ -60,9 +60,13 @@ export function ChatArea() {
   }, [inputValue]);
 
   const clearAttachments = useCallback(() => {
+    if (fileSlot?.preview) URL.revokeObjectURL(fileSlot.preview);
+    for (const cf of codeFiles) {
+      if (cf.preview) URL.revokeObjectURL(cf.preview);
+    }
     setFileSlot(null);
     setCodeFiles([]);
-  }, []);
+  }, [fileSlot, codeFiles]);
 
   const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
@@ -85,6 +89,12 @@ export function ChatArea() {
     if (newFileSlot.length > 0) {
       setFileSlot(newFileSlot[0]);
     }
+    if (newFileSlot.length > 1) {
+      useUIStore.getState().addToast(
+        'Документ/изображение можно приложить только один — взят первый',
+        'warning',
+      );
+    }
     if (newCodeFiles.length > 0) {
       setCodeFiles((prev) => [...prev, ...newCodeFiles]);
     }
@@ -93,12 +103,15 @@ export function ChatArea() {
   }, []);
 
   const removeFileSlot = useCallback(() => {
+    if (fileSlot?.preview) URL.revokeObjectURL(fileSlot.preview);
     setFileSlot(null);
-  }, []);
+  }, [fileSlot]);
 
   const removeCodeFile = useCallback((index: number) => {
+    const removed = codeFiles[index];
+    if (removed?.preview) URL.revokeObjectURL(removed.preview);
     setCodeFiles((prev) => prev.filter((_, i) => i !== index));
-  }, []);
+  }, [codeFiles]);
 
   const collectFiles = useCallback((): { file?: File; codeFiles?: File[] } | undefined => {
     if (!fileSlot && codeFiles.length === 0) return undefined;
@@ -125,7 +138,7 @@ export function ChatArea() {
       );
     } finally {
       setIsSending(false);
-      inputRef.current?.focus();
+      textareaRef.current?.focus();
     }
   }, [inputValue, isSending, sendMessage, collectFiles, clearAttachments, refreshStatus]);
 
@@ -141,8 +154,6 @@ export function ChatArea() {
     setCopiedId(id);
     setTimeout(() => setCopiedId(null), 2000);
   };
-
-  const inputRef = useRef<HTMLTextAreaElement>(null);
 
   const groupedByQuestion: Array<{
     questionId: string;

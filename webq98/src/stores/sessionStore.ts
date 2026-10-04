@@ -532,12 +532,21 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     const n = questionCounter + 1;
     const questionId = `q_${n}_${Date.now()}`;
 
+    // attachmentsMeta for optimistic message
+    const attachmentsMeta = files
+      ? [
+          ...(files.file ? [{ name: files.file.name, size: files.file.size, type: files.file.type }] : []),
+          ...(files.codeFiles ?? []).map((f) => ({ name: f.name, size: f.size, type: f.type })),
+        ]
+      : [];
+
     // Optimistic user message
     const userMsg: ChatMessage = {
       role: 'user',
       content: message,
       questionId,
       model: currentModel,
+      attachmentsMeta,
     };
     get().addMessage(userMsg);
 
