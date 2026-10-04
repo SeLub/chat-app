@@ -29,14 +29,15 @@ export function CommandPalette() {
     }
   }, [commandPaletteOpen]);
 
+  /* eslint-disable react-hooks/exhaustive-deps */
   useEffect(() => {
     if (query.length >= 2) {
       loadSessions();
     } else {
       setShowSessions(false);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [query]);
+  }, [query]); // loadSessions is stable (createContextualApi)
+  /* eslint-enable react-hooks/exhaustive-deps */
 
   const loadSessions = useCallback(async () => {
     try {
