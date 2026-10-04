@@ -5,16 +5,13 @@ import {
   Loader2,
   Brain,
   Cpu,
-  Maximize2,
-  Minimize2,
 } from 'lucide-react';
 import { useProviderStore } from '@/stores/providerStore';
 import { useSessionStore } from '@/stores/sessionStore';
-import { useUIStore } from '@/stores/uiStore';
+import { cn } from '@/lib/utils';
 import { useState, useEffect } from 'react';
 
-export function SettingsPanel() {
-  const rightPanelOpen = useUIStore((s) => s.rightPanelOpen);
+export function SettingsPanel({ className }: { className?: string }) {
   const providers = useProviderStore((s) => s.providers);
   const currentProvider = useProviderStore((s) => s.currentProvider);
   const setCurrentProvider = useProviderStore((s) => s.setCurrentProvider);
@@ -28,10 +25,11 @@ export function SettingsPanel() {
   const sysprompt = useSessionStore((s) => s.sysprompt);
   const setSysprompt = useSessionStore((s) => s.setSysprompt);
   const updateSysprompt = useSessionStore((s) => s.updateSysprompt);
-  const contextMode = useSessionStore((s) => s.contextMode);
   const retainPercent = useSessionStore((s) => s.retainPercent);
-  const toggleContextMode = useSessionStore((s) => s.toggleContextMode);
   const setRetainPercent = useSessionStore((s) => s.setRetainPercent);
+  const totalInputTokens = useSessionStore((s) => s.totalInputTokens);
+  const totalOutputTokens = useSessionStore((s) => s.totalOutputTokens);
+  const messages = useSessionStore((s) => s.messages);
 
   const [syspromptInput, setSyspromptInput] = useState(sysprompt);
   const [retainInput, setRetainInput] = useState(retainPercent);
@@ -59,18 +57,22 @@ export function SettingsPanel() {
     setRetainPercent(val);
   };
 
-  const handleContextModeChange = (mode: 'standard' | 'manual') => {
-    if (mode !== contextMode) {
-      toggleContextMode();
-    }
-  };
+  const userMsgCount = messages.filter((m) => m.role === 'user').length;
+
+  const contextLoadPct =
+    currentContextLength
+      ? Math.round((totalInputTokens + totalOutputTokens) / currentContextLength * 100)
+      : 0;
+
+  const contextLoadColor =
+    contextLoadPct <= 50
+      ? 'text-success'
+      : contextLoadPct <= 75
+        ? 'text-warning'
+        : 'text-destructive';
 
   return (
-    <aside
-      className={`${
-        rightPanelOpen ? 'w-80' : 'w-0'
-      } border-l border-border bg-card transition-all duration-200 overflow-hidden flex flex-col`}
-    >
+    <aside className={cn(`${className} border-l border-border bg-card flex flex-col`, className)}>
       <div className="p-4 space-y-6 overflow-y-auto flex-1">
         {/* Provider Section */}
         <div>
@@ -84,18 +86,20 @@ export function SettingsPanel() {
                 key={p.name}
                 onClick={() => setCurrentProvider(p.name as 'ollama' | 'llama.cpp')}
                 disabled={p.status !== 'connected' && p.status !== 'checking'}
-                className={`w-full flex items-center justify-between px-3 py-2 rounded-md text-sm transition-colors ${
+                className={cn(
+                  'w-full flex items-center justify-between px-3 py-2 rounded-md text-sm transition-colors',
                   currentProvider === p.name
                     ? 'bg-primary/10 text-primary border border-primary/30'
-                    : 'hover:bg-accent text-muted-foreground'
-                }`}
+                    : 'hover:bg-accent text-muted-foreground',
+                )}
               >
                 <span className="font-medium">{p.name}</span>
                 <div className="flex items-center gap-1.5">
                   {p.status === 'checking' && <Loader2 className="w-3 h-3 animate-spin" />}
-                  <span className={`w-2 h-2 rounded-full ${
-                    p.status === 'connected' ? 'bg-success' : p.status === 'checking' ? 'bg-warning' : 'bg-destructive'
-                  }`} />
+                  <span className={cn(
+                    'w-2 h-2 rounded-full',
+                    p.status === 'connected' ? 'bg-success' : p.status === 'checking' ? 'bg-warning' : 'bg-destructive',
+                  )} />
                 </div>
               </button>
             ))}
@@ -140,7 +144,6 @@ export function SettingsPanel() {
                 className="w-full flex items-center justify-between px-3 py-2 text-xs text-muted-foreground hover:bg-accent rounded-md transition-colors"
               >
                 <span>Model Details</span>
-                {showDetail ? <Minimize2 className="w-3 h-3" /> : <Maximize2 className="w-3 h-3" />}
               </button>
             )}
             {showDetail && modelDetail && (
@@ -181,51 +184,50 @@ export function SettingsPanel() {
           />
         </div>
 
-        {/* Context Section */}
+        {/* Statistics Section */}
         <div>
           <div className="flex items-center gap-2 mb-3">
             <Info className="w-4 h-4 text-primary" />
-            <h3 className="text-sm font-semibold">Context</h3>
+            <h3 className="text-sm font-semibold">Statistics</h3>
           </div>
-          <div className="space-y-3">
-            <div>
-              <label className="text-xs text-muted-foreground mb-1 block">Mode</label>
-              <div className="flex gap-1">
-                <button
-                  onClick={() => handleContextModeChange('standard')}
-                  className={`flex-1 px-2 py-1.5 text-xs rounded-md transition-colors ${
-                    contextMode === 'standard'
-                      ? 'bg-primary/10 text-primary'
-                      : 'bg-secondary hover:bg-accent'
-                  }`}
-                >
-                  Standard
-                </button>
-                <button
-                  onClick={() => handleContextModeChange('manual')}
-                  className={`flex-1 px-2 py-1.5 text-xs rounded-md transition-colors ${
-                    contextMode === 'manual'
-                      ? 'bg-primary/10 text-primary'
-                      : 'bg-secondary hover:bg-accent'
-                  }`}
-                >
-                  Manual
-                </button>
-              </div>
+          <div className="space-y-1">
+            <div className="flex justify-between text-xs">
+              <span className="text-muted-foreground">Questions</span>
+              <span className="font-mono">{userMsgCount}</span>
             </div>
-            <div>
-              <label className="text-xs text-muted-foreground mb-1 block">
-                Retain: {retainInput}%
-              </label>
-              <input
-                type="range"
-                min={10}
-                max={100}
-                value={retainInput}
-                onChange={(e) => handleRetainChange(Number(e.target.value))}
-                className="w-full accent-primary"
-              />
+            <div className="flex justify-between text-xs">
+              <span className="text-muted-foreground">Input Tokens</span>
+              <span className="font-mono">~{totalInputTokens}</span>
             </div>
+            <div className="flex justify-between text-xs">
+              <span className="text-muted-foreground">Output Tokens</span>
+              <span className="font-mono">~{totalOutputTokens}</span>
+            </div>
+            <div className={cn('flex justify-between text-xs', contextLoadColor)}>
+              <span className="text-muted-foreground">Context Load</span>
+              <span className="font-mono">{contextLoadPct}%</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Retain Section */}
+        <div>
+          <div className="flex items-center gap-2 mb-3">
+            <Info className="w-4 h-4 text-primary" />
+            <h3 className="text-sm font-semibold">Retain</h3>
+          </div>
+          <div>
+            <label className="text-xs text-muted-foreground mb-1 block">
+              Retain: {retainInput}%
+            </label>
+            <input
+              type="range"
+              min={10}
+              max={100}
+              value={retainInput}
+              onChange={(e) => handleRetainChange(Number(e.target.value))}
+              className="w-full accent-primary"
+            />
           </div>
         </div>
       </div>
