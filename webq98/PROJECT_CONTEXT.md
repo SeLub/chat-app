@@ -80,7 +80,7 @@ Multi-Provider AI Chat — десктопный инструмент для ра
 - `DELETE /api/sessions/:id/messages/:questionId` → `{ deletedMessages, deletedAttachments }`
 - ⚠️ `/qa-pairs` и `/context-config` — существуют в старом коде, но эталоном НЕ вызываются, работа не подтверждена. **НЕ ИСПОЛЬЗОВАТЬ.** Конфигурация контекста живёт в localStorage (п. 4.3).
 
-- ⚠️ Из apiGateway в ТЗ-1.1 УДАЛЕНЫ методы: getQAPairs, getContextConfig,updateContextConfig, весь attachmentsApi. Это whitelist-решение: не пересоздаватьбез прямого указания в ТЗ. Study-режим шлёт файлы через /api/chat (FormData),Project-режим (Фаза 5) получит свой контракт отдельно.
+- ⚠️ Из apiGateway в ТЗ-1.1 УДАЛЕНЫ методы: getQAPairs, getContextConfig,updateContextConfig, весь attachmentsApi. Это whitelist-решение: не пересоздавать без прямого указания в ТЗ. Study-режим шлёт файлы через /api/chat (FormData), Project-режим (Фаза 5) получит свой контракт отдельно.
 
 ### 3.4 STT: `POST /api/stt/transcribe`
 - multipart, поле `audio`. Бэкенд пересылает файл в whisper.cpp как **recording.wav / audio/wav**.
@@ -170,6 +170,10 @@ Multi-Provider AI Chat — десктопный инструмент для ра
 | 7 | Комментарии «createContextualApi» заменены (ТЗ-0.1-fix) | функция не существует — галлюцинация агента |
 | 8 | FOUC-fix: инлайн-скрипт в index.html до гидрации (ТЗ-0.2-fix) | устраняет вспышку светлой темы при dark |
 | 9 | Глобальный transition 200ms на background/color/border | плавная смена тем |
+| 10 | sendMessage живёт в sessionStore (не в chat-area) | единая точка контракта, ТЗ-1.2 |
+| 11 | Контекст-состояние: state = contextMode + selectedQuestionIds + retainPercent; qaPairs удалён (деривация из messages) | одна модель данных, §4.3 |
+| 12 | Manual-режим отправляет selectedQuestionIds как есть (новый вопрос может не входить) | поведение эталона сохранено |
+| 13 | selectedProvider/selectedModel восстанавливаются из localStorage при init | паритет с эталоном loadSelectedProvider |
 
 ## 8. Запрещено
 
