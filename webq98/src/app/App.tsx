@@ -4,6 +4,7 @@ import { useProviderStore } from '@/stores/providerStore';
 import { useSessionStore } from '@/stores/sessionStore';
 import { ChatArea } from '@/features/chat/components/chat-area';
 import { SettingsPanel } from '@/features/models/components/settings-panel';
+import { QuestionsPanel } from '@/features/questions/components/questions-panel';
 import { AiHelperOverlay } from '@/features/ai-helper/components/ai-helper-overlay';
 import { CommandPalette } from '@/shared/components/command-palette';
 import { SaveModal } from '@/features/sessions/components/save-modal';
@@ -27,8 +28,9 @@ export default function App() {
           path="/"
           element={
             <div className="flex flex-1 overflow-hidden">
-              <ChatArea />
-              <SettingsPanel />
+              <QuestionsPanel className="w-1/5 min-w-[240px]" />
+              <ChatArea className="w-3/5" />
+              <SettingsPanel className="w-1/5 min-w-[280px]" />
             </div>
           }
         />

@@ -8,11 +8,13 @@ import {
   Loader2,
   ChevronDown,
   ChevronUp,
+  ArrowLeft,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { apiGateway } from '@/lib/apiGateway';
 import type { Session } from '@/types';
+import { Button } from '@/components/ui/button';
 
 export function Dashboard() {
   const navigate = useNavigate();
@@ -24,6 +26,9 @@ export function Dashboard() {
   const [editTitle, setEditTitle] = useState('');
   const [groupOpen, setGroupOpen] = useState<Record<string, boolean>>({});
   const editInputRef = useRef<HTMLInputElement>(null);
+
+  const totalMessages = sessions.reduce((sum, s) => sum + s.message_count, 0);
+  const uniqueCategories = new Set(sessions.map((s) => s.category).filter(Boolean)).size;
 
   /* eslint-disable react-hooks/exhaustive-deps */
   useEffect(() => {
@@ -130,15 +135,33 @@ export function Dashboard() {
   return (
     <div className="flex-1 overflow-y-auto p-6">
       <div className="max-w-4xl mx-auto">
+        {/* Header with back link */}
         <div className="flex items-center justify-between mb-6">
-          <h1 className="text-2xl font-bold">Dashboard</h1>
-          <button
-            onClick={handleCreateSession}
-            className="flex items-center gap-2 bg-primary text-primary-foreground px-4 py-2 rounded-md text-sm font-medium hover:opacity-90 transition-opacity"
-          >
-            <Plus className="w-4 h-4" />
-            New Chat
-          </button>
+          <h1 className="text-2xl font-bold">Conversation Dashboard</h1>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" onClick={() => navigate('/')} className="flex items-center gap-2">
+              <ArrowLeft className="w-4 h-4" /> Back to Chat
+            </Button>
+            <Button onClick={handleCreateSession} className="flex items-center gap-2">
+              <Plus className="w-4 h-4" /> New Chat
+            </Button>
+          </div>
+        </div>
+
+        {/* Stat cards */}
+        <div className="grid grid-cols-3 gap-4 mb-6">
+          <div className="bg-card border rounded-lg p-4">
+            <div className="text-xs text-muted-foreground">Total Conversations</div>
+            <div className="text-2xl font-bold">{sessions.length}</div>
+          </div>
+          <div className="bg-card border rounded-lg p-4">
+            <div className="text-xs text-muted-foreground">Total Messages</div>
+            <div className="text-2xl font-bold">{totalMessages}</div>
+          </div>
+          <div className="bg-card border rounded-lg p-4">
+            <div className="text-xs text-muted-foreground">Categories</div>
+            <div className="text-2xl font-bold">{uniqueCategories}</div>
+          </div>
         </div>
 
         <div className="flex items-center gap-4 mb-6">

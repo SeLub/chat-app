@@ -175,7 +175,7 @@ function StatFooter({
   );
 }
 
-export function ChatArea() {
+export function ChatArea({ className }: { className?: string }) {
   const messages = useSessionStore((s) => s.messages);
   const contextInfo = useSessionStore((s) => s.contextInfo);
   const totalInputTokens = useSessionStore((s) => s.totalInputTokens);
@@ -356,7 +356,7 @@ export function ChatArea() {
   const userMsgCount = messages.filter((m) => m.role === 'user').length;
 
   return (
-    <main className="flex-1 flex flex-col overflow-hidden bg-background">
+    <main className={cn('flex-1 flex flex-col overflow-hidden bg-background', className)}>
       {/* ── Chat Header ── */}
       <div className="h-[44px] flex items-center justify-between px-3 border-b border-border bg-card flex-shrink-0">
         <div className="flex items-center gap-2 min-w-0">
@@ -541,7 +541,7 @@ export function ChatArea() {
         ) : (
           <>
             {groupedByQuestion.map((group) => (
-              <div key={group.questionId} className="space-y-3">
+              <div key={group.questionId} data-question-id={group.questionId} className="space-y-3">
                 <div className="flex items-start gap-3">
                   <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0 mt-0.5">
                     <span className="text-xs font-medium text-primary">U</span>
