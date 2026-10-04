@@ -8,6 +8,15 @@ import {
   FileCode,
   File,
   Image as ImageIcon,
+  MessageSquare,
+  BarChart3,
+  Save,
+  FolderOpen,
+  ArrowLeft,
+  Trash2,
+  Upload,
+  Palette,
+  Sparkles,
 } from 'lucide-react';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useProviderStore } from '@/stores/providerStore';
@@ -15,6 +24,37 @@ import { useUIStore } from '@/stores/uiStore';
 import { useState, useRef, useEffect, useCallback } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { useNavigate } from 'react-router-dom';
+import { cn } from '@/lib/utils';
+import { useTheme } from '@/app/ThemeProvider';
+import type { Theme, Mode } from '@/app/ThemeProvider';
+import type { ResponseMetrics } from '@/types';
+import { Button } from '@/components/ui/button';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuPortal,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog';
 
 const FILE_EXTENSIONS = new Set([
   '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.csv',
@@ -31,12 +71,124 @@ interface FilePreview {
   preview?: string;
 }
 
+const themes: { value: Theme; label: string }[] = [
+  { value: 'leteem', label: 'Leteem' },
+  { value: 'besafe', label: 'Besafe' },
+  { value: 'minimal', label: 'Minimal' },
+];
+
+const modes: { value: Mode; label: string }[] = [
+  { value: 'light', label: 'Light' },
+  { value: 'dark', label: 'Dark' },
+  { value: 'system', label: 'System' },
+];
+
+// ── Derive last assistant metrics from messages ──
+function deriveLastMetrics(messages: Array<{ role: string; metrics?: ResponseMetrics }>): ResponseMetrics | undefined {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].role === 'assistant' && messages[i].metrics) {
+      return messages[i].metrics;
+    }
+  }
+  return undefined;
+}
+
+// ── TPS Statistics Dialog ──
+function StatFooter({
+  currentModel,
+  modelDetail,
+  currentContextLength,
+  lastMetrics,
+  messages,
+  contextInfo: _contextInfo,
+}: {
+  currentModel: string | null;
+  modelDetail: { details?: { size?: number } } | null;
+  currentContextLength: number | null;
+  lastMetrics: ResponseMetrics | undefined;
+  messages: Array<{ role: string }>;
+  contextInfo: { contextSize: number; totalChars: number; includedQAPairs: number; totalQAPairs: number } | undefined;
+}) {
+  const [open, setOpen] = useState(false);
+
+  const sizeGb = modelDetail?.details?.size
+    ? (modelDetail.details.size / (1024 * 1024 * 1024)).toFixed(1)
+    : '–';
+
+  const ctx = currentContextLength ?? '–';
+
+  const totalTime = lastMetrics?.totalTime != null ? `${lastMetrics.totalTime}s` : '–';
+
+  const userMsgCount = messages.filter((m) => m.role === 'user').length;
+  const contextLoad =
+    lastMetrics && currentContextLength
+      ? Math.round(((lastMetrics.inputTokens || 0) + (lastMetrics.outputTokens || 0)) / currentContextLength * 100)
+      : undefined;
+
+  return (
+    <div className="h-8 flex items-center gap-2 px-4 border-t border-border bg-card text-xs text-muted-foreground whitespace-nowrap overflow-x-auto">
+      <span className="flex items-center gap-1">
+        <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2a4 4 0 0 1 4 4v2a4 4 0 0 1-8 0V6a4 4 0 0 1 4-4z"/><path d="M16 14H8a4 4 0 0 0-4 4v2h16v-2a4 4 0 0 0-4-4z"/></svg>
+        <span>Bot</span>
+        <span className="text-foreground">{currentModel || 'No model selected'}</span>
+      </span>
+      <span>•</span>
+      <span>Size: {sizeGb} GB</span>
+      <span>•</span>
+      <span>Ctx: {ctx}</span>
+      <span>•</span>
+      <span>Total Time: {totalTime}</span>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogTrigger asChild>
+          <Button variant="ghost" size="sm" className="h-6 px-2 text-xs font-mono" onClick={() => setOpen(true)}>
+            TPS
+          </Button>
+        </DialogTrigger>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>📊 Detailed Statistics</DialogTitle>
+          </DialogHeader>
+          <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+            <div className="text-muted-foreground">TPS</div>
+            <div className="font-mono">{lastMetrics?.tps != null ? `${lastMetrics.tps} tok/s` : '–'}</div>
+            <div className="text-muted-foreground">Prompt Speed</div>
+            <div className="font-mono">{lastMetrics?.promptTps != null ? `${lastMetrics.promptTps} tok/s` : '–'}</div>
+            <div className="text-muted-foreground">TTFT</div>
+            <div className="font-mono">{lastMetrics?.ttft != null ? `${lastMetrics.ttft}s` : '–'}</div>
+            <div className="text-muted-foreground">Load Time</div>
+            <div className="font-mono">{lastMetrics?.loadTime != null ? `${lastMetrics.loadTime}s` : '–'}</div>
+            <div className="text-muted-foreground">Total Time</div>
+            <div className="font-mono">{lastMetrics?.totalTime != null ? `${lastMetrics.totalTime}s` : '–'}</div>
+            <div className="col-span-2 h-px bg-border my-1" />
+            <div className="text-muted-foreground">Input Tokens</div>
+            <div className="font-mono">{lastMetrics?.inputTokens != null ? `${lastMetrics.inputTokens}` : '–'}</div>
+            <div className="text-muted-foreground">Output Tokens</div>
+            <div className="font-mono">{lastMetrics?.outputTokens != null ? `${lastMetrics.outputTokens}` : '–'}</div>
+            <div className="text-muted-foreground">Context Load</div>
+            <div className="font-mono">{contextLoad != null ? `${contextLoad}%` : '–'}</div>
+            <div className="text-muted-foreground">Questions</div>
+            <div className="font-mono">{userMsgCount || '–'}</div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
 export function ChatArea() {
   const messages = useSessionStore((s) => s.messages);
   const contextInfo = useSessionStore((s) => s.contextInfo);
   const currentModel = useProviderStore((s) => s.currentModel);
+  const modelDetail = useProviderStore((s) => s.modelDetail);
+  const currentContextLength = useProviderStore((s) => s.currentContextLength);
   const refreshStatus = useProviderStore((s) => s.refreshStatus);
+  const activeSessionId = useSessionStore((s) => s.activeSessionId);
+  const viewingSessionId = useSessionStore((s) => s.viewingSessionId);
+  const currentSessionTitle = useSessionStore((s) => s.currentSessionTitle);
   const sendMessage = useSessionStore((s) => s.sendMessage);
+  const returnToCurrent = useSessionStore((s) => s.returnToCurrent);
+  const clearChat = useSessionStore((s) => s.clearChat);
+  const exportConversation = useSessionStore((s) => s.exportConversation);
 
   const [inputValue, setInputValue] = useState('');
   const [isSending, setIsSending] = useState(false);
@@ -47,6 +199,11 @@ export function ChatArea() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const navigate = useNavigate();
+  const { theme, mode, setTheme, setMode } = useTheme();
+
+  const lastMetrics = deriveLastMetrics(messages);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -178,6 +335,7 @@ export function ChatArea() {
   }
   if (currentGroup) groupedByQuestion.push(currentGroup);
 
+  // Context bar pct
   const pct = contextInfo
     ? Math.round(contextInfo.totalChars / (contextInfo.contextSize * 4) * 100)
     : 0;
@@ -190,8 +348,183 @@ export function ChatArea() {
         : 'text-destructive'
     : '';
 
+  const incQA = contextInfo?.includedQAPairs ?? 0;
+  const totQA = contextInfo?.totalQAPairs ?? 0;
+
   return (
     <main className="flex-1 flex flex-col overflow-hidden bg-background">
+      {/* ── Chat Header ── */}
+      <div className="h-[44px] flex items-center justify-between px-3 border-b border-border bg-card flex-shrink-0">
+        <div className="flex items-center gap-2 min-w-0">
+          <MessageSquare className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+          <h1 className="text-sm font-semibold text-foreground truncate">
+            {currentSessionTitle || 'New Chat'}
+          </h1>
+        </div>
+        <div className="flex items-center gap-0.5 flex-shrink-0">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="ghost" size="icon-sm" onClick={() => navigate('/dashboard')} aria-label="Dashboard">
+                <BarChart3 className="w-4 h-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">Dashboard</TooltipContent>
+          </Tooltip>
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="ghost" size="icon-sm" onClick={() => useUIStore.getState().openSaveModal()} aria-label="Save Conversation">
+                <Save className="w-4 h-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">Save Conversation</TooltipContent>
+          </Tooltip>
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="ghost" size="icon-sm" disabled aria-label="Load Conversation">
+                <FolderOpen className="w-4 h-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">Load Conversation (ТЗ-2.3)</TooltipContent>
+          </Tooltip>
+
+          {viewingSessionId !== activeSessionId && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button variant="ghost" size="icon-sm" onClick={() => returnToCurrent()} aria-label="Return to Current">
+                  <ArrowLeft className="w-4 h-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">Return to Current</TooltipContent>
+            </Tooltip>
+          )}
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                onClick={() => {
+                  const isViewingActive = viewingSessionId === activeSessionId;
+                  if (confirm(isViewingActive
+                    ? 'Clear current chat and start new?'
+                    : 'Clear current chat and start new? The viewed session will be archived.'
+                  )) {
+                    clearChat();
+                  }
+                }}
+                aria-label="Clear Current Chat"
+              >
+                <Trash2 className="w-4 h-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">
+              {viewingSessionId === activeSessionId
+                ? 'Clear Current Chat'
+                : 'Archive viewed session and start new'}
+            </TooltipContent>
+          </Tooltip>
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="ghost" size="icon-sm" onClick={() => exportConversation()} aria-label="Export to File">
+                <Upload className="w-4 h-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">Export to File</TooltipContent>
+          </Tooltip>
+
+          <DropdownMenu>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="icon-sm" aria-label="Theme">
+                    <Palette className="w-4 h-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">Theme</TooltipContent>
+            </Tooltip>
+            <DropdownMenuContent align="end">
+              <DropdownMenuLabel>Appearance</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuGroup>
+                <DropdownMenuLabel>Theme</DropdownMenuLabel>
+                {themes.map((t) => (
+                  <DropdownMenuItem
+                    key={t.value}
+                    className="justify-between"
+                    onClick={() => setTheme(t.value)}
+                  >
+                    {t.label}
+                    {theme === t.value && (
+                      <span className="text-primary">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                          <polyline points="20 6 9 17 4 12" />
+                        </svg>
+                      </span>
+                    )}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuGroup>
+              <DropdownMenuSeparator />
+              <DropdownMenuGroup>
+                <DropdownMenuLabel>Mode</DropdownMenuLabel>
+                <DropdownMenuSub>
+                  <DropdownMenuSubTrigger>
+                    {mode === 'system' ? 'System' : mode === 'dark' ? 'Dark' : 'Light'}
+                  </DropdownMenuSubTrigger>
+                  <DropdownMenuPortal>
+                    <DropdownMenuSubContent>
+                      {modes.map((m) => (
+                        <DropdownMenuItem
+                          key={m.value}
+                          className="justify-between"
+                          onClick={() => setMode(m.value)}
+                        >
+                          {m.label}
+                          {mode === m.value && (
+                            <span className="text-primary">
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                                <polyline points="20 6 9 17 4 12" />
+                              </svg>
+                            </span>
+                          )}
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuSubContent>
+                  </DropdownMenuPortal>
+                </DropdownMenuSub>
+              </DropdownMenuGroup>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      </div>
+
+      {/* ── Context Bar ── */}
+      <div className="h-7 flex items-center px-4 border-b border-border bg-card flex-shrink-0">
+        <div className="flex-1 h-1.5 rounded-full bg-muted overflow-hidden">
+          <div
+            className={cn(
+              'h-full rounded-full transition-all duration-300',
+              contextInfo
+                ? pct <= 50
+                  ? 'bg-success'
+                  : pct <= 75
+                    ? 'bg-warning'
+                    : 'bg-destructive'
+                : 'bg-muted-foreground',
+            )}
+            style={{ width: `${pct}%` }}
+          />
+        </div>
+        <span className={cn('ml-2 text-xs whitespace-nowrap', pctColor)}>
+          {incQA}/{totQA} Q&A • {pct}%
+        </span>
+      </div>
+
+      {/* ── Messages ── */}
       <div className="flex-1 overflow-y-auto p-4 space-y-6">
         {groupedByQuestion.length === 0 && !isSending ? (
           <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
@@ -275,6 +608,7 @@ export function ChatArea() {
         <div ref={messagesEndRef} />
       </div>
 
+      {/* ── File Previews ── */}
       {(fileSlot || codeFiles.length > 0) && (
         <div className="px-4 py-2 border-t border-border bg-card flex gap-2 overflow-x-auto items-center">
           {fileSlot && (
@@ -313,8 +647,24 @@ export function ChatArea() {
         </div>
       )}
 
+      {/* ── Input Zone ── */}
       <div className="p-4 border-t border-border bg-card">
         <div className="flex items-end gap-2">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                onClick={() => useUIStore.getState().toggleAiHelper()}
+                aria-label="AI Helper"
+                className="flex-shrink-0"
+              >
+                <Sparkles className="w-4 h-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">AI Helper (звонки)</TooltipContent>
+          </Tooltip>
+
           <input
             ref={fileInputRef}
             type="file"
@@ -349,37 +699,19 @@ export function ChatArea() {
           </button>
         </div>
         <div className="flex items-center justify-between mt-2 text-xs text-muted-foreground">
-          <div className="flex items-center gap-2">
-            {contextInfo ? (
-              <span className={pctColor}>
-                {contextInfo.includedQAPairs}/{contextInfo.totalQAPairs} Q&A • {pct}%
-              </span>
-            ) : (
-              <span>–</span>
-            )}
-          </div>
           <span>Press Enter to send, Shift+Enter for newline</span>
         </div>
       </div>
-    </main>
-  );
-}
 
-function MessageSquare(props: { className?: string }) {
-  return (
-    <svg
-      {...props}
-      xmlns="http://www.w3.org/2000/svg"
-      width="24"
-      height="24"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-    </svg>
+      {/* ── Stat Footer ── */}
+      <StatFooter
+        currentModel={currentModel}
+        modelDetail={modelDetail}
+        currentContextLength={currentContextLength}
+        lastMetrics={lastMetrics}
+        messages={messages}
+        contextInfo={contextInfo}
+      />
+    </main>
   );
 }
