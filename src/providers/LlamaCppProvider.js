@@ -197,7 +197,7 @@ export class LlamaCppProvider extends BaseProvider {
             log.info('Sending request to llama.cpp', { model });
 
             const controller = new AbortController();
-            const timeout = setTimeout(() => controller.abort(), 120000); // 120s timeout
+            const timeout = setTimeout(() => controller.abort(), 900000); // 15min timeout
 
             const response = await fetch(`${this.url}/completion`, {
                 method: 'POST',
@@ -226,7 +226,7 @@ export class LlamaCppProvider extends BaseProvider {
             };
         } catch (error) {
             if (error.name === 'AbortError') {
-                throw new Error('Request to llama.cpp timed out after 120 seconds');
+                throw new Error('Request to llama.cpp timed out after 5 minutes');
             }
             if (error.code === 'ECONNREFUSED') {
                 throw new Error(`Cannot connect to llama.cpp at ${this.url}. Is the server running?`);
@@ -243,7 +243,7 @@ export class LlamaCppProvider extends BaseProvider {
             log.info('Sending chat request to llama.cpp', { model });
 
             const controller = new AbortController();
-            const timeout = setTimeout(() => controller.abort(), 120000);
+            const timeout = setTimeout(() => controller.abort(), 900000); // 5min timeout
 
             const response = await fetch(`${this.url}/v1/chat/completions`, {
                 method: 'POST',
@@ -314,7 +314,7 @@ export class LlamaCppProvider extends BaseProvider {
             };
         } catch (error) {
             if (error.name === 'AbortError') {
-                throw new Error('Request to llama.cpp timed out after 120 seconds');
+                throw new Error('Request to llama.cpp timed out after 5 minutes');
             }
             if (error.code === 'ECONNREFUSED') {
                 throw new Error(`Cannot connect to llama.cpp at ${this.url}. Is the server running?`);

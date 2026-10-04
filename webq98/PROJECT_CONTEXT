@@ -1,0 +1,184 @@
+# PROJECT_CONTEXT.md — Конституция проекта
+
+> ЭТОТ ФАЙЛ ОБЯЗАТЕЛЕН К ПРОЧТЕНИЮ перед выполнением любого ТЗ.
+> Он содержит решения, контракт бэкенда и запреты. Если ТЗ противоречит этому файлу —
+> остановись и сообщи. Не выдумывай контракты, не описанные здесь.
+
+---
+
+## 1. Что это за проект
+
+Multi-Provider AI Chat — десктопный инструмент для работы с локальными LLM
+(Ollama, llama.cpp). Один пользователь, фронтенд и бэкенд на одной машине.
+
+Два режима (как свойство сессии, `mode: 'chat' | 'project'`):
+- **Study** — диалог с моделью: изучение, статьи, загрузка одиночных файлов (PDF/DOC/XLS/IMG/код), голосовой ввод.
+- **Project** — работа с папкой проекта на диске (будущее, Фаза 5; файлы не передаются по сети — передаётся только относительный путь).
+
+Сейчас реализуется Фаза 0 (фундамент). План фаз:
+`0 Фундамент → 1 Контракт → 2 Паритет с эталоном → 3 AI Helper → 4 Дизайн → 5 Project-каркас → 6 Финал`
+
+## 2. Компоненты системы и запуск
+
+| Компонент | Где | Порт | Комментарий |
+|---|---|---|---|
+| Бэкенд (Express + БД) | репозиторий сервера | 3000 | **НЕ ИЗМЕНЯТЬ без прямого указания в ТЗ** |
+| Эталонный фронтенд | `public/` (index.html, script.js, style.css, ...) | 3000 | **ТОЛЬКО ЧИТАТЬ. Golden master для сверки поведения. Не изменять, не удалять** |
+| Новый фронтенд (наш) | `webq98/` | 5175 | `npm run dev`, `npm run build`, `npm run lint` |
+| whisper.cpp (STT) | внешний сервис | 8081 | доступен через бэкенд |
+
+- Прокси из vite: `/api` → :3000, `/ws` → :3000 (ws:true), `/vad-assets` → :3000.
+- Бэкенд должен быть запущен (`npm start` на сервере), иначе API вернёт сетевые ошибки.
+
+## 3. ЖЕЛЕЗНЫЙ КОНТРАКТ БЭКЕНДА
+
+Никаких предположений. Всё ниже проверено по коду бэкенда и эталонному фронтенду.
+
+### 3.1 POST /api/chat — ГЛАВНЫЙ эндпоинт
+- **Запрос: multipart/form-data**, заголовок **X-Provider: 'ollama' | 'llama_cpp'**.
+- Поля FormData (имена точные, НЕ выдумывать):
+  - `message` — текст сообщения (НЕ `question`!)
+  - `model` — имя модели
+  - `sessionId` — UUID сессии (отправляем в `viewingSessionId`)
+  - `questionId` — генерируется ФРОНТОМ, формат `q_{n}_{Date.now()}` (например `q_3_1730000000000`)
+  - `contextLength` — число, опционально
+  - `retainPercent` — число, по умолчанию 80
+  - `includeQuestionIds` — **JSON.stringify(string[])** — id вопросов, включённых в контекст
+  - `file` — одиночный File (PDF/DOC/XLS/изображение), опционально
+  - `codeFiles` — несколько файлов (append для каждого), опционально
+- **Ответ: обычный JSON. СТРИМИНГА НЕТ.** Читаем `response.json()`.
+  ```ts
+  {
+    response: string;              // markdown
+    metrics?: { tps, promptTps, ttft, loadTime, totalTime, inputTokens, outputTokens };
+    imageData?: { thumbnailUrl, fullUrl, filename };
+    contextInfo?: { contextSize, totalChars, includedQAPairs, totalQAPairs };
+    excludedIndices?: number[];    // НОМЕРА Q, исключённые из контекста
+  }
+  ```
+- Ошибки: `503 {error}` провайдер недоступен (показываем сообщение + предлагаем сменить провайдера); прочие статусы `{error}`; при тексте ошибки с `ECONNREFUSED` — человекочитаемое пояснение.
+
+### 3.2 Провайдеры и модели
+- `GET /api/providers/status` → **`{ providers: [...] }`** — ОБЁРТКА-ОБЪЕКТ, не массив!
+  Каждый: `{ name, status: 'connected'|'disconnected'|'checking', latencyMs?, error? }`.
+- `GET /api/models` (заголовок X-Provider) → `{ connected: boolean, models: [{ name, size, contextLength?, type? }] }`, `type: 'vision'` помечаем иконкой.
+- `POST /api/show` `{name}` (X-Provider) → детали. Контекст-длина извлекается по цепочке:
+  `model_info[*context_length*]` → `parameters.context_length` → `models[].contextLength`.
+
+### 3.3 Сессии и сообщения
+- `GET /api/sessions?search=&limit=&offset=` → `Session[]`
+- `GET /api/sessions/:id` → `Session` (`{id, title, category, sysprompt, message_count, model?, provider?, created_at, updated_at}`)
+- `POST /api/sessions` `{title?}` → `Session`
+- `PATCH /api/sessions/:id` `{title?, category?, sysprompt?}`
+- `DELETE /api/sessions/:id`
+- `GET /api/sessions/:id/messages` → **Q&A-пары** («Вариант B»), НЕ плоские сообщения:
+  ```ts
+  { questionId, questionText, answerText, model,
+    attachments_meta | attachmentsMeta,   // ⚠️ поле может прийти в snake_case ИЛИ camelCase — нормализуем ОБА
+    metrics, image_data | imageData }
+  ```
+- `DELETE /api/sessions/:id/messages/:questionId` → `{ deletedMessages, deletedAttachments }`
+- ⚠️ `/qa-pairs` и `/context-config` — существуют в старом коде, но эталоном НЕ вызываются, работа не подтверждена. **НЕ ИСПОЛЬЗОВАТЬ.** Конфигурация контекста живёт в localStorage (п. 4.3).
+
+### 3.4 STT: `POST /api/stt/transcribe`
+- multipart, поле `audio`. Бэкенд пересылает файл в whisper.cpp как **recording.wav / audio/wav**.
+- **Требуется настоящий WAV PCM.** WebM присылать НЕЛЬЗЯ (webq98 так делал — ошибка).
+- Конвертация на клиенте: MediaRecorder(webm) → `decodeAudioData` → ручная сборка WAV
+  (порт функции `bufferToWave` из эталонного `public/script.js`).
+- `AudioContext` создавать как `new AudioContext({ sampleRate: 16000 })` — тогда WAV будет 16 kHz.
+- Ответ: `{ text, latencyMs }`. Текст **вставляется в поле ввода**, НЕ отправляется автоматически.
+
+### 3.5 WebSocket `/ws/ai-helper` (Фаза 3)
+Клиент → Сервер:
+- `{ type: 'audio_chunk', role: 'user'|'interlocutor', audioBase64: string(PCM16LE→base64), sampleRate: 16000, format: 'pcm16', timestamp }`
+- `{ type: 'request_hint' }`
+
+Сервер → Клиент:
+- `{ type: 'transcript', role, text }`
+- `{ type: 'hint_token', token }` — поток подсказки по токенам
+- `{ type: 'hint_done' }`
+- `{ type: 'error', message }`
+
+## 4. Ключевые клиентские механики (нельзя ломать)
+
+### 4.1 Two-pointer sessions
+- `activeSessionId` — «текущая рабочая» сессия (цель кнопки Return-to-current).
+- `viewingSessionId` — что отображается. **Сообщения всегда отправляются в viewingSessionId.**
+- Загрузка истории: `viewing = id`, `active` не трогаем; кнопка «Return to current» видна при `viewing ≠ active`.
+- Return to current: `viewing = active`, перезагрузить сообщения.
+- Отправка при `viewing ≠ active`: после успешной отправки `active := viewing`.
+- **New Chat / Clear Chat:** архивировать просматриваемую (если `title` пуст или начинается с `unsavedSession` → переименовать в `unsavedSession {N}`, где N = число сессий с таким префиксом + 1; иначе оставить title), создать новую сессию, `active = viewing = новая`.
+  *(Отклонение от эталона: там `active` указывал на архивированную — признано багом.)*
+
+### 4.2 questionId
+- Всегда фронтовый формат `q_{counter}_{Date.now()}`. `counter` — номер Q&A в сессии.
+- При удалении пары — перенумерация ОТОБРАЖАЕМЫХ номеров (Q1, Q2…), сами id не меняются.
+
+### 4.3 Контекст (standard/manual)
+- Per-session в localStorage: ключи `contextMode_{sessionId}` и `selectedIds_{sessionId}` (JSON).
+- standard: `includeQuestionIds` = все id вопросов; чекбоксы disabled.
+- manual: только выбранные; кнопки All/None. Переключение в standard → selected = все.
+- Просмотр исторической сессии → принудительно standard.
+- Контекст-бар: `pct = round(totalChars / (contextSize * 4) * 100)`; цвет: ≤50% зелёный `#10b981`, ≤75% янтарный `#f59e0b`, иначе красный `#ef4444`; подпись `{included}/{total} Q&A • {pct}%`.
+
+### 4.4 System Prompt
+- `DEFAULT_SYSPROMPT = "Ты Senior Developer. Отвечай четко, структурированно и по существу. Ты мыслишь архитектурно, производительность, системность."`
+- Если `session.sysprompt` пуст → в textarea подставляем дефолт.
+- Сохранение: PATCH при потере фокуса (blur) + ПЕРЕД отправкой, если значение изменилось (await PATCH, потом send).
+
+### 4.5 Статистика
+- `totalInputTokens`/`totalOutputTokens` аккумулируются за сессию.
+- ContextLoad% = `round((in+out) / contextLength * 100)`.
+- TPS-модалка: tps, promptTps, ttft, loadTime, totalTime + накопленные токены.
+
+### 4.6 Markdown
+- `react-markdown` + `remark-gfm`. Никаких самописных парсеров.
+
+## 5. Стек и правила кода
+
+- React 18 · TypeScript 5.8 (strict) · Vite 6 · Zustand 5 · Tailwind 4 (@tailwindcss/vite, typography, tw-animate-css) · react-router 7 · react-markdown + remark-gfm · sonner · lucide-react · Radix (только подключённые примитивы) · cva/clsx/tailwind-merge · @ricky0123/vad-web 0.0.30.
+- **Запрещённые зависимости** (сняты/не добавлять): react-query, framer-motion, cmdk, react-hook-form, zod, dnd-kit, Vaul, next-themes, Socket.IO.
+- **HTTP-вызовы — только через `src/lib/apiGateway.ts`.** Сырой `fetch` в компонентах/stores запрещён.
+- WebSocket — только через отдельный модуль `src/lib/aiHelperSocket.ts` (Фаза 3).
+- Новые зависимости — только если явно указаны в ТЗ.
+- `npm run build` и `npm run lint` обязаны проходить. TS strict, без `any` (кроме нормализации snake/camel с комментарием).
+- Коммит на каждое ТЗ: `TZ-N.M: краткое описание`.
+
+## 6. Дизайн-система (Leteem, адаптированная)
+
+- Токены цветов — CSS-переменные, темы через `data-theme` на `<html>`: `leteem` (по умолчанию, синяя), `besafe` (зелёная), `minimal` (монохром). Тёмный режим — класс `dark` на `<html>`.
+- Токены: background, foreground, card(+fg), popover(+fg), primary(+fg), secondary(+fg), muted(+fg), accent(+fg), tertiary(+fg), destructive(+fg), border, input, ring, **message-own(+text), message-other(+text), content-text**, success, warning, online-status. Радиусы от `--radius: 0.625rem`. Шрифт Inter.
+- **Адаптации против мессенджерного оригинала (обязательны):**
+  1. Сообщения — карточки на всю ширину колонки (токены message-own/other для фона/текста), НЕ пузыри `max-w-xs`: в узких пузырях нечитаемы markdown-таблицы и код.
+  2. Экстремальные радиусы (`rounded-[2rem+]`) — только для input-пилюли, модалок, крупных кнопок. Внутри плотных панелей — `rounded-lg/xl`.
+  3. Текст сообщений/markdown — токен `content-text` (нейтральный), НЕ бирюзовый foreground. Бирюза — заголовки, акценты, ссылки.
+- Glassmorphism (backdrop-blur + полупрозрачные фоны) — на панелях. Анимации — tw-animate-css (fade/zoom/slide). Никакого Framer Motion.
+- Точная палитра тем — в `src/css/themes/*.theme.css` (создаются в ТЗ-0.2).
+
+## 7. Отклонения от эталона (журнал решений)
+
+| # | Решение | Причина |
+|---|---|---|
+| 1 | react-markdown+GFM вместо самописного парсера | надёжность, таблицы из коробки |
+| 2 | clearChat/New Chat: оба указателя → новая сессия | баг эталона (active→архив) |
+| 3 | sysprompt: PATCH на blur + перед отправкой | надёжнее, чем только перед отправкой |
+| 4 | AI Helper — in-app draggable overlay | проще, протокол не меняется |
+| 5 | STT: AudioContext sampleRate 16000 | whisper.cpp ожидает 16 kHz |
+| 6 | Дизайн Leteem вместо исходного | решение владельца |
+
+## 8. Запрещено
+
+1. Изменять бэкенд и `public/` (эталон).
+2. Предполагать стриминг `/api/chat`.
+3. Вызывать `/qa-pairs`, `/context-config`.
+4. Сырой fetch/WebSocket вне выделенных модулей.
+5. Добавлять зависимости или менять версии пакетов без ТЗ.
+6. Ломать two-pointer семантику и форматы id.
+
+## 9. Definition of Done (для любого ТЗ)
+
+- [ ] `npm run build` — успех; `npm run lint` — без ошибок.
+- [ ] Приложение запускается на :5175, консоль браузера без новых ошибок.
+- [ ] Все пункты «Критерии приёмки» ТЗ выполнены и проверены против **реального бэкенда** (:3000).
+- [ ] Поведение сверено с эталоном на :3000, где применимо.
+- [ ] Коммит создан.
