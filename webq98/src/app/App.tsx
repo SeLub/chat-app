@@ -2,10 +2,8 @@ import { useEffect } from 'react';
 import { Routes, Route } from 'react-router-dom';
 import { useProviderStore } from '@/stores/providerStore';
 import { useSessionStore } from '@/stores/sessionStore';
-import { Sidebar } from '@/shared/components/sidebar';
 import { ChatArea } from '@/features/chat/components/chat-area';
 import { SettingsPanel } from '@/features/models/components/settings-panel';
-import { TopBar } from '@/shared/components/top-bar';
 import { AiHelperOverlay } from '@/features/ai-helper/components/ai-helper-overlay';
 import { CommandPalette } from '@/shared/components/command-palette';
 import { SaveModal } from '@/features/sessions/components/save-modal';
@@ -24,31 +22,23 @@ export default function App() {
 
   return (
     <>
-      <TopBar />
-      <div className="flex flex-1 overflow-hidden">
-        <Routes>
-          <Route
-            path="/"
-            element={
-              <>
-                <Sidebar />
-                <ChatArea />
-                <SettingsPanel />
-              </>
-            }
-          />
-          <Route
-            path="/dashboard"
-            element={
-              <>
-                <Sidebar />
-                <Dashboard />
-                <SettingsPanel />
-              </>
-            }
-          />
-        </Routes>
-      </div>
+      <Routes>
+        <Route
+          path="/"
+          element={
+            <>
+              <ChatArea />
+              <SettingsPanel />
+            </>
+          }
+        />
+        <Route
+          path="/dashboard"
+          element={
+            <Dashboard />
+          }
+        />
+      </Routes>
       <AiHelperOverlay />
       <CommandPalette />
       <SaveModal />
