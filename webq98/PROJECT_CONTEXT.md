@@ -80,6 +80,8 @@ Multi-Provider AI Chat — десктопный инструмент для ра
 - `DELETE /api/sessions/:id/messages/:questionId` → `{ deletedMessages, deletedAttachments }`
 - ⚠️ `/qa-pairs` и `/context-config` — существуют в старом коде, но эталоном НЕ вызываются, работа не подтверждена. **НЕ ИСПОЛЬЗОВАТЬ.** Конфигурация контекста живёт в localStorage (п. 4.3).
 
+- ⚠️ Из apiGateway в ТЗ-1.1 УДАЛЕНЫ методы: getQAPairs, getContextConfig,updateContextConfig, весь attachmentsApi. Это whitelist-решение: не пересоздаватьбез прямого указания в ТЗ. Study-режим шлёт файлы через /api/chat (FormData),Project-режим (Фаза 5) получит свой контракт отдельно.
+
 ### 3.4 STT: `POST /api/stt/transcribe`
 - multipart, поле `audio`. Бэкенд пересылает файл в whisper.cpp как **recording.wav / audio/wav**.
 - **Требуется настоящий WAV PCM.** WebM присылать НЕЛЬЗЯ (webq98 так делал — ошибка).
@@ -165,6 +167,9 @@ Multi-Provider AI Chat — десктопный инструмент для ра
 | 4 | AI Helper — in-app draggable overlay | проще, протокол не меняется |
 | 5 | STT: AudioContext sampleRate 16000 | whisper.cpp ожидает 16 kHz |
 | 6 | Дизайн Leteem вместо исходного | решение владельца |
+| 7 | Комментарии «createContextualApi» заменены (ТЗ-0.1-fix) | функция не существует — галлюцинация агента |
+| 8 | FOUC-fix: инлайн-скрипт в index.html до гидрации (ТЗ-0.2-fix) | устраняет вспышку светлой темы при dark |
+| 9 | Глобальный transition 200ms на background/color/border | плавная смена тем |
 
 ## 8. Запрещено
 

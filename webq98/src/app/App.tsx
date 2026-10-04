@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useEffect } from 'react';
 import { Routes, Route } from 'react-router-dom';
 import { useProviderStore } from '@/stores/providerStore';
 import { useSessionStore } from '@/stores/sessionStore';
@@ -13,12 +13,14 @@ import { Dashboard } from '@/features/dashboard/components/dashboard';
 
 export default function App() {
   const initSession = useSessionStore((s: { init: () => Promise<void> }) => s.init);
-  const refreshStatus = useProviderStore((s: { refreshStatus: () => Promise<void> }) => s.refreshStatus);
 
-  useMemo(() => {
+  useEffect(() => {
+    useProviderStore.getState().init();
+    useProviderStore.getState().startPolling();
     initSession();
-    refreshStatus();
-  }, [initSession, refreshStatus]);
+    return () => useProviderStore.getState().stopPolling();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <>

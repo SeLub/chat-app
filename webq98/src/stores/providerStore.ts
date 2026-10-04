@@ -1,12 +1,18 @@
 import { create } from 'zustand';
-import type { ProviderInfo, ModelInfo, ModelDetail } from '@/types';
+import type { ProviderInfo, ModelInfo } from '@/types';
+import { apiGateway } from '@/lib/apiGateway';
+import { useUIStore } from './uiStore';
+
+let previousStatuses: Record<string, string> = {};
+let pollingIntervalId: number | null = null;
+let initialized = false;
 
 interface ProviderStore {
   providers: ProviderInfo[];
   currentProvider: 'ollama' | 'llama.cpp';
   models: ModelInfo[];
   currentModel: string | null;
-  modelDetail: ModelDetail | null;
+  modelDetail: { details?: { size?: number; parent_model?: string; format?: string; family?: string } } | null;
   currentContextLength: number | null;
   isLoadingModels: boolean;
 
@@ -15,7 +21,37 @@ interface ProviderStore {
   loadModels: (provider: string) => Promise<void>;
   selectModel: (name: string) => void;
   refreshStatus: () => Promise<void>;
-  getModelInfo: () => Promise<void>;
+  init: () => Promise<void>;
+  startPolling: () => void;
+  stopPolling: () => void;
+}
+
+function extractContextLength(detail: unknown, modelName: string, models: ModelInfo[]): number | null {
+  if (!detail || typeof detail !== 'object') {
+    return (models.find(m => m.name === modelName)?.contextLength) || null;
+  }
+
+  const d = detail as Record<string, unknown>;
+
+  // 1) scan model_info for any key containing 'context_length' (case-insensitive)
+  if (d.model_info && typeof d.model_info === 'object') {
+    const info = d.model_info as Record<string, unknown>;
+    for (const key of Object.keys(info)) {
+      if (/context_length/i.test(key)) {
+        const val = info[key];
+        if (typeof val === 'number') return val;
+      }
+    }
+  }
+
+  // 2) parameters.context_length
+  if (d.parameters && typeof d.parameters === 'object') {
+    const params = d.parameters as { context_length?: number };
+    if (typeof params.context_length === 'number') return params.context_length;
+  }
+
+  // 3) fall back to models list
+  return (models.find(m => m.name === modelName)?.contextLength) || null;
 }
 
 export const useProviderStore = create<ProviderStore>((set, get) => ({
@@ -34,17 +70,16 @@ export const useProviderStore = create<ProviderStore>((set, get) => ({
   setCurrentProvider(provider) {
     set({ currentProvider: provider });
     localStorage.setItem('selectedProvider', provider);
+    get().loadModels(provider);
   },
 
   async loadModels(provider: string) {
     set({ isLoadingModels: true });
     try {
-      const data = await fetch('/api/models', {
-        headers: { 'X-Provider': provider },
-      }).then((r) => r.json());
+      const data = await apiGateway.models.list(provider);
 
-      if (data.connected && data.models) {
-        const models: ModelInfo[] = (data.models as Array<{ name: string; size: number; contextLength?: number; type?: string }>).map((m) => ({
+      if (data?.connected && data.models) {
+        const models: ModelInfo[] = data.models.map((m) => ({
           name: m.name,
           size: m.size || 0,
           contextLength: m.contextLength || 0,
@@ -72,17 +107,8 @@ export const useProviderStore = create<ProviderStore>((set, get) => ({
     localStorage.setItem('selectedProvider', provider);
 
     try {
-      const detail = await fetch('/api/show', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Provider': provider },
-        body: JSON.stringify({ name }),
-      }).then((r) => r.json());
-
-      const contextLength =
-        detail?.details?.context_length ||
-        detail?.parameters?.context_length ||
-        get().models.find((m) => m.name === name)?.contextLength ||
-        null;
+      const detail = await apiGateway.models.show(name, provider);
+      const contextLength = extractContextLength(detail, name, get().models);
 
       set({
         modelDetail: detail,
@@ -95,49 +121,60 @@ export const useProviderStore = create<ProviderStore>((set, get) => ({
 
   async refreshStatus() {
     try {
-      const data = await fetch('/api/providers/status').then((r) => r.json());
-      const providers: ProviderInfo[] = (data || []).map((p: { name: string; status: string; latencyMs?: number; error?: string }) => ({
-        name: p.name as 'ollama' | 'llama.cpp',
-        status: (p.status === 'connected' ? 'connected' : p.status === 'checking' ? 'checking' : 'disconnected') as ProviderInfo['status'],
-        latencyMs: p.latencyMs,
-        error: p.error,
-        url: '',
-        enabled: true,
-      }));
-      set({ providers });
+      const data = await apiGateway.providers.status();
+      const rawProviders = data?.providers || [];
 
-      const current = providers.find((p) => p.name === get().currentProvider);
-      if (current && current.status !== 'connected') {
-        const fallback = providers.find((p) => p.status === 'connected');
-        if (fallback && fallback.name !== get().currentProvider) {
-          // Auto-suggest fallback via toast (handled by uiStore)
+      const currentMap: Record<string, string> = {};
+      const providers: ProviderInfo[] = rawProviders.map((p) => {
+        const name = p.name as 'ollama' | 'llama.cpp';
+        const status = (p.status === 'connected' ? 'connected' : p.status === 'checking' ? 'checking' : 'disconnected') as ProviderInfo['status'];
+        currentMap[name] = status;
+
+        const oldStatus = previousStatuses[name];
+        if (oldStatus === 'connected' && status !== 'connected') {
+          useUIStore.getState().addToast(`${name} недоступен`, 'error');
         }
-      }
+
+        return {
+          name,
+          status,
+          latencyMs: p.latencyMs,
+          error: p.error,
+          url: undefined,
+          enabled: undefined,
+        };
+      });
+
+      previousStatuses = currentMap;
+      set({ providers });
     } catch {
       // ignore
     }
   },
 
-  async getModelInfo() {
-    const { currentModel, currentProvider } = get();
-    if (!currentModel) return;
+  async init() {
+    if (initialized) return;
+    initialized = true;
 
-    try {
-      const detail = await fetch('/api/show', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Provider': currentProvider },
-        body: JSON.stringify({ name: currentModel }),
-      }).then((r) => r.json());
+    await get().refreshStatus();
+    const currentProvider = localStorage.getItem('selectedProvider') as 'ollama' | 'llama.cpp' | null;
+    if (currentProvider && currentProvider !== get().currentProvider) {
+      set({ currentProvider });
+    }
+    await get().loadModels(get().currentProvider);
+  },
 
-      const contextLength =
-        detail?.details?.context_length ||
-        detail?.parameters?.context_length ||
-        get().models.find((m) => m.name === currentModel)?.contextLength ||
-        null;
+  startPolling() {
+    if (pollingIntervalId !== null) return;
+    pollingIntervalId = window.setInterval(() => {
+      get().refreshStatus();
+    }, 30000);
+  },
 
-      set({ modelDetail: detail, currentContextLength: contextLength });
-    } catch {
-      // ignore
+  stopPolling() {
+    if (pollingIntervalId !== null) {
+      window.clearInterval(pollingIntervalId);
+      pollingIntervalId = null;
     }
   },
 }));

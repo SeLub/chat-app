@@ -63,15 +63,20 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
             sysprompt: session.sysprompt?.trim() || DEFAULT_SYSPROMPT,
           });
 
-          const config = await apiGateway.sessions.getContextConfig(savedActive);
-          if (config) {
-            set({
-              contextConfig: {
-                mode: (config.mode as 'standard' | 'manual') || 'standard',
-                trimPercent: config.trimPercent ?? 80,
-                manualInclude: config.manualInclude || [],
-              },
-            });
+          const savedConfig = localStorage.getItem(`contextConfig_${savedActive}`);
+          if (savedConfig) {
+            try {
+              const config = JSON.parse(savedConfig) as ContextConfig;
+              set({
+                contextConfig: {
+                  mode: config.mode || 'standard',
+                  trimPercent: config.trimPercent ?? 80,
+                  manualInclude: config.manualInclude || [],
+                },
+              });
+            } catch {
+              // ignore
+            }
           }
 
           const messages = await apiGateway.sessions.getMessages(savedActive);
@@ -189,9 +194,9 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     set({ contextConfig: updated });
 
     try {
-      await apiGateway.sessions.updateContextConfig(viewingSessionId, updated);
+      localStorage.setItem(`contextConfig_${viewingSessionId}`, JSON.stringify(updated));
     } catch {
-      // rollback
+      // ignore
     }
   },
 

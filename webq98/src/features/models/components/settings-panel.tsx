@@ -14,20 +14,20 @@ import { useUIStore } from '@/stores/uiStore';
 import { useState, useEffect } from 'react';
 
 export function SettingsPanel() {
-  const rightPanelOpen = useUIStore((s: { rightPanelOpen: boolean }) => s.rightPanelOpen);
-  const providers = useProviderStore((s: { providers: { name: string; status: string; latencyMs?: number; error?: string; url: string; enabled: boolean }[] }) => s.providers);
-  const currentProvider = useProviderStore((s: { currentProvider: string }) => s.currentProvider);
+  const rightPanelOpen = useUIStore((s) => s.rightPanelOpen);
+  const providers = useProviderStore((s) => s.providers);
+  const currentProvider = useProviderStore((s) => s.currentProvider);
   const setCurrentProvider = useProviderStore((s) => s.setCurrentProvider);
-  const models = useProviderStore((s: { models: { name: string; size: number; contextLength: number; type: string; provider: string }[] }) => s.models);
-  const currentModel = useProviderStore((s: { currentModel: string | null }) => s.currentModel);
-  const selectModel = useProviderStore((s: { selectModel: (n: string) => void }) => s.selectModel);
-  const isLoadingModels = useProviderStore((s: { isLoadingModels: boolean }) => s.isLoadingModels);
-  const modelDetail = useProviderStore((s) => s.modelDetail);
-  const currentContextLength = useProviderStore((s: { currentContextLength: number | null }) => s.currentContextLength);
-  const refreshStatus = useProviderStore((s: { refreshStatus: () => Promise<void> }) => s.refreshStatus);
-  const sysprompt = useSessionStore((s: { sysprompt: string }) => s.sysprompt);
-  const updateSysprompt = useSessionStore((s: { updateSysprompt: (s: string) => Promise<void> }) => s.updateSysprompt);
-  const contextConfig = useSessionStore((s: { contextConfig: { mode: string; trimPercent: number; manualInclude: string[] } }) => s.contextConfig);
+  const selectModel = useProviderStore((s) => s.selectModel);
+  const models = useProviderStore((s) => s.models);
+  const currentModel = useProviderStore((s) => s.currentModel);
+  const isLoadingModels = useProviderStore((s) => s.isLoadingModels);
+  const modelDetail = useProviderStore((s) => s.modelDetail as { details?: { size?: number; parent_model?: string; format?: string; family?: string } } | null);
+  const currentContextLength = useProviderStore((s) => s.currentContextLength);
+  const refreshStatus = useProviderStore((s) => s.refreshStatus);
+  const sysprompt = useSessionStore((s) => s.sysprompt);
+  const updateSysprompt = useSessionStore((s) => s.updateSysprompt);
+  const contextConfig = useSessionStore((s) => s.contextConfig);
   const updateContextConfig = useSessionStore((s) => s.updateContextConfig);
 
   const [syspromptInput, setSyspromptInput] = useState(sysprompt);
@@ -79,7 +79,7 @@ export function SettingsPanel() {
             <h3 className="text-sm font-semibold">Provider</h3>
           </div>
           <div className="space-y-2">
-            {providers.map((p: { name: string; status: string; latencyMs?: number; error?: string }) => (
+            {providers.map((p) => (
               <button
                 key={p.name}
                 onClick={() => setCurrentProvider(p.name as 'ollama' | 'llama.cpp')}
@@ -127,9 +127,9 @@ export function SettingsPanel() {
                 className="w-full px-3 py-2 text-sm bg-secondary border border-border rounded-md focus:outline-none focus:ring-1 focus:ring-primary"
               >
                 <option value="">Select a model...</option>
-                {models.map((m: { name: string; size: number; contextLength: number }) => (
+                {models.map((m) => (
                   <option key={m.name} value={m.name}>
-                    {m.name} ({(m.size / 1024 / 1024 / 1024).toFixed(1)}GB)
+                    {m.name} ({(m.size / 1024 / 1024 / 1024).toFixed(1)}GB){m.type === 'vision' ? ' (vision)' : ''}
                   </option>
                 ))}
               </select>
@@ -145,15 +145,15 @@ export function SettingsPanel() {
             )}
             {showDetail && modelDetail && (
               <div className="text-xs text-muted-foreground space-y-1 bg-muted/50 rounded-md p-3">
-                <div>Size: {(modelDetail.details?.size || 0) / 1024 / 1024 / 1024}GB</div>
-                {modelDetail.details?.parent_model && (
-                  <div>Parent: {modelDetail.details.parent_model}</div>
+                <div>Size: {((modelDetail.details as { size?: number })?.size || 0) / 1024 / 1024 / 1024}GB</div>
+                {(modelDetail.details as { parent_model?: string })?.parent_model && (
+                  <div>Parent: {(modelDetail.details as { parent_model?: string }).parent_model}</div>
                 )}
-                {modelDetail.details?.format && (
-                  <div>Format: {modelDetail.details.format}</div>
+                {(modelDetail.details as { format?: string })?.format && (
+                  <div>Format: {(modelDetail.details as { format?: string }).format}</div>
                 )}
-                {modelDetail.details?.family && (
-                  <div>Family: {modelDetail.details.family}</div>
+                {(modelDetail.details as { family?: string })?.family && (
+                  <div>Family: {(modelDetail.details as { family?: string }).family}</div>
                 )}
               </div>
             )}

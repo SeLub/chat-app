@@ -3,8 +3,42 @@ export interface ProviderInfo {
   status: 'connected' | 'disconnected' | 'checking';
   latencyMs?: number;
   error?: string;
-  url: string;
-  enabled: boolean;
+  url?: string;
+  enabled?: boolean;
+}
+
+export interface ProviderStatusResponse {
+  providers: Array<{ name: string; status: string; latencyMs?: number; error?: string }>;
+}
+
+export interface ModelListResponse {
+  connected: boolean;
+  models: Array<{ name: string; size: number; contextLength?: number; type?: string }>;
+}
+
+export interface ModelShowResponse {
+  model_info?: Record<string, unknown>;
+  details?: { size?: number; parent_model?: string; format?: string; family?: string; families?: string[] };
+  parameters?: { context_length?: number };
+}
+
+export interface ChatRequestData {
+  sessionId: string;
+  message: string;
+  model: string;
+  questionId: string;
+  contextLength?: number;
+  retainPercent: number;
+  includeQuestionIds: string[];
+}
+
+export interface ChatResponse {
+  response: string;
+  metrics?: { tps?: number; promptTps?: number; ttft?: number; loadTime?: number; totalTime?: number; inputTokens?: number; outputTokens?: number };
+  imageData?: { thumbnailUrl: string; fullUrl: string; filename: string };
+  contextInfo?: { contextSize: number; totalChars: number; includedQAPairs: number; totalQAPairs: number };
+  excludedIndices?: number[];
+  error?: string;
 }
 
 export interface ModelInfo {
