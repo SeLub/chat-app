@@ -36,7 +36,7 @@ export function CommandPalette() {
     } else {
       setShowSessions(false);
     }
-  }, [query]); // loadSessions is stable (createContextualApi)
+  }, [query]); // loadSessions намеренно исключён из deps: эффект триггерится только сменой searchQuery
   /* eslint-enable react-hooks/exhaustive-deps */
 
   const loadSessions = useCallback(async () => {
