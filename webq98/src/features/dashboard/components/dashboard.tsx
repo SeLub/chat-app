@@ -28,7 +28,7 @@ export function Dashboard() {
   /* eslint-disable react-hooks/exhaustive-deps */
   useEffect(() => {
     loadSessions();
-  }, [searchQuery]); // loadSessions is stable (createContextualApi)
+  }, [searchQuery]); // loadSessions намеренно исключён из deps: эффект триггерится только сменой searchQuery
   /* eslint-enable react-hooks/exhaustive-deps */
 
   useEffect(() => {
