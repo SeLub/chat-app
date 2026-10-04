@@ -99,15 +99,17 @@ function StatFooter({
   modelDetail,
   currentContextLength,
   lastMetrics,
-  messages,
-  contextInfo: _contextInfo,
+  totalInputTokens,
+  totalOutputTokens,
+  userMsgCount,
 }: {
   currentModel: string | null;
   modelDetail: { details?: { size?: number } } | null;
   currentContextLength: number | null;
   lastMetrics: ResponseMetrics | undefined;
-  messages: Array<{ role: string }>;
-  contextInfo: { contextSize: number; totalChars: number; includedQAPairs: number; totalQAPairs: number } | undefined;
+  totalInputTokens: number;
+  totalOutputTokens: number;
+  userMsgCount: number;
 }) {
   const [open, setOpen] = useState(false);
 
@@ -119,18 +121,16 @@ function StatFooter({
 
   const totalTime = lastMetrics?.totalTime != null ? `${lastMetrics.totalTime}s` : '–';
 
-  const userMsgCount = messages.filter((m) => m.role === 'user').length;
   const contextLoad =
-    lastMetrics && currentContextLength
-      ? Math.round(((lastMetrics.inputTokens || 0) + (lastMetrics.outputTokens || 0)) / currentContextLength * 100)
+    currentContextLength
+      ? Math.round((totalInputTokens + totalOutputTokens) / currentContextLength * 100)
       : undefined;
 
   return (
     <div className="h-8 flex items-center gap-2 px-4 border-t border-border bg-card text-xs text-muted-foreground whitespace-nowrap overflow-x-auto">
       <span className="flex items-center gap-1">
         <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2a4 4 0 0 1 4 4v2a4 4 0 0 1-8 0V6a4 4 0 0 1 4-4z"/><path d="M16 14H8a4 4 0 0 0-4 4v2h16v-2a4 4 0 0 0-4-4z"/></svg>
-        <span>Bot</span>
-        <span className="text-foreground">{currentModel || 'No model selected'}</span>
+        {currentModel || 'No model selected'}
       </span>
       <span>•</span>
       <span>Size: {sizeGb} GB</span>
@@ -161,13 +161,13 @@ function StatFooter({
             <div className="font-mono">{lastMetrics?.totalTime != null ? `${lastMetrics.totalTime}s` : '–'}</div>
             <div className="col-span-2 h-px bg-border my-1" />
             <div className="text-muted-foreground">Input Tokens</div>
-            <div className="font-mono">{lastMetrics?.inputTokens != null ? `${lastMetrics.inputTokens}` : '–'}</div>
+            <div className="font-mono">~{totalInputTokens}</div>
             <div className="text-muted-foreground">Output Tokens</div>
-            <div className="font-mono">{lastMetrics?.outputTokens != null ? `${lastMetrics.outputTokens}` : '–'}</div>
+            <div className="font-mono">~{totalOutputTokens}</div>
             <div className="text-muted-foreground">Context Load</div>
             <div className="font-mono">{contextLoad != null ? `${contextLoad}%` : '–'}</div>
             <div className="text-muted-foreground">Questions</div>
-            <div className="font-mono">{userMsgCount || '–'}</div>
+            <div className="font-mono">{userMsgCount}</div>
           </div>
         </DialogContent>
       </Dialog>
@@ -178,6 +178,8 @@ function StatFooter({
 export function ChatArea() {
   const messages = useSessionStore((s) => s.messages);
   const contextInfo = useSessionStore((s) => s.contextInfo);
+  const totalInputTokens = useSessionStore((s) => s.totalInputTokens);
+  const totalOutputTokens = useSessionStore((s) => s.totalOutputTokens);
   const currentModel = useProviderStore((s) => s.currentModel);
   const modelDetail = useProviderStore((s) => s.modelDetail);
   const currentContextLength = useProviderStore((s) => s.currentContextLength);
@@ -351,6 +353,8 @@ export function ChatArea() {
   const incQA = contextInfo?.includedQAPairs ?? 0;
   const totQA = contextInfo?.totalQAPairs ?? 0;
 
+  const userMsgCount = messages.filter((m) => m.role === 'user').length;
+
   return (
     <main className="flex-1 flex flex-col overflow-hidden bg-background">
       {/* ── Chat Header ── */}
@@ -503,7 +507,7 @@ export function ChatArea() {
       </div>
 
       {/* ── Context Bar ── */}
-      <div className="h-7 flex items-center px-4 border-b border-border bg-card flex-shrink-0">
+      <div className={cn('h-7 flex items-center px-4 border-b border-border bg-card flex-shrink-0', !contextInfo && 'opacity-40')}>
         <div className="flex-1 h-1.5 rounded-full bg-muted overflow-hidden">
           <div
             className={cn(
@@ -709,8 +713,9 @@ export function ChatArea() {
         modelDetail={modelDetail}
         currentContextLength={currentContextLength}
         lastMetrics={lastMetrics}
-        messages={messages}
-        contextInfo={contextInfo}
+        totalInputTokens={totalInputTokens}
+        totalOutputTokens={totalOutputTokens}
+        userMsgCount={userMsgCount}
       />
     </main>
   );
