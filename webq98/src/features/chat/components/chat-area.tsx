@@ -20,7 +20,7 @@ interface AttachmentFile {
 
 export function ChatArea() {
   const messages = useSessionStore((s: { messages: ChatMessage[] }) => s.messages);
-  const addBotMessage = useSessionStore((s: { addBotMessage: (content: string, model: string, metrics?: unknown, excludedIndices?: number[]) => void }) => s.addBotMessage);
+  const addBotMessage = useSessionStore((s) => s.addBotMessage);
   const addMessage = useSessionStore((s: { addMessage: (msg: ChatMessage) => void }) => s.addMessage);
   const viewingSessionId = useSessionStore((s: { viewingSessionId: string | null }) => s.viewingSessionId);
   const currentModel = useProviderStore((s: { currentModel: string | null }) => s.currentModel);
