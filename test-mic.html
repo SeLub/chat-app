@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Whisper.cpp Mic Test (С метриками и логами)</title>
+    <style>
+        body { font-family: system-ui, sans-serif; max-width: 700px; margin: 40px auto; padding: 20px; color: #333; }
+        button { padding: 12px 24px; font-size: 16px; cursor: pointer; border: none; border-radius: 6px; margin-right: 10px; font-weight: bold; }
+        #startBtn { background-color: #28a745; color: white; }
+        #stopBtn { background-color: #dc3545; color: white; }
+        #stopBtn:disabled, #startBtn:disabled { background-color: #ccc; cursor: not-allowed; }
+        #status { margin: 20px 0; font-weight: bold; color: #555; }
+        
+        .metrics-box { background: #e9ecef; padding: 15px; border-radius: 8px; margin: 20px 0; font-family: monospace; font-size: 14px; border-left: 4px solid #007bff; }
+        .metric-row { display: flex; justify-content: space-between; margin-bottom: 5px; }
+        .metric-val { font-weight: bold; color: #0056b3; }
+        
+        .result-box { background: #f8f9fa; padding: 15px; border-radius: 8px; border: 1px solid #ddd; margin-top: 20px; }
+        textarea { width: 100%; height: 80px; margin-top: 10px; padding: 10px; border: 1px solid #ccc; border-radius: 4px; font-family: inherit; resize: vertical; }
+        pre { background: #fff; padding: 10px; border-radius: 4px; border: 1px solid #eee; white-space: pre-wrap; }
+    </style>
+</head>
+<body>
+    <h2>🎙 Тест распознавания с метриками времени</h2>
+    <p>1. Впиши фразу в поле ниже.<br>2. Нажми "Начать запись" и зачитай эту фразу.<br>3. Нажми "Остановить".</p>
+    
+    <button id="startBtn">🔴 Начать запись</button>
+    <button id="stopBtn" disabled>⏹ Остановить и распознать</button>
+    
+    <p id="status">Готов к записи...</p>
+
+    <div class="metrics-box" id="metricsBox" style="display: none;">
+        <div class="metric-row"><span>⏱ Длительность записи:</span> <span class="metric-val" id="metricDuration">-</span></div>
+        <div class="metric-row"><span>⚙️ Конвертация в WAV:</span> <span class="metric-val" id="metricConvert">-</span></div>
+        <div class="metric-row"><span>🌐 Запрос + Распознавание:</span> <span class="metric-val" id="metricLatency">-</span></div>
+        <div class="metric-row" style="margin-top: 10px; border-top: 1px solid #ccc; padding-top: 5px;">
+            <span>🚀 <strong>Общее время (Stop -> Результат):</strong></span> 
+            <span class="metric-val" id="metricTotal" style="font-size: 16px;">-</span>
+        </div>
+    </div>
+
+    <div class="result-box">
+        <h3>🤖 Распознанный текст:</h3>
+        <pre id="result">Здесь появится текст...</pre>
+        
+        <h3>✏️ Что вы сказали на самом деле (для сравнения):</h3>
+        <textarea id="actualText" placeholder="Впишите сюда фразу, которую вы произнесли..."></textarea>
+    </div>
+
+    <script>
+        const startBtn = document.getElementById('startBtn');
+        const stopBtn = document.getElementById('stopBtn');
+        const status = document.getElementById('status');
+        const result = document.getElementById('result');
+        const metricsBox = document.getElementById('metricsBox');
+        const actualTextInput = document.getElementById('actualText');
+
+        let mediaRecorder;
+        let audioChunks = [];
+        let startTime = 0;
+        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+
+        startBtn.addEventListener('click', async () => {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ 
+                    audio: { echoCancellation: true, noiseSuppression: true, sampleRate: 16000 } 
+                });
+                
+                mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+                audioChunks = [];
+                startTime = performance.now();
+
+                mediaRecorder.ondataavailable = (event) => {
+                    if (event.data.size > 0) audioChunks.push(event.data);
+                };
+
+                mediaRecorder.onstop = async () => {
+                    const recordDuration = (performance.now() - startTime) / 1000;
+                    document.getElementById('metricDuration').textContent = recordDuration.toFixed(2) + ' сек';
+                    
+                    if (recordDuration < 1.0) {
+                        status.textContent = "❌ Запись слишком короткая (< 1 сек).";
+                        return;
+                    }
+
+                    status.textContent = "⏳ Конвертация в WAV...";
+                    const convertStart = performance.now();
+                    
+                    const webmBlob = new Blob(audioChunks, { type: 'audio/webm' });
+                    const arrayBuffer = await webmBlob.arrayBuffer();
+                    const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+                    const wavBlob = bufferToWave(audioBuffer, audioBuffer.length);
+                    
+                    const convertTime = performance.now() - convertStart;
+                    document.getElementById('metricConvert').textContent = convertTime.toFixed(1) + ' мс';
+
+                    await sendToWhisper(wavBlob, convertStart);
+                    stream.getTracks().forEach(track => track.stop());
+                };
+
+                mediaRecorder.start(100);
+                status.textContent = "🔴 Идет запись... Говорите четко!";
+                startBtn.disabled = true;
+                stopBtn.disabled = false;
+                metricsBox.style.display = 'none';
+                result.textContent = "Запись...";
+
+            } catch (err) {
+                console.error("Ошибка микрофона:", err);
+                status.textContent = "❌ Ошибка доступа к микрофону.";
+            }
+        });
+
+        stopBtn.addEventListener('click', () => {
+            if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+                mediaRecorder.stop();
+                startBtn.disabled = false;
+                stopBtn.disabled = true;
+            }
+        });
+
+        async function sendToWhisper(wavBlob, convertStartTime) {
+            const formData = new FormData();
+            formData.append('file', wavBlob, 'recording.wav');
+            formData.append('language', 'ru');
+            formData.append('response_format', 'json');
+
+            const requestStart = performance.now();
+            console.log(`[LOG] Отправка запроса на сервер в: ${new Date().toLocaleTimeString()}`);
+
+            try {
+                const response = await fetch('http://127.0.0.1:8081/inference', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const requestEnd = performance.now();
+                const latency = requestEnd - requestStart;
+                const totalTime = requestEnd - convertStartTime;
+
+                document.getElementById('metricLatency').textContent = latency.toFixed(1) + ' мс';
+                document.getElementById('metricTotal').textContent = totalTime.toFixed(1) + ' мс';
+                metricsBox.style.display = 'block';
+
+                console.log(`[LOG] Ответ получен через: ${latency.toFixed(1)} мс`);
+
+                const responseText = await response.text();
+                if (!response.ok) throw new Error(`HTTP ${response.status}: ${responseText}`);
+
+                const data = JSON.parse(responseText);
+                result.textContent = data.text || "Текст не найден";
+                status.textContent = "✅ Успешно!";
+                
+                // 🔑 НОВОЕ ЛОГИРОВАНИЕ: Выводим текст из поля ввода перед распознанным
+                const actualText = actualTextInput.value || "(поле пустое)";
+                console.log(`[LOG] Текст для теста: ${actualText}`);
+                console.log(`[LOG] Распознанный текст: ${data.text}`);
+
+            } catch (error) {
+                console.error("[LOG] Ошибка:", error);
+                result.textContent = `❌ Ошибка:\n${error.message}`;
+                status.textContent = "❌ Сбой";
+            }
+        }
+
+        // Утилита конвертации в WAV (16-bit PCM)
+        function bufferToWave(abuffer, len) {
+            let numOfChan = abuffer.numberOfChannels,
+                length = len * numOfChan * 2 + 44,
+                buffer = new ArrayBuffer(length),
+                view = new DataView(buffer),
+                channels = [], i, sample, offset = 0, pos = 0;
+
+            setUint32(0x46464952); setUint32(length - 8); setUint32(0x45564157); setUint32(0x20746d66);
+            setUint32(16); setUint16(1); setUint16(numOfChan); setUint32(abuffer.sampleRate);
+            setUint32(abuffer.sampleRate * 2 * numOfChan); setUint16(numOfChan * 2); setUint16(16);
+            setUint32(0x61746164); setUint32(length - pos - 4);
+
+            for(i = 0; i < abuffer.numberOfChannels; i++) channels.push(abuffer.getChannelData(i));
+
+            while(pos < length) {
+                for(i = 0; i < numOfChan; i++) {
+                    sample = Math.max(-1, Math.min(1, channels[i][offset]));
+                    sample = (0.5 + sample < 0 ? sample * 32768 : sample * 32767)|0;
+                    view.setInt16(pos, sample, true);
+                    pos += 2;
+                }
+                offset++;
+            }
+            return new Blob([buffer], {type: "audio/wav"});
+
+            function setUint16(data) { view.setUint16(pos, data, true); pos += 2; }
+            function setUint32(data) { view.setUint32(pos, data, true); pos += 4; }
+        }
+    </script>
+</body>
+</html>
