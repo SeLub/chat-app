@@ -26,10 +26,10 @@ export default function App() {
         <Route
           path="/"
           element={
-            <>
+            <div className="flex flex-1 overflow-hidden">
               <ChatArea />
               <SettingsPanel />
-            </>
+            </div>
           }
         />
         <Route
