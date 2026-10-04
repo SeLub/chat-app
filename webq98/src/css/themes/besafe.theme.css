@@ -1,0 +1,66 @@
+/* besafe theme */
+[data-theme='besafe'] {
+  /* Light */
+  --background: 127 50% 90%;
+  --foreground: 137 40% 15%;
+  --card: 0 0% 100%;
+  --card-foreground: 137 40% 15%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 137 40% 15%;
+  --primary: 100 45% 25%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 120 15% 95%;
+  --secondary-foreground: 137 40% 15%;
+  --muted: 120 10% 96%;
+  --muted-foreground: 0 0% 45%;
+  --accent: 80 60% 50%;
+  --accent-foreground: 100 45% 12%;
+  --tertiary: 190 70% 45%;
+  --tertiary-foreground: 0 0% 100%;
+  --destructive: 0 70% 50%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 120 15% 88%;
+  --input: 120 10% 96%;
+  --ring: 100 45% 25%;
+  --message-own: 100 45% 25%;
+  --message-own-text: 0 0% 100%;
+  --message-other: 120 10% 96%;
+  --message-other-text: 137 40% 15%;
+  --online-status: 140 70% 45%;
+  --content-text: 140 20% 12%;
+  --success: 140 70% 40%;
+  --warning: 38 92% 50%;
+}
+
+[data-theme='besafe'].dark {
+  /* Dark */
+  --background: 127 15% 10%;
+  --foreground: 127 10% 95%;
+  --card: 120 15% 14%;
+  --card-foreground: 127 10% 95%;
+  --popover: 120 15% 14%;
+  --popover-foreground: 127 10% 95%;
+  --primary: 80 60% 55%;
+  --primary-foreground: 127 40% 10%;
+  --secondary: 120 15% 18%;
+  --secondary-foreground: 127 10% 95%;
+  --muted: 120 10% 16%;
+  --muted-foreground: 0 0% 60%;
+  --accent: 80 60% 55%;
+  --accent-foreground: 127 40% 10%;
+  --tertiary: 190 70% 60%;
+  --tertiary-foreground: 127 40% 10%;
+  --destructive: 0 70% 60%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 120 10% 25%;
+  --input: 120 10% 16%;
+  --ring: 80 60% 55%;
+  --message-own: 80 60% 55%;
+  --message-own-text: 127 40% 10%;
+  --message-other: 120 15% 18%;
+  --message-other-text: 127 10% 95%;
+  --online-status: 140 70% 55%;
+  --content-text: 120 10% 90%;
+  --success: 140 70% 55%;
+  --warning: 38 92% 60%;
+}

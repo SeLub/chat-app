@@ -1,46 +1,46 @@
 @import "tailwindcss";
+@import "tw-animate-css";
+@import "@fontsource-variable/inter";
+@import "./css/themes/leteem.theme.css";
+@import "./css/themes/besafe.theme.css";
+@import "./css/themes/minimal.theme.css";
 
-@theme {
-  --color-background: #fafafa;
-  --color-foreground: #1a1a2e;
-  --color-muted: #e5e7eb;
-  --color-muted-foreground: #6b7280;
-  --color-border: #e5e7eb;
-  --color-primary: #6366f1;
-  --color-primary-foreground: #ffffff;
-  --color-secondary: #f1f5f9;
-  --color-secondary-foreground: #0f172a;
-  --color-destructive: #ef4444;
-  --color-destructive-foreground: #ffffff;
-  --color-accent: #f1f5f9;
-  --color-accent-foreground: #0f172a;
-  --color-success: #10b981;
-  --color-warning: #f59e0b;
-  --color-card: #ffffff;
-  --color-card-foreground: #1a1a2e;
-  --font-family-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --color-background: #0a0a0f;
-    --color-foreground: #e2e8f0;
-    --color-muted: #1e293b;
-    --color-muted-foreground: #94a3b8;
-    --color-border: #1e293b;
-    --color-primary: #818cf8;
-    --color-primary-foreground: #0f172a;
-    --color-secondary: #1e293b;
-    --color-secondary-foreground: #f1f5f9;
-    --color-destructive: #f87171;
-    --color-destructive-foreground: #0f172a;
-    --color-accent: #1e293b;
-    --color-accent-foreground: #f1f5f9;
-    --color-success: #34d399;
-    --color-warning: #fbbf24;
-    --color-card: #0f172a;
-    --color-card-foreground: #e2e8f0;
-  }
+@theme inline {
+  --color-background: hsl(var(--background));
+  --color-foreground: hsl(var(--foreground));
+  --color-card: hsl(var(--card));
+  --color-card-foreground: hsl(var(--card-foreground));
+  --color-popover: hsl(var(--popover));
+  --color-popover-foreground: hsl(var(--popover-foreground));
+  --color-primary: hsl(var(--primary));
+  --color-primary-foreground: hsl(var(--primary-foreground));
+  --color-secondary: hsl(var(--secondary));
+  --color-secondary-foreground: hsl(var(--secondary-foreground));
+  --color-muted: hsl(var(--muted));
+  --color-muted-foreground: hsl(var(--muted-foreground));
+  --color-accent: hsl(var(--accent));
+  --color-accent-foreground: hsl(var(--accent-foreground));
+  --color-tertiary: hsl(var(--tertiary));
+  --color-tertiary-foreground: hsl(var(--tertiary-foreground));
+  --color-destructive: hsl(var(--destructive));
+  --color-destructive-foreground: hsl(var(--destructive-foreground));
+  --color-border: hsl(var(--border));
+  --color-input: hsl(var(--input));
+  --color-ring: hsl(var(--ring));
+  --color-message-own: hsl(var(--message-own));
+  --color-message-own-text: hsl(var(--message-own-text));
+  --color-message-other: hsl(var(--message-other));
+  --color-message-other-text: hsl(var(--message-other-text));
+  --color-content-text: hsl(var(--content-text));
+  --color-success: hsl(var(--success));
+  --color-warning: hsl(var(--warning));
+  --color-online-status: hsl(var(--online-status));
+  --radius: 0.625rem;
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --font-sans: 'Inter Variable', ui-sans-serif, system-ui, sans-serif;
 }
 
 * {
@@ -49,10 +49,15 @@
   box-sizing: border-box;
 }
 
+html {
+  background-color: hsl(var(--background));
+  color: hsl(var(--foreground));
+}
+
 body {
-  font-family: var(--font-family-sans);
-  background: var(--color-background);
-  color: var(--color-foreground);
+  font-family: var(--font-sans);
+  background-color: hsl(var(--background));
+  color: hsl(var(--foreground));
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   overflow: hidden;
@@ -66,8 +71,7 @@ body {
 }
 
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 5px;
 }
 
 ::-webkit-scrollbar-track {
@@ -75,17 +79,103 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--color-muted);
-  border-radius: 3px;
+  background: hsl(var(--foreground) / 0.1);
+  border-radius: 2.5px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--color-muted-foreground);
+  background: hsl(var(--foreground) / 0.2);
 }
 
 ::selection {
-  background: var(--color-primary);
-  color: var(--color-primary-foreground);
+  background: hsl(var(--primary) / 0.3);
+  color: hsl(var(--foreground));
+}
+
+.message-content {
+  color: hsl(var(--content-text));
+}
+
+.message-content h1,
+.message-content h2,
+.message-content h3,
+.message-content h4 {
+  color: hsl(var(--foreground));
+  font-weight: 600;
+  margin-top: 1em;
+  margin-bottom: 0.5em;
+}
+
+.message-content h1 { font-size: 1.5rem; }
+.message-content h2 { font-size: 1.25rem; }
+.message-content h3 { font-size: 1.125rem; }
+.message-content h4 { font-size: 1rem; }
+
+.message-content p {
+  margin-bottom: 0.75em;
+  line-height: 1.6;
+}
+
+.message-content ul,
+.message-content ol {
+  margin-bottom: 0.75em;
+  padding-left: 1.5em;
+}
+
+.message-content ul { list-style-type: disc; }
+.message-content ol { list-style-type: decimal; }
+
+.message-content li {
+  margin-bottom: 0.25em;
+  line-height: 1.6;
+}
+
+.message-content code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.875em;
+  background-color: hsl(var(--muted));
+  padding: 0.125em 0.375em;
+  border-radius: var(--radius-sm);
+}
+
+.message-content pre {
+  background-color: hsl(var(--muted));
+  padding: 0.75em 1em;
+  border-radius: var(--radius-md);
+  overflow-x: auto;
+  margin-bottom: 0.75em;
+}
+
+.message-content pre code {
+  background-color: transparent;
+  padding: 0;
+  border-radius: 0;
+}
+
+.message-content table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 0.75em;
+}
+
+.message-content th,
+.message-content td {
+  padding: 0.5em 0.75em;
+  border: 1px solid hsl(var(--border));
+  text-align: left;
+}
+
+.message-content th {
+  background-color: hsl(var(--muted));
+  font-weight: 600;
+}
+
+.message-content blockquote {
+  border-left: 3px solid hsl(var(--primary));
+  padding-left: 1em;
+  margin-bottom: 0.75em;
+  color: hsl(var(--muted-foreground));
+  font-style: italic;
 }
 
 @media (prefers-reduced-motion: reduce) {
