@@ -145,6 +145,10 @@ Multi-Provider AI Chat — десктопный инструмент для ра
 - Новые зависимости — только если явно указаны в ТЗ.
 - `npm run build` и `npm run lint` обязаны проходить. TS strict, без `any` (кроме нормализации snake/camel с комментарием).
 - Коммит на каждое ТЗ: `TZ-N.M: краткое описание`.
+- **Zustand-подписки:** селектор в useStore() должен возвращать СТАБИЛЬНУЮ ссылку
+  (поле state или примитив). Запрещено вызывать в селекторе функции, создающие
+  новые объекты/массивы (selectQuestions(s) и т.п.) — это бесконечный цикл
+  useSyncExternalStore. Деривация — только через useMemo от стабильных полей.
 
 ## 6. Дизайн-система (Leteem, адаптированная)
 
@@ -185,6 +189,10 @@ Multi-Provider AI Chat — десктопный инструмент для ра
 | 22 | TopBar не монтируется; функции: Dashboard/Save/AI Helper → шапка чата (эталон), тема-меню → иконка Palette в шапке (единственное видимое расширение), Cmd+K палитра остаётся (невидимое расширение), toggle-панели убираются | вариант A |
 | 23 | retainPercent-слайдер остаётся в правой панели (мелкое расширение); mode-переключатель переезжает в левую панель как в эталоне | п. 21 |
 | 24 | Dashboard-роут = отдельная страница без боковых панелей, шапка с «← Back to Chat» (эталон) | п. 21 |
+| 25 | Вопросы в UI деривируются в компоненте (useMemo от messages); selectQuestions в store удалён | Zustand-паттерн §5 |
+| 26 | data-атрибуты: data-question-id = карточка левой панели, data-chat-question-id = группа Q&A в чате | уникальные цели скролла |
+| 27 | retainPercent: доля окна модели на контекст (system+история+вопрос); остаток — резерв под ответ; обрезка LIFO на бэкенде | §3.1 |
+| 28 | contextMode_/selectedIds_ — кэш UX-непрерывности на беседу (переживает F5 и переключение); семантически это параметры запроса, но хранение защищает от тихого возврата в Standard после перезагрузки; чистка — при удалении сессии (ТЗ-2.3) и clearChat | детерминизм режима |
 
 ## 8. Запрещено
 
@@ -202,3 +210,40 @@ Multi-Provider AI Chat — десктопный инструмент для ра
 - [ ] Все пункты «Критерии приёмки» ТЗ выполнены и проверены против **реального бэкенда** (:3000).
 - [ ] Поведение сверено с эталоном на :3000, где применимо.
 - [ ] Коммит создан.
+
+## 10. Карта репозитория (для агентов)
+
+Корень: `/home/selub/Documents/progs/chat-app/`
+Все пути в ТЗ — относительно `webq98/`, если явно не сказано иное.
+Перед чтением файла сверяй путь с этой картой. Если файл не найден —
+ищи от `webq98/`, НЕ от корня репозитория.
+
+```
+chat-app/
+├── server/                        # БЭКЕНД — не изменять
+│   └── src/ (controllers, services, providers, routes)
+├── public/                        # ЭТАЛОН — только читать
+│   ├── index.html, script.js, style.css, apiGateway.js, logger.js
+│   ├── dashboard.html, dashboard.js
+│   └── ai-helper-overlay.html, ai-helper.js
+└── webq98/                        # НАШ ФРОНТЕНД — вся работа здесь
+    ├── PROJECT_CONTEXT.md         # эта конституция
+    ├── package.json, vite.config.ts, eslint.config.js, index.html
+    └── src/
+        ├── main.tsx, index.css
+        ├── app/                   # App.tsx, ThemeProvider.tsx
+        ├── lib/                   # apiGateway.ts, logger.ts, utils.ts (scrollToQuestion)
+        ├── stores/                # sessionStore.ts, providerStore.ts, uiStore.ts
+        ├── types/index.ts
+        ├── components/ui/         # button, dialog, select, switch, tooltip, dropdown-menu
+        ├── features/
+        │   ├── chat/components/chat-area.tsx        # средняя колонка целиком
+        │   ├── questions/components/questions-panel.tsx   # левая панель
+        │   ├── models/components/settings-panel.tsx       # правая панель
+        │   ├── sessions/components/save-modal.tsx
+        │   ├── dashboard/components/dashboard.tsx
+        │   ├── ai-helper/components/ai-helper-overlay.tsx
+        │   └── stt/components/stt-input.tsx         # переписывается в ТЗ-2.5
+        └── shared/components/     # sidebar.tsx, top-bar.tsx (не монтируются,
+                                   #  сохранить как скелет Load-модалки), command-palette.tsx
+```
