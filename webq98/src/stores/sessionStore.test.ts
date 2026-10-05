@@ -4,7 +4,17 @@ import { useSessionStore, initialSessionState } from './sessionStore';
 // vi.mock is hoisted to top of file, so we must define mocks inline
 // See: https://vitest.dev/api/vi.html#vi-mock
 
-vi.mock('@/lib/apiGateway', () => ({
+const mocked = vi.hoisted(() => ({
+  ApiError: class ApiError extends Error {
+    status: number;
+    details?: unknown;
+    constructor(status: number, message: string, details?: unknown) {
+      super(message);
+      this.name = 'ApiError';
+      this.status = status;
+      this.details = details;
+    }
+  },
   apiGateway: {
     sessions: {
       get: vi.fn(),
@@ -22,11 +32,13 @@ vi.mock('@/lib/apiGateway', () => ({
   },
 }));
 
+vi.mock('@/lib/apiGateway', () => mocked);
+
 vi.mock('@/stores/providerStore', () => ({
   useProviderStore: {
     getState: vi.fn(() => ({
       currentModel: 'test-model',
-      currentProvider: 'llama_cpp' as const,
+      currentProvider: 'ollama' as const,
       currentContextLength: null,
       providers: [],
       refreshStatus: vi.fn(),
@@ -44,6 +56,7 @@ vi.mock('@/stores/uiStore', () => ({
 
 // Access mocked modules after vi.mock
 import { apiGateway } from '@/lib/apiGateway';
+import { useProviderStore } from '@/stores/providerStore';
 
 type FnMock = ReturnType<typeof vi.fn>;
 
@@ -208,5 +221,237 @@ describe('sessionStore — normalization and init', () => {
     const state = useSessionStore.getState();
     expect(state.viewingSessionId).toBe('a1');
     expect(state.contextMode).toBe('manual');
+  });
+});
+
+describe('sessionStore — clearChat lifecycle', () => {
+  it('1. clearChat: unsaved session gets renamed, new session created, pointers updated, keys removed', async () => {
+    const store = useSessionStore.getState();
+    store.viewingSessionId = 's1';
+    store.activeSessionId = 's1';
+
+    const allSessions = [
+      { id: 's1', title: '', category: '', sysprompt: '', message_count: 0, created_at: '', updated_at: '' },
+      { id: 's2', title: 'unsavedSession 46', category: '', sysprompt: '', message_count: 0, created_at: '', updated_at: '' },
+      { id: 's3', title: 'unsavedSession 47', category: '', sysprompt: '', message_count: 0, created_at: '', updated_at: '' },
+    ];
+    s().list.mockResolvedValue(allSessions);
+    s().create.mockResolvedValue({ id: 's2' });
+
+    await store.clearChat();
+
+    const state = useSessionStore.getState();
+    expect(apiGateway.sessions.update).toHaveBeenCalledWith('s1', { title: 'unsavedSession 4' });
+    expect(s().create).toHaveBeenCalled();
+    expect(state.activeSessionId).toBe('s2');
+    expect(state.viewingSessionId).toBe('s2');
+    expect(localStorage.getItem('contextMode_s1')).toBeNull();
+    expect(localStorage.getItem('selectedIds_s1')).toBeNull();
+  });
+
+  it('2. clearChat: named session (not unsaved) → no rename, new session created', async () => {
+    const store = useSessionStore.getState();
+    store.viewingSessionId = 's1';
+    store.activeSessionId = 's1';
+
+    const allSessions = [
+      { id: 's1', title: 'My Work', category: '', sysprompt: '', message_count: 0, created_at: '', updated_at: '' },
+    ];
+    s().list.mockResolvedValue(allSessions);
+    s().create.mockResolvedValue({ id: 's2' });
+
+    await store.clearChat();
+
+    expect(apiGateway.sessions.update).not.toHaveBeenCalled();
+    const state = useSessionStore.getState();
+    expect(state.activeSessionId).toBe('s2');
+    expect(state.viewingSessionId).toBe('s2');
+  });
+});
+
+describe('sessionStore — deleteSession lifecycle', () => {
+  it('3. deleteSession: non-current session → deleted, pointers untouched, keys absent', async () => {
+    const store = useSessionStore.getState();
+    store.activeSessionId = 'a1';
+    store.viewingSessionId = 'a1';
+
+    s().delete.mockResolvedValue({ ok: true });
+
+    const result = await store.deleteSession('x');
+
+    expect(result).toBe('deleted');
+    expect(store.activeSessionId).toBe('a1');
+    expect(store.viewingSessionId).toBe('a1');
+    expect(localStorage.getItem('contextMode_x')).toBeNull();
+    expect(localStorage.getItem('selectedIds_x')).toBeNull();
+  });
+
+  it('4. deleteSession: delete viewing session (viewing≠active), → returnToCurrent', async () => {
+    const store = useSessionStore.getState();
+    store.activeSessionId = 'a1';
+    store.viewingSessionId = 'h1';
+
+    s().delete.mockResolvedValue({ ok: true });
+
+    const sessionData = { id: 'a1', title: 'A', category: '', sysprompt: '', message_count: 0, created_at: '', updated_at: '' };
+    s().get.mockResolvedValue(sessionData);
+    s().getMessages.mockResolvedValue([]);
+
+    const result = await store.deleteSession('h1');
+
+    expect(result).toBe('deleted');
+    expect(useSessionStore.getState().viewingSessionId).toBe('a1');
+  });
+
+  it('5. deleteSession: delete active session → fresh new session', async () => {
+    const store = useSessionStore.getState();
+    store.activeSessionId = 'a1';
+    store.viewingSessionId = 'a1';
+
+    s().delete.mockResolvedValue({ ok: true });
+    s().create.mockResolvedValue({ id: 's9' });
+
+    const result = await store.deleteSession('a1');
+
+    expect(result).toBe('fresh');
+    const state = useSessionStore.getState();
+    expect(state.activeSessionId).toBe('s9');
+    expect(state.viewingSessionId).toBe('s9');
+  });
+
+  it('6. deleteSession: API rejects → error, pointers unchanged, keys NOT purged', async () => {
+    const store = useSessionStore.getState();
+    store.activeSessionId = 'a1';
+    store.viewingSessionId = 'a1';
+
+    s().delete.mockRejectedValue(new Error('API fail'));
+
+    const result = await store.deleteSession('a1');
+
+    expect(result).toBe('error');
+    expect(store.activeSessionId).toBe('a1');
+    expect(store.viewingSessionId).toBe('a1');
+  });
+});
+
+describe('sessionStore — sendMessage lifecycle', () => {
+  it('7. sendMessage: standard mode, 2 existing user questions → includeQuestionIds includes all + new', async () => {
+    const store = useSessionStore.getState();
+    store.activeSessionId = 'a1';
+    store.viewingSessionId = 'a1';
+    store.messages = [
+      { role: 'user', content: 'Q1', questionId: 'q_1_1', model: 'm' },
+      { role: 'assistant', content: 'A1', questionId: 'q_1_1', model: 'm' },
+      { role: 'user', content: 'Q2', questionId: 'q_2_2', model: 'm' },
+    ];
+    store.questionCounter = 2;
+    store.totalInputTokens = 0;
+    store.totalOutputTokens = 0;
+    store.contextMode = 'standard';
+    store.selectedQuestionIds = [];
+
+    s().create.mockResolvedValue({ id: 'a1' });
+
+    const sendResult = { response: 'OK', metrics: { inputTokens: 10, outputTokens: 5 } };
+    (apiGateway.chat.send as FnMock).mockResolvedValue(sendResult);
+
+    await store.sendMessage('Q3');
+
+    const callArgs = (apiGateway.chat.send as FnMock).mock.calls[0];
+    const requestData = callArgs[0] as { includeQuestionIds: string[] };
+    expect(requestData.includeQuestionIds).toContain('q_1_1');
+    expect(requestData.includeQuestionIds).toContain('q_2_2');
+    expect(requestData.includeQuestionIds.length).toBe(3);
+
+    const state = useSessionStore.getState();
+    expect(state.messages.length).toBe(5); // 2 user+assistant + new user+assistant
+    expect(state.totalInputTokens).toBe(10);
+  });
+
+  it('8. sendMessage: manual mode → selectedQuestionIds sent as-is, new question NOT included', async () => {
+    const store = useSessionStore.getState();
+    store.activeSessionId = 'a1';
+    store.viewingSessionId = 'a1';
+    store.messages = [
+      { role: 'user', content: 'Q1', questionId: 'q_1_1', model: 'm' },
+    ];
+    store.questionCounter = 1;
+    store.totalInputTokens = 0;
+    store.totalOutputTokens = 0;
+    store.contextMode = 'manual';
+    store.selectedQuestionIds = ['q_1_1'];
+
+    s().create.mockResolvedValue({ id: 'a1' });
+
+    (apiGateway.chat.send as FnMock).mockResolvedValue({ response: 'OK' });
+
+    await store.sendMessage('new Q');
+
+    const callArgs = (apiGateway.chat.send as FnMock).mock.calls[0];
+    const requestData = callArgs[0] as { includeQuestionIds: string[] };
+    expect(requestData.includeQuestionIds).toEqual(['q_1_1']);
+  });
+
+  it('9. sendMessage: syspromptDirty=true → sessions.update called BEFORE chat.send', async () => {
+    const store = useSessionStore.getState();
+    store.activeSessionId = 'a1';
+    store.viewingSessionId = 'a1';
+    store.syspromptDirty = true;
+    store.messages = [];
+    store.questionCounter = 0;
+    store.totalInputTokens = 0;
+    store.totalOutputTokens = 0;
+    store.contextMode = 'standard';
+    store.selectedQuestionIds = [];
+    store.sysprompt = 'custom prompt';
+
+    s().create.mockResolvedValue({ id: 'a1' });
+    s().update.mockResolvedValue({ id: 'a1' });
+
+    (apiGateway.chat.send as FnMock).mockResolvedValue({ response: 'OK' });
+
+    await store.sendMessage('Q');
+
+    const updateCall = s().update.mock.invocationCallOrder[0];
+    const sendCall = (apiGateway.chat.send as FnMock).mock.invocationCallOrder[0];
+    expect(updateCall).toBeDefined();
+    expect(sendCall).toBeDefined();
+    expect(updateCall).toBeLessThan(sendCall);
+    expect(useSessionStore.getState().syspromptDirty).toBe(false);
+  });
+
+  it('10. sendMessage: ApiError 503 → bot message with warning, refreshStatus called', async () => {
+    const store = useSessionStore.getState();
+    store.activeSessionId = 'a1';
+    store.viewingSessionId = 'a1';
+    store.messages = [];
+    store.questionCounter = 0;
+    store.totalInputTokens = 0;
+    store.totalOutputTokens = 0;
+    store.contextMode = 'standard';
+    store.selectedQuestionIds = [];
+
+    s().create.mockResolvedValue({ id: 'a1' });
+
+    const providerRefresh = vi.fn();
+    const mockProviderStore = {
+      currentModel: 'test-model',
+      currentProvider: 'ollama',
+      currentContextLength: null,
+      providers: [],
+      refreshStatus: providerRefresh,
+    };
+    (useProviderStore.getState as ReturnType<typeof vi.fn>).mockReturnValue(mockProviderStore as never);
+
+    (apiGateway.chat.send as FnMock).mockRejectedValue(new mocked.ApiError(503, 'provider unavailable'));
+
+    await store.sendMessage('Q');
+
+    const state = useSessionStore.getState();
+    const lastMsg = state.messages[state.messages.length - 1];
+    expect(lastMsg.role).toBe('assistant');
+    expect(lastMsg.content).toContain('⚠️');
+    expect(lastMsg.content).toContain('is unavailable');
+    expect(providerRefresh).toHaveBeenCalled();
   });
 });

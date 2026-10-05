@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import type { ChatMessage, ResponseMetrics } from '@/types';
-import { apiGateway } from '@/lib/apiGateway';
+import { apiGateway, ApiError } from '@/lib/apiGateway';
 import { useProviderStore } from './providerStore';
 import { useUIStore } from './uiStore';
 
@@ -592,6 +592,14 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         files,
       );
     } catch (e) {
+      if (e instanceof ApiError && e.status === 503) {
+        get().addBotMessage(
+          `⚠️ **${currentProvider} is unavailable**\n\n${e.message}\n\nПроверь статус провайдера или смени провайдера.`,
+          currentModel,
+        );
+        useProviderStore.getState().refreshStatus();
+        return;
+      }
       // ApiError with status 0 (network) or any network error
       const msg = e instanceof Error ? e.message : String(e);
       get().addBotMessage(
