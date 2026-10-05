@@ -14,6 +14,7 @@ import {
   FolderOpen,
   ArrowLeft,
   Trash2,
+  Archive,
   Upload,
   Palette,
   Sparkles,
@@ -194,6 +195,7 @@ export function ChatArea({ className }: { className?: string }) {
   const sendMessage = useSessionStore((s) => s.sendMessage);
   const returnToCurrent = useSessionStore((s) => s.returnToCurrent);
   const clearChat = useSessionStore((s) => s.clearChat);
+  const deleteSession = useSessionStore((s) => s.deleteSession);
   const exportConversation = useSessionStore((s) => s.exportConversation);
   const deleteMessage = useSessionStore((s) => s.deleteMessage);
 
@@ -416,28 +418,32 @@ export function ChatArea({ className }: { className?: string }) {
 
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                onClick={() => {
-                  const isViewingActive = viewingSessionId === activeSessionId;
-                  if (confirm(isViewingActive
-                    ? 'Clear current chat and start new?'
-                    : 'Clear current chat and start new? The viewed session will be archived.'
-                  )) {
-                    clearChat();
-                  }
-                }}
-                aria-label="Clear Current Chat"
-              >
+              <Button variant="ghost" size="icon-sm" onClick={() => {
+                const isViewingActive = viewingSessionId === activeSessionId;
+                if (confirm(isViewingActive
+                  ? 'Clear current chat and start new?'
+                  : 'Clear archived viewed session and start new?'
+                )) {
+                  clearChat();
+                }
+              }} aria-label="Clear Chat">
+                <Archive className="w-4 h-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">Clear chat (archive + new)</TooltipContent>
+          </Tooltip>
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="ghost" size="icon-sm" onClick={() => {
+                if (confirm('Delete this conversation permanently?\nThis cannot be undone.')) {
+                  deleteSession(viewingSessionId!);
+                }
+              }} aria-label="Delete Conversation">
                 <Trash2 className="w-4 h-4" />
               </Button>
             </TooltipTrigger>
-            <TooltipContent side="bottom">
-              {viewingSessionId === activeSessionId
-                ? 'Clear Current Chat'
-                : 'Archive viewed session and start new'}
-            </TooltipContent>
+            <TooltipContent side="bottom">Delete conversation (permanent)</TooltipContent>
           </Tooltip>
 
           <Tooltip>

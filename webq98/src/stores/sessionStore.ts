@@ -122,6 +122,7 @@ interface SessionStore {
   setRetainPercent: (v: number) => void;
   purgeSessionKeys: (sessionId: string) => void;
   startFreshAfterDelete: () => Promise<void>;
+  deleteSession: (sessionId: string) => Promise<'deleted' | 'fresh' | 'error'>;
 }
 
 // ── localStorage helpers with try/catch ──
@@ -783,5 +784,27 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     });
     localStorage.setItem('activeSessionId', newSession.id);
     localStorage.setItem('viewingSessionId', newSession.id);
+  },
+
+  deleteSession: async (sessionId: string) => {
+    try {
+      await apiGateway.sessions.delete(sessionId);
+    } catch {
+      useUIStore.getState().addToast('Failed to delete', 'error');
+      return 'error';
+    }
+
+    get().purgeSessionKeys(sessionId);
+
+    if (sessionId === get().activeSessionId) {
+      await get().startFreshAfterDelete();
+      return 'fresh';
+    }
+    if (sessionId === get().viewingSessionId) {
+      await get().returnToCurrent();
+      return 'deleted';
+    }
+
+    return 'deleted';
   },
 }));

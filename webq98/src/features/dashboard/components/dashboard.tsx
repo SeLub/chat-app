@@ -14,6 +14,7 @@ import { useNavigate } from 'react-router-dom';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { apiGateway } from '@/lib/apiGateway';
 import { useSessionStore } from '@/stores/sessionStore';
+import { useUIStore } from '@/stores/uiStore';
 import type { Session } from '@/types';
 import { Button } from '@/components/ui/button';
 
@@ -68,35 +69,15 @@ export function Dashboard() {
   };
 
   const handleDeleteSession = async (id: string) => {
-    const { purgeSessionKeys, returnToCurrent, startFreshAfterDelete, viewingSessionId, activeSessionId } = useSessionStore.getState();
-    try {
-      await apiGateway.sessions.delete(id);
-      purgeSessionKeys(id);
-      if (id === activeSessionId) {
-        await startFreshAfterDelete();
-      } else if (id === viewingSessionId) {
-        returnToCurrent();
-      }
-    } catch (e) {
-      console.error('Failed to delete session', e);
-    } finally {
-      loadSessions();
-    }
+    await useSessionStore.getState().deleteSession(id);
+    loadSessions();
   };
 
   const handleBulkDelete = async () => {
     if (selectedSessions.size === 0) return;
-    const { purgeSessionKeys, returnToCurrent, startFreshAfterDelete, viewingSessionId, activeSessionId } = useSessionStore.getState();
     const idsToDelete = Array.from(selectedSessions);
     for (const id of idsToDelete) {
-      await apiGateway.sessions.delete(id);
-      purgeSessionKeys(id);
-    }
-    const lastDeleted = idsToDelete[idsToDelete.length - 1];
-    if (lastDeleted === activeSessionId) {
-      await startFreshAfterDelete();
-    } else if (lastDeleted === viewingSessionId) {
-      returnToCurrent();
+      await useSessionStore.getState().deleteSession(id);
     }
     setSelectedSessions(new Set());
     loadSessions();
@@ -118,8 +99,13 @@ export function Dashboard() {
     }
   };
 
-  const handleSelectSession = (sessionId: string) => {
-    navigate(`/?session=${sessionId}`);
+  const handleSelectSession = async (sessionId: string) => {
+    try {
+      await useSessionStore.getState().switchToViewing(sessionId);
+      navigate('/');
+    } catch {
+      useUIStore.getState().addToast('Failed to open conversation', 'error');
+    }
   };
 
   const toggleSelect = (id: string) => {
