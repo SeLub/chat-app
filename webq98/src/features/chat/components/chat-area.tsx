@@ -396,11 +396,11 @@ export function ChatArea({ className }: { className?: string }) {
 
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button variant="ghost" size="icon-sm" disabled aria-label="Load Conversation">
+              <Button variant="ghost" size="icon-sm" onClick={() => useUIStore.getState().openLoadModal()} aria-label="Load Conversation">
                 <FolderOpen className="w-4 h-4" />
               </Button>
             </TooltipTrigger>
-            <TooltipContent side="bottom">Load Conversation (ТЗ-2.3)</TooltipContent>
+            <TooltipContent side="bottom">Load Conversation</TooltipContent>
           </Tooltip>
 
           {viewingSessionId !== activeSessionId && (

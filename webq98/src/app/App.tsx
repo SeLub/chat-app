@@ -8,6 +8,7 @@ import { QuestionsPanel } from '@/features/questions/components/questions-panel'
 import { AiHelperOverlay } from '@/features/ai-helper/components/ai-helper-overlay';
 import { CommandPalette } from '@/shared/components/command-palette';
 import { SaveModal } from '@/features/sessions/components/save-modal';
+import { LoadModal } from '@/features/sessions/components/load-modal';
 import { Dashboard } from '@/features/dashboard/components/dashboard';
 
 export default function App() {
@@ -44,6 +45,7 @@ export default function App() {
       <AiHelperOverlay />
       <CommandPalette />
       <SaveModal />
+      <LoadModal />
     </>
   );
 }

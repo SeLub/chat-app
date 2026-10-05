@@ -8,6 +8,7 @@ interface UIStore {
   rightPanelOpen: boolean;
   aiHelperOpen: boolean;
   saveModalOpen: boolean;
+  loadModalOpen: boolean;
   commandPaletteOpen: boolean;
 
   addToast: (message: string, type?: ToastMessage['type']) => void;
@@ -17,6 +18,8 @@ interface UIStore {
   toggleAiHelper: () => void;
   openSaveModal: () => void;
   closeSaveModal: () => void;
+  openLoadModal: () => void;
+  closeLoadModal: () => void;
   toggleCommandPalette: () => void;
 }
 
@@ -26,6 +29,7 @@ export const useUIStore = create<UIStore>((set) => ({
   rightPanelOpen: true,
   aiHelperOpen: false,
   saveModalOpen: false,
+  loadModalOpen: false,
   commandPaletteOpen: false,
 
   addToast: (message: string, type: ToastMessage['type'] = 'info') => {
@@ -46,5 +50,7 @@ export const useUIStore = create<UIStore>((set) => ({
   toggleAiHelper: () => set((s) => ({ aiHelperOpen: !s.aiHelperOpen })),
   openSaveModal: () => set({ saveModalOpen: true }),
   closeSaveModal: () => set({ saveModalOpen: false }),
+  openLoadModal: () => set({ loadModalOpen: true }),
+  closeLoadModal: () => set({ loadModalOpen: false }),
   toggleCommandPalette: () => set((s) => ({ commandPaletteOpen: !s.commandPaletteOpen })),
 }));

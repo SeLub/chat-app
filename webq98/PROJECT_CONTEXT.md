@@ -196,6 +196,7 @@ Multi-Provider AI Chat — десктопный инструмент для ра
 | 29 | Prev/Next на краях — disabled-кнопки (вместо toast-паритета эталона) | понятнее UX, guard остаётся как защита |
 | 30 | Контекст-состояние (mode/выбор) редактируется ТОЛЬКО при viewing===active; исторические сессии read-only; returnToCurrent восстанавливает loadContextState | защита от затирания состояния активного буфера |
 | 31 | context-notice живёт только на свежем ответе (excludedIndices не персистятся в БД) | паритет эталона |
+| 32 | Доступ к беседам: Load-модалка (шапка) + Dashboard через /?session=; purge ключей при удалении | закрытие контура two-pointer || 33 | sidebar.tsx/top-bar.tsx — DEPRECATED-пометка, файлы хранятся | §7.21 |
 
 ## 8. Запрещено
 
