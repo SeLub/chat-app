@@ -3,13 +3,12 @@ import { ListChecks } from 'lucide-react';
 import { useSessionStore } from '@/stores/sessionStore';
 import { scrollToQuestion } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
-import type { QuestionRef } from '@/types';
 
 function shortModel(model: string): string {
   return model.split('/').pop()?.replace('.gguf', '') ?? model;
 }
 
-function deriveQuestions(messages: Array<{ role: string; questionId: string; content: string; model: string }>): QuestionRef[] {
+function deriveQuestions(messages: Array<{ role: string; questionId: string; content: string; model: string }>): Array<{ id: string; text: string; model: string; number: number }> {
   return messages
     .filter((m) => m.role === 'user')
     .map((m, i) => ({
@@ -26,6 +25,7 @@ export function QuestionsPanel({ className }: { className?: string }) {
   const toggleContextMode = useSessionStore((s) => s.toggleContextMode);
   const selectAllQuestions = useSessionStore((s) => s.selectAllQuestions);
   const deselectAllQuestions = useSessionStore((s) => s.deselectAllQuestions);
+  const toggleQuestionSelection = useSessionStore((s) => s.toggleQuestionSelection);
   const messages = useSessionStore((s) => s.messages);
 
   const questions = useMemo(() => deriveQuestions(messages), [messages]);
@@ -78,11 +78,24 @@ export function QuestionsPanel({ className }: { className?: string }) {
             className="rounded-lg p-2.5 bg-card border border-border cursor-pointer hover:border-primary/50 transition-colors"
             onClick={() => scrollToQuestion(q.id)}
           >
-            <div className="text-xs font-semibold text-primary mb-1">
-              Q{q.number} • {shortModel(q.model)}
-            </div>
-            <div className="text-xs text-muted-foreground whitespace-pre-wrap line-clamp-3">
-              {q.text}
+            <div className="flex items-start gap-2">
+              <input
+                type="checkbox"
+                checked={contextMode === 'standard' || selectedQuestionIds.includes(q.id)}
+                disabled={contextMode === 'standard'}
+                onClick={(e) => e.stopPropagation()}
+                onChange={() => toggleQuestionSelection(q.id)}
+                className="mt-0.5 cursor-pointer accent-[hsl(var(--primary))] flex-shrink-0
+                  disabled:cursor-not-allowed disabled:opacity-60"
+              />
+              <div className="flex-1 min-w-0">
+                <div className="text-xs font-semibold text-primary mb-1">
+                  Q{q.number} • {shortModel(q.model)}
+                </div>
+                <div className="text-xs text-muted-foreground whitespace-pre-wrap line-clamp-3">
+                  {q.text}
+                </div>
+              </div>
             </div>
           </div>
         ))}
