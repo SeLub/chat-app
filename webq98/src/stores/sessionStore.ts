@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { ChatMessage, QuestionRef, ResponseMetrics } from '@/types';
+import type { ChatMessage, ResponseMetrics } from '@/types';
 import { apiGateway } from '@/lib/apiGateway';
 import { useProviderStore } from './providerStore';
 
@@ -70,18 +70,6 @@ function mapQAPairsToMessages(
     }
   }
   return messages;
-}
-
-// ── Derive questions from messages ──
-export function selectQuestions(state: SessionStore): QuestionRef[] {
-  return state.messages
-    .filter((m) => m.role === 'user')
-    .map((m, i) => ({
-      id: m.questionId,
-      text: m.content,
-      model: m.model,
-      number: i + 1,
-    }));
 }
 
 interface SessionStore {
