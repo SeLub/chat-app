@@ -1,6 +1,8 @@
 import { create } from 'zustand';
 import type { AITranscript } from '@/types';
 import { createAiHelperSocket, type AiHelperSocket } from '@/lib/aiHelperSocket';
+import { startDualVad, type VadController } from '@/lib/vadManager';
+import { useUIStore } from '@/stores/uiStore';
 
 export type AiHelperStatus = 'disconnected' | 'connected';
 
@@ -15,7 +17,7 @@ interface AiHelperState {
 
   connect: () => void;
   disconnect: () => void;
-  startCapture: () => void;
+  startCapture: () => Promise<void>;
   stopCapture: () => void;
   requestHint: () => void;
 
@@ -26,6 +28,7 @@ interface AiHelperState {
 }
 
 let socket: AiHelperSocket | null = null;
+let controller: VadController | null = null;
 
 function getSocket(): AiHelperSocket {
   if (!socket) {
@@ -58,16 +61,41 @@ export const useAiHelperStore = create<AiHelperState>((set, get) => ({
     set({ status: 'disconnected' });
   },
 
-  startCapture: () => {
-    if (!get().isCapturing) {
-      set({ isCapturing: true });
-    }
+  startCapture: async () => {
+    if (get().isCapturing) return;
     if (get().status === 'disconnected') {
       getSocket().connect();
+    }
+    set({ isCapturing: true });
+    try {
+      controller = await startDualVad({
+        onSpeechChunk: (role, audio) => {
+          getSocket().sendAudioChunk(role, audio);
+        },
+        onError: (message) => {
+          useAiHelperStore.getState()._onError(message);
+        },
+        onStateChange: (s) => {
+          set({ isCapturing: s === 'capturing' });
+        },
+      });
+    } catch (err) {
+      const name = err instanceof Error ? err.name : '';
+      const message =
+        name === 'NotAllowedError' || name === 'NotReadableError'
+          ? 'Доступ к захвату экрана или микрофона отклонен'
+          : `Ошибка захвата: ${err instanceof Error ? err.message : 'Отменено'}`;
+      useAiHelperStore.getState()._onError(message);
+      set({ isCapturing: false });
     }
   },
 
   stopCapture: () => {
+    if (get().status === 'connected') {
+      getSocket().sendEndSession();
+    }
+    controller?.stop();
+    controller = null;
     set({ isCapturing: false });
   },
 
@@ -91,5 +119,6 @@ export const useAiHelperStore = create<AiHelperState>((set, get) => ({
 
   _onError: (message) => {
     set({ error: message });
+    useUIStore.getState().addToast(message, 'error');
   },
 }));

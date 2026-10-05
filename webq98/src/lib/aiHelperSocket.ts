@@ -13,6 +13,7 @@ export interface AiHelperSocket {
   disconnect: () => void;
   sendAudioChunk: (role: AITranscript['role'], audio: Float32Array, sampleRate?: number) => void;
   requestHint: () => void;
+  sendEndSession: () => void;
 }
 
 const RECONNECT_DELAY_MS = 2000;
@@ -136,6 +137,9 @@ export function createAiHelperSocket(callbacks: AiHelperSocketCallbacks): AiHelp
     },
     requestHint() {
       send({ type: 'request_hint' });
+    },
+    sendEndSession() {
+      send({ type: 'end_session' });
     },
   };
 }
