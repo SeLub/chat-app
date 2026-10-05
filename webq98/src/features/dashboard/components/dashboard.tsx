@@ -9,10 +9,12 @@ import {
   ChevronDown,
   ChevronUp,
   ArrowLeft,
+  Upload,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { apiGateway } from '@/lib/apiGateway';
+import { downloadJson } from '@/lib/export';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useUIStore } from '@/stores/uiStore';
 import type { Session } from '@/types';
@@ -83,6 +85,33 @@ export function Dashboard() {
     loadSessions();
   };
 
+  const handleExportSingle = async (sessionId: string) => {
+    try {
+      const messages = await apiGateway.sessions.getMessages(sessionId);
+      downloadJson(messages, `conversation-${sessionId.slice(0, 8)}-${Date.now()}.json`);
+      useUIStore.getState().addToast('Conversation exported', 'success');
+    } catch (e) {
+      console.error('Failed to export conversation', e);
+      useUIStore.getState().addToast('Failed to export', 'error');
+    }
+  };
+
+  const handleExportSelected = async () => {
+    if (selectedSessions.size === 0) return;
+    try {
+      const allMessages: Array<{ sessionId: string; messages: unknown }> = [];
+      for (const sessionId of selectedSessions) {
+        const messages = await apiGateway.sessions.getMessages(sessionId);
+        allMessages.push({ sessionId, messages });
+      }
+      downloadJson(allMessages, `conversations-bulk-${Date.now()}.json`);
+      useUIStore.getState().addToast(`${selectedSessions.size} conversation(s) exported`, 'success');
+    } catch (e) {
+      console.error('Failed to export selected', e);
+      useUIStore.getState().addToast('Failed to export', 'error');
+    }
+  };
+
   const handleStartEdit = (session: Session) => {
     setEditingId(session.id);
     setEditTitle(session.title);
@@ -118,18 +147,14 @@ export function Dashboard() {
   };
 
   const toggleSelectAll = () => {
-    if (selectedSessions.size === filteredSessions.length) {
+    if (selectedSessions.size === sessions.length) {
       setSelectedSessions(new Set());
     } else {
-      setSelectedSessions(new Set(filteredSessions.map((s) => s.id)));
+      setSelectedSessions(new Set(sessions.map((s) => s.id)));
     }
   };
 
-  const filteredSessions = sessions.filter((s) =>
-    s.title.toLowerCase().includes(searchQuery.toLowerCase()),
-  );
-
-  const grouped = filteredSessions.reduce<Record<string, Session[]>>((acc, s) => {
+  const grouped = sessions.reduce<Record<string, Session[]>>((acc, s) => {
     const cat = s.category || 'Uncategorized';
     if (!acc[cat]) acc[cat] = [];
     acc[cat].push(s);
@@ -180,13 +205,22 @@ export function Dashboard() {
             />
           </div>
           {selectedSessions.size > 0 && (
-            <button
-              onClick={handleBulkDelete}
-              className="flex items-center gap-2 px-4 py-2.5 bg-destructive text-destructive-foreground rounded-md text-sm hover:opacity-90 transition-opacity"
-            >
-              <Trash2 className="w-4 h-4" />
-              Delete ({selectedSessions.size})
-            </button>
+            <>
+              <button
+                onClick={handleExportSelected}
+                className="flex items-center gap-2 px-4 py-2.5 bg-secondary text-secondary-foreground rounded-md text-sm hover:opacity-90 transition-opacity"
+              >
+                <Upload className="w-4 h-4" />
+                Export Selected ({selectedSessions.size})
+              </button>
+              <button
+                onClick={handleBulkDelete}
+                className="flex items-center gap-2 px-4 py-2.5 bg-destructive text-destructive-foreground rounded-md text-sm hover:opacity-90 transition-opacity"
+              >
+                <Trash2 className="w-4 h-4" />
+                Delete ({selectedSessions.size})
+              </button>
+            </>
           )}
         </div>
 
@@ -267,6 +301,15 @@ export function Dashboard() {
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
+                            handleExportSingle(session.id);
+                          }}
+                          className="p-1 hover:bg-muted rounded"
+                        >
+                          <Upload className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
                             handleStartEdit(session);
                           }}
                           className="p-1 hover:bg-muted rounded"
@@ -291,13 +334,13 @@ export function Dashboard() {
           ))
         )}
 
-        {filteredSessions.length > 0 && (
+        {sessions.length > 0 && (
           <div className="flex items-center gap-2 mt-4 pt-4 border-t border-border">
             <button
               onClick={toggleSelectAll}
               className="text-xs text-muted-foreground hover:text-foreground"
             >
-              {selectedSessions.size === filteredSessions.length
+              {selectedSessions.size === sessions.length
                 ? 'Deselect All'
                 : 'Select All'}
             </button>
