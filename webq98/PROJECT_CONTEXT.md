@@ -138,12 +138,12 @@ Multi-Provider AI Chat — десктопный инструмент для ра
 
 ## 5. Стек и правила кода
 
-- React 18 · TypeScript 5.8 (strict) · Vite 6 · Zustand 5 · Tailwind 4 (@tailwindcss/vite, typography, tw-animate-css) · react-router 7 · react-markdown + remark-gfm · sonner · lucide-react · Radix (только подключённые примитивы) · cva/clsx/tailwind-merge · @ricky0123/vad-web 0.0.30.
+- React 18 · TypeScript 5.8 (strict) · Vite 6 · Zustand 5 · Tailwind 4 (@tailwindcss/vite, typography, tw-animate-css) · react-router 7 · react-markdown + remark-gfm · sonner · lucide-react · Radix (только подключённые примитивы) · cva/clsx/tailwind-merge · @ricky0123/vad-web 0.0.30 · vitest · jsdom.
 - **Запрещённые зависимости** (сняты/не добавлять): react-query, framer-motion, cmdk, react-hook-form, zod, dnd-kit, Vaul, next-themes, Socket.IO.
 - **HTTP-вызовы — только через `src/lib/apiGateway.ts`.** Сырой `fetch` в компонентах/stores запрещён.
 - WebSocket — только через отдельный модуль `src/lib/aiHelperSocket.ts` (Фаза 3).
 - Новые зависимости — только если явно указаны в ТЗ.
-- `npm run build` и `npm run lint` обязаны проходить. TS strict, без `any` (кроме нормализации snake/camel с комментарием).
+- `npm run build`, `npm run lint` и и `npm run test:run` обязаны проходить. TS strict, без `any` (кроме нормализации snake/camel с комментарием).
 - Коммит на каждое ТЗ: `TZ-N.M: краткое описание`.
 - **Zustand-подписки:** селектор в useStore() должен возвращать СТАБИЛЬНУЮ ссылку
   (поле state или примитив). Запрещено вызывать в селекторе функции, создающие
@@ -210,6 +210,8 @@ Multi-Provider AI Chat — десктопный инструмент для ра
 | 43 | STT: WebM→WAV конвертация на клиенте (bufferToWave, lib/audio.ts), sttApi (НЕ raw fetch), текст в input | §3.4 |
 | 44 | sendMessage: прочие ApiError → '❌ Error {status}' с реальным статусом | точность сообщений |
 | 45 | Vision на GGUF: ограничение detectModelType бэкенда; НЕ фиксим на фронте (решение A — отложено) | граница ответственности |
+| 46 | Экспорт бесед: downloadJson в lib/export (общий), формат [{sessionId, messages}] для bulk | паритет эталона dashboard.js |
+| 47 | Поиск Dashboard — только серверный (локальный filter удалён) | одна фильтрация |
 
 ## 8. Запрещено
 
@@ -266,3 +268,8 @@ chat-app/
         └── shared/components/     # sidebar.tsx, top-bar.tsx (не монтируются,
                                    #  сохранить как скелет Load-модалки), command-palette.tsx
 ```
+
+## 11. Бэклог бэкенда (следующая инициатива после фронтенда)
+1. detectModelType: vision-поддержка GGUF/mmproj-моделей (Qwen3.8-... отфильтровывается, §7.45)
+2. attachments: сохранять пути/метаданные присланных файлов в БД (сейчас — только в тексте сообщения)
+3. (из §7.27) Архивация: timestamp-суффикс против дублей unsavedSession N
