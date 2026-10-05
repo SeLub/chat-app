@@ -1,7 +1,7 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useUIStore } from '@/stores/uiStore';
+import { useAiHelperStore } from '@/stores/aiHelperStore';
 import { Mic, MicOff, X, Minimize2, Maximize2 } from 'lucide-react';
-import type { AITranscript } from '@/types';
 
 interface AIHelperOverlayProps {
   onTranscribe?: (text: string) => void;
@@ -11,73 +11,25 @@ export function AiHelperOverlay({ onTranscribe }: AIHelperOverlayProps) {
   const aiHelperOpen = useUIStore((s) => s.aiHelperOpen);
   const toggleAiHelper = useUIStore((s) => s.toggleAiHelper);
 
-  const [isListening, setIsListening] = useState(false);
-  const [transcripts, setTranscripts] = useState<AITranscript[]>([]);
-  const [isVadActive, setIsVadActive] = useState(false);
+  const lastTranscriptIndexRef = useRef(0);
+  const status = useAiHelperStore((s) => s.status);
+  const isCapturing = useAiHelperStore((s) => s.isCapturing);
+  const transcripts = useAiHelperStore((s) => s.transcripts);
+  const hintText = useAiHelperStore((s) => s.hintText);
+  const hintStreaming = useAiHelperStore((s) => s.hintStreaming);
+  const error = useAiHelperStore((s) => s.error);
+
+  const startCapture = useAiHelperStore((s) => s.startCapture);
+  const stopCapture = useAiHelperStore((s) => s.stopCapture);
+  const requestHint = useAiHelperStore((s) => s.requestHint);
+  const connect = useAiHelperStore((s) => s.connect);
+  const disconnect = useAiHelperStore((s) => s.disconnect);
+
   const [isDragging, setIsDragging] = useState(false);
   const [position, setPosition] = useState({ x: 20, y: 100 });
   const [minimized, setMinimized] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
-  const wsRef = useRef<WebSocket | null>(null);
-  const streamRef = useRef<MediaStream | null>(null);
-  const panelRef = useRef<HTMLDivElement>(null);
   const dragStartRef = useRef({ x: 0, y: 0 });
-
-  useEffect(() => {
-    if (!aiHelperOpen) {
-      if (wsRef.current) {
-        wsRef.current.close();
-        wsRef.current = null;
-      }
-      return;
-    }
-
-    const ws = new WebSocket(`ws://${window.location.host}/ws/ai-helper`);
-    wsRef.current = ws;
-
-    ws.onopen = () => {
-      console.log('AI Helper WebSocket connected');
-      setError(null);
-    };
-
-    ws.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        if (data.type === 'transcript' && data.text) {
-          const newTranscript: AITranscript = {
-            role: 'user',
-            text: data.text,
-            timestamp: Date.now(),
-          };
-          setTranscripts((prev) => [...prev, newTranscript]);
-          onTranscribe?.(data.text);
-        }
-      } catch {
-        // ignore non-JSON
-      }
-    };
-
-    ws.onerror = () => {
-      setError('WebSocket connection failed');
-    };
-
-    ws.onclose = () => {
-      if (isListening) {
-        setTimeout(() => {
-          if (isListening) {
-            const newWs = new WebSocket(`ws://${window.location.host}/ws/ai-helper`);
-            wsRef.current = newWs;
-          }
-        }, 2000);
-      }
-    };
-
-    return () => {
-      ws.close();
-      wsRef.current = null;
-    };
-  }, [aiHelperOpen, onTranscribe, isListening]);
 
   const handleMouseDown = (e: React.MouseEvent) => {
     if (e.button !== 0) return;
@@ -89,123 +41,28 @@ export function AiHelperOverlay({ onTranscribe }: AIHelperOverlayProps) {
   };
 
   useEffect(() => {
+    for (let i = lastTranscriptIndexRef.current; i < transcripts.length; i++) {
+      onTranscribe?.(transcripts[i].text);
+    }
+    lastTranscriptIndexRef.current = transcripts.length;
+  }, [transcripts, onTranscribe]);
+
+  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
     if (!isDragging) return;
+    setPosition({
+      x: e.clientX - dragStartRef.current.x,
+      y: e.clientY - dragStartRef.current.y,
+    });
+  };
 
-    const handleMouseMove = (e: MouseEvent) => {
-      setPosition({
-        x: e.clientX - dragStartRef.current.x,
-        y: e.clientY - dragStartRef.current.y,
-      });
-    };
-
-    const handleMouseUp = () => {
-      setIsDragging(false);
-    };
-
-    window.addEventListener('mousemove', handleMouseMove);
-    window.addEventListener('mouseup', handleMouseUp);
-    return () => {
-      window.removeEventListener('mousemove', handleMouseMove);
-      window.removeEventListener('mouseup', handleMouseUp);
-    };
-  }, [isDragging]);
-
-  const startListening = useCallback(async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      streamRef.current = stream;
-
-      const audioContext = new AudioContext();
-      const source = audioContext.createMediaStreamSource(stream);
-      const analyser = audioContext.createAnalyser();
-      analyser.fftSize = 256;
-      source.connect(analyser);
-
-      const bufferLength = analyser.frequencyBinCount;
-      const dataArray = new Uint8Array(bufferLength);
-
-      let vadActive = false;
-      const checkVad = () => {
-        analyser.getByteFrequencyData(dataArray);
-        const average = dataArray.reduce((a, b) => a + b, 0) / bufferLength;
-
-        if (average > 30 && !vadActive) {
-          vadActive = true;
-          setIsVadActive(true);
-          const mediaRecorder = new MediaRecorder(stream);
-          const chunks: BlobPart[] = [];
-
-          mediaRecorder.ondataavailable = (e) => {
-            if (e.data.size > 0) chunks.push(e.data);
-          };
-
-          mediaRecorder.onstop = async () => {
-            const blob = new Blob(chunks, { type: 'audio/webm' });
-            try {
-              const formData = new FormData();
-              formData.append('audio', blob, 'recording.webm');
-              const response = await fetch('/api/stt/transcribe', {
-                method: 'POST',
-                body: formData,
-              });
-              const data = await response.json();
-              if (data.text) {
-                const newTranscript: AITranscript = {
-                  role: 'user',
-                  text: data.text,
-                  timestamp: Date.now(),
-                };
-                setTranscripts((prev) => [...prev, newTranscript]);
-                onTranscribe?.(data.text);
-              }
-            } catch (e) {
-              console.error('Transcription failed:', e);
-            }
-          };
-
-          mediaRecorder.start();
-
-          const stopCheck = () => {
-            analyser.getByteFrequencyData(dataArray);
-            const avg = dataArray.reduce((a, b) => a + b, 0) / bufferLength;
-            if (avg < 10) {
-              mediaRecorder.stop();
-              vadActive = false;
-              setIsVadActive(false);
-            } else {
-              requestAnimationFrame(stopCheck);
-            }
-          };
-          requestAnimationFrame(stopCheck);
-        }
-
-        if (vadActive) {
-          requestAnimationFrame(checkVad);
-        }
-      };
-      requestAnimationFrame(checkVad);
-
-      setIsListening(true);
-    } catch (e) {
-      setError('Microphone access denied');
-      console.error('Failed to start listening:', e);
-    }
-  }, [onTranscribe]);
-
-  const stopListening = useCallback(() => {
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach((track) => track.stop());
-      streamRef.current = null;
-    }
-    setIsListening(false);
-    setIsVadActive(false);
-  }, []);
+  const handleMouseUp = () => {
+    setIsDragging(false);
+  };
 
   if (!aiHelperOpen) return null;
 
   return (
     <div
-      ref={panelRef}
       style={{
         position: 'fixed',
         left: position.x,
@@ -213,6 +70,8 @@ export function AiHelperOverlay({ onTranscribe }: AIHelperOverlayProps) {
         zIndex: 100,
       }}
       className="w-80 bg-card border border-border rounded-lg shadow-xl overflow-hidden"
+      onMouseMove={handleMouseMove}
+      onMouseUp={handleMouseUp}
     >
       <div
         className="flex items-center justify-between px-3 py-2 bg-primary/10 cursor-move select-none"
@@ -248,25 +107,42 @@ export function AiHelperOverlay({ onTranscribe }: AIHelperOverlayProps) {
 
           <div className="flex items-center justify-between mb-3">
             <span className="text-xs text-muted-foreground">
-              {isListening ? 'Listening...' : 'Click to start listening'}
+              {status === 'connected' ? 'Connected' : 'Disconnected'}
+              {isCapturing ? ' • Capturing' : ''}
             </span>
             <button
-              onClick={isListening ? stopListening : startListening}
+              onClick={isCapturing ? stopCapture : startCapture}
               className={`p-2 rounded-full transition-colors ${
-                isListening
+                isCapturing
                   ? 'bg-destructive text-destructive-foreground hover:opacity-90'
                   : 'bg-primary text-primary-foreground hover:opacity-90'
               }`}
             >
-              {isVadActive ? (
-                <Mic className="w-4 h-4 animate-pulse" />
-              ) : isListening ? (
-                <MicOff className="w-4 h-4" />
-              ) : (
-                <Mic className="w-4 h-4" />
-              )}
+              {isCapturing ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
             </button>
           </div>
+
+          <div className="flex items-center gap-2 mb-3">
+            <button
+              onClick={requestHint}
+              disabled={hintStreaming || status !== 'connected'}
+              className="px-2 py-1 text-xs bg-secondary text-secondary-foreground rounded-md hover:opacity-90 disabled:opacity-50"
+            >
+              {hintStreaming ? 'Hinting…' : 'Request hint'}
+            </button>
+            <button
+              onClick={status === 'connected' ? disconnect : connect}
+              className="px-2 py-1 text-xs bg-secondary text-secondary-foreground rounded-md hover:opacity-90"
+            >
+              {status === 'connected' ? 'Disconnect' : 'Connect'}
+            </button>
+          </div>
+
+          {hintText && (
+            <div className="mb-3 p-2 bg-muted/50 rounded-md text-xs">
+              {hintText}
+            </div>
+          )}
 
           <div className="h-48 overflow-y-auto space-y-2">
             {transcripts.length === 0 ? (
