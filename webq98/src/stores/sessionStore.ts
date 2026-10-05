@@ -164,7 +164,7 @@ function loadSelectedIds(sessionId: string): string[] | null {
   }
 }
 
-export const useSessionStore = create<SessionStore>((set, get) => ({
+export const initialSessionState: Omit<SessionStore, 'init' | 'switchToViewing' | 'returnToCurrent' | 'addMessage' | 'addBotMessage' | 'updateSysprompt' | 'setSysprompt' | 'deleteMessage' | 'clearChat' | 'exportConversation' | 'loadViewingSession' | 'saveConversation' | 'sendMessage' | 'saveContextState' | 'loadContextState' | 'resetContextState' | 'toggleContextMode' | 'toggleQuestionSelection' | 'selectAllQuestions' | 'deselectAllQuestions' | 'setRetainPercent' | 'purgeSessionKeys' | 'startFreshAfterDelete' | 'deleteSession'> = {
   activeSessionId: null,
   viewingSessionId: null,
   currentSessionTitle: '',
@@ -178,6 +178,10 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   selectedQuestionIds: [],
   retainPercent: 80,
   contextInfo: undefined,
+};
+
+export const useSessionStore = create<SessionStore>((set, get) => ({
+  ...initialSessionState,
 
   init: async () => {
     const savedActive = localStorage.getItem('activeSessionId');
