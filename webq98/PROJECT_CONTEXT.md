@@ -138,17 +138,18 @@ Multi-Provider AI Chat — десктопный инструмент для ра
 
 ## 5. Стек и правила кода
 
-- React 18 · TypeScript 5.8 (strict) · Vite 6 · Zustand 5 · Tailwind 4 (@tailwindcss/vite, typography, tw-animate-css) · react-router 7 · react-markdown + remark-gfm · sonner · lucide-react · Radix (только подключённые примитивы) · cva/clsx/tailwind-merge · @ricky0123/vad-web 0.0.30 · vitest · jsdom.
+- React 18 · TypeScript 5.8 (strict) · Vite 6 · Zustand 5 · Tailwind 4 (@tailwindcss/vite, typography, tw-animate-css) · react-router 7 · react-markdown + remark-gfm · sonner · lucide-react · Radix (только подключённые примитивы) · cva/clsx/tailwind-merge · @ricky0123/vad-web 0.0.30.
 - **Запрещённые зависимости** (сняты/не добавлять): react-query, framer-motion, cmdk, react-hook-form, zod, dnd-kit, Vaul, next-themes, Socket.IO.
 - **HTTP-вызовы — только через `src/lib/apiGateway.ts`.** Сырой `fetch` в компонентах/stores запрещён.
 - WebSocket — только через отдельный модуль `src/lib/aiHelperSocket.ts` (Фаза 3).
 - Новые зависимости — только если явно указаны в ТЗ.
-- `npm run build`, `npm run lint` и `npm run test:run` обязаны проходить. TS strict, без `any` (кроме нормализации snake/camel с комментарием).
+- `npm run build` и `npm run lint` обязаны проходить. TS strict, без `any` (кроме нормализации snake/camel с комментарием).
 - Коммит на каждое ТЗ: `TZ-N.M: краткое описание`.
 - **Zustand-подписки:** селектор в useStore() должен возвращать СТАБИЛЬНУЮ ссылку
   (поле state или примитив). Запрещено вызывать в селекторе функции, создающие
   новые объекты/массивы (selectQuestions(s) и т.п.) — это бесконечный цикл
   useSyncExternalStore. Деривация — только через useMemo от стабильных полей.
+
 ## 6. Дизайн-система (Leteem, адаптированная)
 
 - Токены цветов — CSS-переменные, темы через `data-theme` на `<html>`: `leteem` (по умолчанию, синяя), `besafe` (зелёная), `minimal` (монохром). Тёмный режим — класс `dark` на `<html>`.
@@ -202,6 +203,13 @@ Multi-Provider AI Chat — десктопный инструмент для ра
 | 36 | Удаление active-беседы → новая сессия (startFreshAfterDelete); только viewing → returnToCurrent | целостность two-pointer |
 | 37 | Шапка чата: Delete (Trash2, насовсем, shared deleteSession) и Clear (Archive, архив+новый) — раздельные действия; delete-логика едина для Dashboard и шапки | решение владельца, анти-путаница |
 | 38 | Внутриприложная навигация к сессии — только прямой switchToViewing(id) (Load-модалка, Dashboard, палитра); ?session= — точка входа (ввод URL/закладки), init() одноразовый | SPA: navigate() не перезагружает страницу |
+| 39 | HTTP 503 → ApiError ловится в sendMessage, отдельная ветка '⚠️ is unavailable' + refreshStatus (паритет эталона); 'Network error' — только статус 0 и прочие ошибки | найдено тестами ТЗ-2.5 |
+| 40 | Стратегия тестов: vitest+jsdom; новое store/gateway-поведение — тест в том же ТЗ; красный-тест-перед-фиксом для багфиксов | стандарт процесса |
+| 41 | Вложения истории: бейджи attachmentsMeta под вопросом, imageData-превью в ответе (клик → full, порядок эталона: notice→image→text) | паритет эталона |
+| 42 | formatSize — в lib/utils как чистая функция (тестируемая) | §7.40 |
+| 43 | STT: WebM→WAV конвертация на клиенте (bufferToWave, lib/audio.ts), sttApi (НЕ raw fetch), текст в input | §3.4 |
+| 44 | sendMessage: прочие ApiError → '❌ Error {status}' с реальным статусом | точность сообщений |
+| 45 | Vision на GGUF: ограничение detectModelType бэкенда; НЕ фиксим на фронте (решение A — отложено) | граница ответственности |
 
 ## 8. Запрещено
 
@@ -215,11 +223,12 @@ Multi-Provider AI Chat — десктопный инструмент для ра
 ## 9. Definition of Done (для любого ТЗ)
 
 - [ ] `npm run build` — успех; `npm run lint` — без ошибок.
-- [ ] `npm run test:run` — все тесты зелёные (с ТЗ-2.4).
 - [ ] Приложение запускается на :5175, консоль браузера без новых ошибок.
 - [ ] Все пункты «Критерии приёмки» ТЗ выполнены и проверены против **реального бэкенда** (:3000).
 - [ ] Поведение сверено с эталоном на :3000, где применимо.
+- [ ] npm run test:run — все тесты зелёные (с ТЗ-2.4)
 - [ ] Коммит создан.
+
 
 ## 10. Карта репозитория (для агентов)
 

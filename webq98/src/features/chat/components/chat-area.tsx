@@ -30,11 +30,12 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useNavigate } from 'react-router-dom';
-import { cn, scrollToQuestion } from '@/lib/utils';
+import { cn, scrollToQuestion, formatSize } from '@/lib/utils';
 import { useTheme } from '@/app/ThemeProvider';
 import type { Theme, Mode } from '@/app/ThemeProvider';
-import type { ResponseMetrics } from '@/types';
+import type { ResponseMetrics, AttachmentMeta, ImageData } from '@/types';
 import { Button } from '@/components/ui/button';
+import { STTInput } from '@/features/stt/components/stt-input';
 import {
   Tooltip,
   TooltipContent,
@@ -327,6 +328,8 @@ export function ChatArea({ className }: { className?: string }) {
     answers: string[];
     model?: string;
     excludedIndices?: number[];
+    attachmentsMeta?: AttachmentMeta[];
+    imageData?: ImageData;
   }> = [];
 
   let currentGroup: typeof groupedByQuestion[number] | null = null;
@@ -339,11 +342,15 @@ export function ChatArea({ className }: { className?: string }) {
         answers: [],
         model: msg.model,
         excludedIndices: undefined,
+        attachmentsMeta: msg.attachmentsMeta,
       };
     } else if (currentGroup) {
       currentGroup.answers.push(msg.content);
       if (msg.excludedIndices && msg.excludedIndices.length > 0) {
         currentGroup.excludedIndices = msg.excludedIndices;
+      }
+      if (msg.imageData) {
+        currentGroup.imageData = msg.imageData;
       }
     }
   }
@@ -623,6 +630,18 @@ export function ChatArea({ className }: { className?: string }) {
                       <div className="text-sm text-foreground bg-muted/50 rounded-lg p-3">
                         {group.question}
                       </div>
+                      {group.attachmentsMeta && group.attachmentsMeta.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5 mt-1.5">
+                          {group.attachmentsMeta.map((att, i) => (
+                            <span
+                              key={i}
+                              className="text-xs bg-secondary border border-border rounded-md px-2 py-0.5 text-muted-foreground"
+                            >
+                              📎 {att.name} ({formatSize(att.size)})
+                            </span>
+                          ))}
+                        </div>
+                      )}
                       {/* Question actions */}
                       <div className="flex items-center gap-1 mt-1.5">
                         <Tooltip>
@@ -697,6 +716,16 @@ export function ChatArea({ className }: { className?: string }) {
                             )}
                           </button>
                         </div>
+                        {group.imageData?.thumbnailUrl && (
+                          <div className="ml-11 mt-1">
+                            <img
+                              src={group.imageData.thumbnailUrl}
+                              className="max-w-[200px] rounded-lg cursor-pointer hover:opacity-90 transition-opacity"
+                              onClick={() => window.open(group.imageData!.fullUrl, '_blank')}
+                            />
+                            <div className="text-xs text-muted-foreground mt-1">{group.imageData.filename}</div>
+                          </div>
+                        )}
                         <div className="prose prose-sm max-w-none text-sm text-foreground bg-card border border-border rounded-lg p-4">
                           <ReactMarkdown remarkPlugins={[remarkGfm]}>
                             {answer}
@@ -813,6 +842,8 @@ export function ChatArea({ className }: { className?: string }) {
       {/* ── Input Zone ── */}
       <div className="p-4 border-t border-border bg-card">
         <div className="flex items-end gap-2">
+          <STTInput onTranscribe={(t) => setInputValue((prev) => (prev ? prev + ' ' + t : t))} />
+
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
