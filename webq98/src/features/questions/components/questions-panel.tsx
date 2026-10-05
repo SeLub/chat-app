@@ -1,10 +1,23 @@
+import { useMemo } from 'react';
 import { ListChecks } from 'lucide-react';
-import { useSessionStore, selectQuestions } from '@/stores/sessionStore';
+import { useSessionStore } from '@/stores/sessionStore';
 import { scrollToQuestion } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
+import type { QuestionRef } from '@/types';
 
 function shortModel(model: string): string {
   return model.split('/').pop()?.replace('.gguf', '') ?? model;
+}
+
+function deriveQuestions(messages: Array<{ role: string; questionId: string; content: string; model: string }>): QuestionRef[] {
+  return messages
+    .filter((m) => m.role === 'user')
+    .map((m, i) => ({
+      id: m.questionId,
+      text: m.content,
+      model: m.model,
+      number: i + 1,
+    }));
 }
 
 export function QuestionsPanel({ className }: { className?: string }) {
@@ -13,7 +26,9 @@ export function QuestionsPanel({ className }: { className?: string }) {
   const toggleContextMode = useSessionStore((s) => s.toggleContextMode);
   const selectAllQuestions = useSessionStore((s) => s.selectAllQuestions);
   const deselectAllQuestions = useSessionStore((s) => s.deselectAllQuestions);
-  const questions = useSessionStore((s) => selectQuestions(s));
+  const messages = useSessionStore((s) => s.messages);
+
+  const questions = useMemo(() => deriveQuestions(messages), [messages]);
 
   const total = questions.length;
   const selected = contextMode === 'standard' ? total : selectedQuestionIds.length;
