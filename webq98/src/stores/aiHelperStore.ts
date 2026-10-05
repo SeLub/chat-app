@@ -123,13 +123,19 @@ export const useAiHelperStore = create<AiHelperState>((set, get) => ({
       return false;
     }
     const snapshot = [...get().transcripts];
-    void snapshot;
     set({ isSendingLocal: true });
     try {
       await useSessionStore.getState().sendMessage(text);
-      set({ transcripts: [], isSendingLocal: false });
+      set((s) => ({
+        transcripts: s.transcripts.filter((t) => !snapshot.includes(t)),
+        isSendingLocal: false,
+      }));
       return true;
-    } catch {
+    } catch (e) {
+      useUIStore.getState().addToast(
+        e instanceof Error ? e.message : 'Не удалось отправить транскрипты',
+        'error',
+      );
       set({ isSendingLocal: false });
       return false;
     }

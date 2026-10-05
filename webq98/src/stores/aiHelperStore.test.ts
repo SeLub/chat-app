@@ -113,4 +113,50 @@ describe('aiHelperStore — send-to-chat bridge', () => {
     ]);
     expect(useAiHelperStore.getState().isSendingLocal).toBe(false);
   });
+
+  it('5. race: transcript arriving during await is kept, sent ones removed', async () => {
+    const sendMessage = vi.fn(() => {
+      useAiHelperStore.getState()._onTranscript('user', 'во время отправки');
+      return Promise.resolve(undefined);
+    });
+    mocked.useSessionStore.getState.mockReturnValue({ sendMessage });
+
+    useAiHelperStore.setState({
+      transcripts: [
+        { role: 'user', text: 'a', timestamp: 1 },
+        { role: 'interlocutor', text: 'b', timestamp: 2 },
+      ],
+    });
+
+    const ok = await useAiHelperStore.getState().sendTranscriptsToChat();
+
+    expect(ok).toBe(true);
+    expect(useAiHelperStore.getState().transcripts).toEqual([
+      { role: 'user', text: 'во время отправки', timestamp: expect.any(Number) },
+    ]);
+  });
+
+  it('6. reject → error toast with message, transcripts preserved', async () => {
+    const sendMessage = vi.fn().mockRejectedValue(new Error('No model selected'));
+    mocked.useSessionStore.getState.mockReturnValue({ sendMessage });
+    const addToast = vi.fn();
+    mocked.useUIStore.getState.mockReturnValue({ addToast });
+
+    useAiHelperStore.setState({
+      transcripts: [
+        { role: 'user', text: 'a', timestamp: 1 },
+        { role: 'interlocutor', text: 'b', timestamp: 2 },
+      ],
+    });
+
+    const ok = await useAiHelperStore.getState().sendTranscriptsToChat();
+
+    expect(ok).toBe(false);
+    expect(addToast).toHaveBeenCalledWith('No model selected', 'error');
+    expect(useAiHelperStore.getState().transcripts).toEqual([
+      { role: 'user', text: 'a', timestamp: 1 },
+      { role: 'interlocutor', text: 'b', timestamp: 2 },
+    ]);
+    expect(useAiHelperStore.getState().isSendingLocal).toBe(false);
+  });
 });
