@@ -320,6 +320,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     }
 
     await get().loadViewingSession();
+    get().loadContextState();
   },
 
   addMessage: (msg: ChatMessage) => {
@@ -388,7 +389,9 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         messages: state.messages.filter((m) => m.questionId !== questionId),
         selectedQuestionIds: state.selectedQuestionIds.filter((id) => id !== questionId),
       }));
-      get().saveContextState();
+      if (get().viewingSessionId === get().activeSessionId) {
+        get().saveContextState();
+      }
       useUIStore.getState().addToast('Q&A pair deleted', 'success');
     } catch {
       console.error('Failed to delete message');
@@ -694,6 +697,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
 
   // ── Context actions ──
   toggleContextMode: () => {
+    if (get().viewingSessionId !== get().activeSessionId) return;
     set((state) => {
       const newMode = state.contextMode === 'standard' ? 'manual' : 'standard';
       // Switching to standard → select all
@@ -709,6 +713,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   },
 
   toggleQuestionSelection: (id: string) => {
+    if (get().viewingSessionId !== get().activeSessionId) return;
     if (get().contextMode === 'standard') return;
     set((state) => {
       const exists = state.selectedQuestionIds.includes(id);
@@ -722,6 +727,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   },
 
   selectAllQuestions: () => {
+    if (get().viewingSessionId !== get().activeSessionId) return;
     if (get().contextMode === 'standard') return;
     const allIds = get().messages
       .filter((m) => m.role === 'user')
@@ -731,6 +737,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   },
 
   deselectAllQuestions: () => {
+    if (get().viewingSessionId !== get().activeSessionId) return;
     if (get().contextMode === 'standard') return;
     set({ selectedQuestionIds: [] });
     get().saveContextState();

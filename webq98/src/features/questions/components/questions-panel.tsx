@@ -1,8 +1,14 @@
 import { useMemo } from 'react';
-import { ListChecks } from 'lucide-react';
+import { ListChecks, MessageSquare } from 'lucide-react';
 import { useSessionStore } from '@/stores/sessionStore';
 import { scrollToQuestion } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 
 function shortModel(model: string): string {
   return model.split('/').pop()?.replace('.gguf', '') ?? model;
@@ -27,6 +33,9 @@ export function QuestionsPanel({ className }: { className?: string }) {
   const deselectAllQuestions = useSessionStore((s) => s.deselectAllQuestions);
   const toggleQuestionSelection = useSessionStore((s) => s.toggleQuestionSelection);
   const messages = useSessionStore((s) => s.messages);
+  const viewingSessionId = useSessionStore((s) => s.viewingSessionId);
+  const activeSessionId = useSessionStore((s) => s.activeSessionId);
+  const isViewing = viewingSessionId !== activeSessionId;
 
   const questions = useMemo(() => deriveQuestions(messages), [messages]);
 
@@ -46,24 +55,37 @@ export function QuestionsPanel({ className }: { className?: string }) {
         {/* Mode block */}
         <div className="bg-muted/50 rounded-lg p-2.5">
           <div className="flex items-center justify-between">
-            <Button
-              size="sm"
-              variant={contextMode === 'standard' ? 'default' : 'secondary'}
-              onClick={() => toggleContextMode()}
-              className="text-xs"
-            >
-              {contextMode === 'standard' ? 'Standard (All)' : 'Manual'}
-            </Button>
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    size="sm"
+                    variant={contextMode === 'standard' ? 'default' : 'secondary'}
+                    onClick={() => toggleContextMode()}
+                    disabled={isViewing}
+                    className="text-xs"
+                  >
+                    {contextMode === 'standard' ? 'Standard (All)' : 'Manual'}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="top">
+                  <p className="flex items-center gap-1.5">
+                    <MessageSquare className="w-3 h-3" />
+                    Контекст управляется в текущем чате
+                  </p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
             <span className="text-xs text-muted-foreground">
               Context: {selected}/{total}
             </span>
           </div>
           {contextMode === 'manual' && (
             <div className="flex gap-1 mt-1.5">
-              <Button size="sm" variant="ghost" onClick={selectAllQuestions} className="text-xs h-6 px-2">
+              <Button size="sm" variant="ghost" onClick={selectAllQuestions} disabled={isViewing} className="text-xs h-6 px-2">
                 All
               </Button>
-              <Button size="sm" variant="ghost" onClick={deselectAllQuestions} className="text-xs h-6 px-2">
+              <Button size="sm" variant="ghost" onClick={deselectAllQuestions} disabled={isViewing} className="text-xs h-6 px-2">
                 None
               </Button>
             </div>
