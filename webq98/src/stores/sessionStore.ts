@@ -600,7 +600,10 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         useProviderStore.getState().refreshStatus();
         return;
       }
-      // ApiError with status 0 (network) or any network error
+      if (e instanceof ApiError) {
+        get().addBotMessage(`❌ **Error ${e.status}**\n\n${e.message}`, currentModel);
+        return;
+      }
       const msg = e instanceof Error ? e.message : String(e);
       get().addBotMessage(
         `❌ **Network error**\n\n${msg}\n\nПроверь соединение с сервером.`,

@@ -462,4 +462,31 @@ describe('sessionStore — sendMessage lifecycle', () => {
     expect(lastMsg.content).toContain('is unavailable');
     expect(providerRefresh).toHaveBeenCalled();
   });
+
+  it('11. sendMessage: ApiError 400 → bot message "Error 400" (not Network error)', async () => {
+    const store = useSessionStore.getState();
+    store.activeSessionId = 'a1';
+    store.viewingSessionId = 'a1';
+    store.messages = [];
+    store.questionCounter = 0;
+    store.totalInputTokens = 0;
+    store.totalOutputTokens = 0;
+    store.contextMode = 'standard';
+    store.selectedQuestionIds = [];
+
+    s().create.mockResolvedValue({ id: 'a1' });
+
+    (apiGateway.chat.send as FnMock).mockRejectedValue(
+      new mocked.ApiError(400, 'Images require vision models'),
+    );
+
+    await store.sendMessage('Q');
+
+    const state = useSessionStore.getState();
+    const lastMsg = state.messages[state.messages.length - 1];
+    expect(lastMsg.role).toBe('assistant');
+    expect(lastMsg.content).toContain('❌ **Error 400**');
+    expect(lastMsg.content).toContain('Images require vision models');
+    expect(lastMsg.content).not.toContain('Network error');
+  });
 });
