@@ -196,7 +196,13 @@ Multi-Provider AI Chat — десктопный инструмент для ра
 | 29 | Prev/Next на краях — disabled-кнопки (вместо toast-паритета эталона) | понятнее UX, guard остаётся как защита |
 | 30 | Контекст-состояние (mode/выбор) редактируется ТОЛЬКО при viewing===active; исторические сессии read-only; returnToCurrent восстанавливает loadContextState | защита от затирания состояния активного буфера |
 | 31 | context-notice живёт только на свежем ответе (excludedIndices не персистятся в БД) | паритет эталона |
-| 32 | Доступ к беседам: Load-модалка (шапка) + Dashboard через /?session=; purge ключей при удалении | закрытие контура two-pointer || 33 | sidebar.tsx/top-bar.tsx — DEPRECATED-пометка, файлы хранятся | §7.21 |
+| 32 | Доступ к беседам: Load-модалка (шапка) + Dashboard через /?session=; purge ключей при удалении | закрытие контура two-pointer |
+| 33 | sidebar.tsx/top-bar.tsx — DEPRECATED-пометка, файлы хранятся | §7.21 |
+| 34 | Заголовки бесед в Load-модалке — как в БД (unsavedSession N различимы) | идентифицируемость |
+| 35 | Список Load-модалки перезагружается при каждом открытии | свежесть |
+| 36 | Удаление active-беседы → новая сессия (startFreshAfterDelete); только viewing → returnToCurrent | целостность two-pointer |
+| 37 | Шапка чата: Delete (Trash2, насовсем, shared deleteSession) и Clear (Archive, архив+новый) — раздельные действия; delete-логика едина для Dashboard и шапки | решение владельца, анти-путаница |
+| 38 | Внутриприложная навигация к сессии — только прямой switchToViewing(id) (Load-модалка, Dashboard, палитра); ?session= — точка входа (ввод URL/закладки), init() одноразовый | SPA: navigate() не перезагружает страницу |
 
 ## 8. Запрещено
 
