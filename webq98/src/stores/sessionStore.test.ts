@@ -270,10 +270,13 @@ describe('sessionStore — clearChat lifecycle', () => {
 });
 
 describe('sessionStore — deleteSession lifecycle', () => {
-  it('3. deleteSession: non-current session → deleted, pointers untouched, keys absent', async () => {
+  it('3. deleteSession: non-current session → deleted, pointers untouched, keys purged', async () => {
     const store = useSessionStore.getState();
     store.activeSessionId = 'a1';
     store.viewingSessionId = 'a1';
+
+    localStorage.setItem('contextMode_x', '"standard"');
+    localStorage.setItem('selectedIds_x', '[]');
 
     s().delete.mockResolvedValue({ ok: true });
 
@@ -319,10 +322,13 @@ describe('sessionStore — deleteSession lifecycle', () => {
     expect(state.viewingSessionId).toBe('s9');
   });
 
-  it('6. deleteSession: API rejects → error, pointers unchanged, keys NOT purged', async () => {
+  it('6. deleteSession: API rejects → error, pointers unchanged, keys still present', async () => {
     const store = useSessionStore.getState();
     store.activeSessionId = 'a1';
     store.viewingSessionId = 'a1';
+
+    localStorage.setItem('contextMode_a1', '"standard"');
+    localStorage.setItem('selectedIds_a1', '[]');
 
     s().delete.mockRejectedValue(new Error('API fail'));
 
@@ -331,6 +337,8 @@ describe('sessionStore — deleteSession lifecycle', () => {
     expect(result).toBe('error');
     expect(store.activeSessionId).toBe('a1');
     expect(store.viewingSessionId).toBe('a1');
+    expect(localStorage.getItem('contextMode_a1')).not.toBeNull();
+    expect(localStorage.getItem('selectedIds_a1')).not.toBeNull();
   });
 });
 

@@ -128,13 +128,16 @@ describe('providerStore — refreshStatus and selectModel', () => {
 });
 
 describe('providerStore — init', () => {
-  it('5. setCurrentProvider: localStorage selectedProvider=bogus ignored, default stays ollama', () => {
+  it('5. init: bogus selectedProvider in localStorage ignored → stays ollama', async () => {
     localStorage.setItem('selectedProvider', 'bogus');
+    getProvidersMock().status.mockResolvedValue({ providers: [] });
+    getModelsMock().list.mockResolvedValue({ connected: true, models: [] });
 
-    const store = useProviderStore.getState();
-    store.setCurrentProvider('ollama');
+    vi.resetModules();
+    const { useProviderStore: freshStore } = await import('./providerStore');
 
-    expect(store.currentProvider).toBe('ollama');
-    expect(localStorage.getItem('selectedProvider')).toBe('ollama');
+    await freshStore.getState().init();
+
+    expect(freshStore.getState().currentProvider).toBe('ollama');
   });
 });
