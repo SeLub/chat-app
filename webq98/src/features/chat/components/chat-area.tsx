@@ -17,6 +17,10 @@ import {
   Upload,
   Palette,
   Sparkles,
+  ChevronUp,
+  ChevronDown,
+  ClipboardCopy,
+  ArrowUp,
 } from 'lucide-react';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useProviderStore } from '@/stores/providerStore';
@@ -25,7 +29,7 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useNavigate } from 'react-router-dom';
-import { cn } from '@/lib/utils';
+import { cn, scrollToQuestion } from '@/lib/utils';
 import { useTheme } from '@/app/ThemeProvider';
 import type { Theme, Mode } from '@/app/ThemeProvider';
 import type { ResponseMetrics } from '@/types';
@@ -191,6 +195,7 @@ export function ChatArea({ className }: { className?: string }) {
   const returnToCurrent = useSessionStore((s) => s.returnToCurrent);
   const clearChat = useSessionStore((s) => s.clearChat);
   const exportConversation = useSessionStore((s) => s.exportConversation);
+  const deleteMessage = useSessionStore((s) => s.deleteMessage);
 
   const [inputValue, setInputValue] = useState('');
   const [isSending, setIsSending] = useState(false);
@@ -319,6 +324,7 @@ export function ChatArea({ className }: { className?: string }) {
     question: string;
     answers: string[];
     model?: string;
+    excludedIndices?: number[];
   }> = [];
 
   let currentGroup: typeof groupedByQuestion[number] | null = null;
@@ -330,9 +336,13 @@ export function ChatArea({ className }: { className?: string }) {
         question: msg.content,
         answers: [],
         model: msg.model,
+        excludedIndices: undefined,
       };
     } else if (currentGroup) {
       currentGroup.answers.push(msg.content);
+      if (msg.excludedIndices && msg.excludedIndices.length > 0) {
+        currentGroup.excludedIndices = msg.excludedIndices;
+      }
     }
   }
   if (currentGroup) groupedByQuestion.push(currentGroup);
@@ -540,56 +550,199 @@ export function ChatArea({ className }: { className?: string }) {
           </div>
         ) : (
           <>
-            {groupedByQuestion.map((group) => (
-              <div key={group.questionId} data-chat-question-id={group.questionId} className="space-y-3">
-                <div className="flex items-start gap-3">
-                  <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0 mt-0.5">
-                    <span className="text-xs font-medium text-primary">U</span>
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="text-xs font-medium text-muted-foreground">You</span>
-                      {group.model && (
-                        <span className="text-xs text-muted-foreground bg-secondary px-1.5 py-0.5 rounded">
-                          {group.model}
-                        </span>
-                      )}
-                    </div>
-                    <div className="text-sm text-foreground bg-muted/50 rounded-lg p-3">
-                      {group.question}
-                    </div>
-                  </div>
-                </div>
-
-                {group.answers.map((answer, idx) => (
-                  <div key={`ans-${idx}`} className="flex items-start gap-3">
-                    <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center flex-shrink-0 mt-0.5">
-                      <span className="text-xs font-medium text-primary">AI</span>
+            {groupedByQuestion.map((group, groupIdx) => {
+              const hasExcluded = group.excludedIndices && group.excludedIndices.length > 0;
+              return (
+                <div key={group.questionId} data-chat-question-id={group.questionId} className="space-y-3">
+                  {/* Question group header */}
+                  <div className="flex items-start gap-3">
+                    <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0 mt-0.5">
+                      <span className="text-xs font-medium text-primary">U</span>
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 mb-1">
-                        <span className="text-xs font-medium text-muted-foreground">AI</span>
-                        <button
-                          onClick={() => handleCopy(answer, `copy-${idx}`)}
-                          className="p-1 hover:bg-muted rounded transition-colors"
-                        >
-                          {copiedId === `copy-${idx}` ? (
-                            <Check className="w-3 h-3 text-success" />
-                          ) : (
-                            <Copy className="w-3 h-3 text-muted-foreground" />
-                          )}
-                        </button>
+                        <span className="text-xs font-medium text-muted-foreground">You</span>
+                        {group.model && (
+                          <span className="text-xs text-muted-foreground bg-secondary px-1.5 py-0.5 rounded">
+                            {group.model}
+                          </span>
+                        )}
+                        <div className="ml-auto flex items-center gap-0.5">
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                variant="ghost"
+                                size="icon-sm"
+                                className="h-6 px-1.5"
+                                disabled={groupIdx === 0}
+                                onClick={() => {
+                                  if (groupIdx === 0) {
+                                    useUIStore.getState().addToast('No more questions', 'info');
+                                    return;
+                                  }
+                                  const prevGroup = groupedByQuestion[groupIdx - 1];
+                                  scrollToQuestion(prevGroup.questionId);
+                                }}
+                                aria-label="Previous question"
+                              >
+                                <ChevronUp className="w-4 h-4" />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent side="bottom">↑ Prev</TooltipContent>
+                          </Tooltip>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                variant="ghost"
+                                size="icon-sm"
+                                className="h-6 px-1.5"
+                                disabled={groupIdx === groupedByQuestion.length - 1}
+                                onClick={() => {
+                                  if (groupIdx === groupedByQuestion.length - 1) {
+                                    useUIStore.getState().addToast('No more questions', 'info');
+                                    return;
+                                  }
+                                  const nextGroup = groupedByQuestion[groupIdx + 1];
+                                  scrollToQuestion(nextGroup.questionId);
+                                }}
+                                aria-label="Next question"
+                              >
+                                <ChevronDown className="w-4 h-4" />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent side="bottom">Next ↓</TooltipContent>
+                          </Tooltip>
+                        </div>
                       </div>
-                      <div className="prose prose-sm max-w-none text-sm text-foreground bg-card border border-border rounded-lg p-4">
-                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                          {answer}
-                        </ReactMarkdown>
+                      <div className="text-sm text-foreground bg-muted/50 rounded-lg p-3">
+                        {group.question}
+                      </div>
+                      {/* Question actions */}
+                      <div className="flex items-center gap-1 mt-1.5">
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-6 px-2 text-xs gap-1"
+                              onClick={async () => {
+                                try {
+                                  await navigator.clipboard.writeText(group.question);
+                                  useUIStore.getState().addToast('Question copied!', 'success');
+                                } catch {
+                                  useUIStore.getState().addToast('Failed to copy', 'error');
+                                }
+                              }}
+                              aria-label="Copy question"
+                            >
+                              <ClipboardCopy className="w-3 h-3" />
+                              Copy Question
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent side="bottom">Copy Question</TooltipContent>
+                        </Tooltip>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-6 px-2 text-xs text-destructive gap-1"
+                              onClick={() => {
+                                if (confirm('Delete this question and answer?')) {
+                                  deleteMessage(group.questionId);
+                                }
+                              }}
+                              aria-label="Delete question"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                              Delete
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent side="bottom">Delete this question and answer</TooltipContent>
+                        </Tooltip>
                       </div>
                     </div>
                   </div>
-                ))}
-              </div>
-            ))}
+
+                  {/* Context notice */}
+                  {hasExcluded && (
+                    <div className="ml-11 text-warning italic text-xs bg-warning/10 border-l-[3px] border-warning rounded-md px-3 py-2 mb-2">
+                      ⚠️ {group.excludedIndices!.map(n => `Q${n}`).join(', ')} исключены из контекста.
+                    </div>
+                  )}
+
+                  {/* Answers */}
+                  {group.answers.map((answer, idx) => (
+                    <div key={`ans-${idx}`} className="flex items-start gap-3">
+                      <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center flex-shrink-0 mt-0.5">
+                        <span className="text-xs font-medium text-primary">AI</span>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="text-xs font-medium text-muted-foreground">AI</span>
+                          <button
+                            onClick={() => handleCopy(answer, `copy-${idx}`)}
+                            className="p-1 hover:bg-muted rounded transition-colors"
+                          >
+                            {copiedId === `copy-${idx}` ? (
+                              <Check className="w-3 h-3 text-success" />
+                            ) : (
+                              <Copy className="w-3 h-3 text-muted-foreground" />
+                            )}
+                          </button>
+                        </div>
+                        <div className="prose prose-sm max-w-none text-sm text-foreground bg-card border border-border rounded-lg p-4">
+                          <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                            {answer}
+                          </ReactMarkdown>
+                        </div>
+                        {/* Answer actions */}
+                        <div className="flex items-center gap-1 mt-1.5">
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-6 px-2 text-xs gap-1"
+                                onClick={() => scrollToQuestion(group.questionId)}
+                                aria-label="Go to question"
+                              >
+                                <ArrowUp className="w-3 h-3" />
+                                Question
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent side="bottom">Go to question</TooltipContent>
+                          </Tooltip>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-6 px-2 text-xs gap-1"
+                                onClick={async () => {
+                                  const qaText = `## Question\n\n${group.question}\n\n## Answer\n\n${answer}`;
+                                  try {
+                                    await navigator.clipboard.writeText(qaText);
+                                    useUIStore.getState().addToast('Q&A copied as Markdown!', 'success');
+                                  } catch {
+                                    useUIStore.getState().addToast('Failed to copy', 'error');
+                                  }
+                                }}
+                                aria-label="Copy Q&A as Markdown"
+                              >
+                                <ClipboardCopy className="w-3 h-3" />
+                                Copy Q&A
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent side="bottom">Copy Q&A as Markdown</TooltipContent>
+                          </Tooltip>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              );
+            })}
 
             {isSending && (
               <div className="flex items-start gap-3">
