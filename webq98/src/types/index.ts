@@ -63,8 +63,6 @@ export interface ModelDetail {
   };
 }
 
-export interface QuestionRef { id: string; text: string; model: string; number: number }
-
 export interface AttachmentMeta {
   name: string;
   size: number;

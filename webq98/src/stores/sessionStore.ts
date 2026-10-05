@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import type { ChatMessage, ResponseMetrics } from '@/types';
 import { apiGateway } from '@/lib/apiGateway';
 import { useProviderStore } from './providerStore';
+import { useUIStore } from './uiStore';
 
 const DEFAULT_SYSPROMPT =
   'Ты Senior Developer. Отвечай четко, структурированно и по существу. Ты мыслишь архитектурно, производительность, системность.';
@@ -385,9 +386,13 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       await apiGateway.sessions.deleteQAPair(viewingSessionId, questionId);
       set((state) => ({
         messages: state.messages.filter((m) => m.questionId !== questionId),
+        selectedQuestionIds: state.selectedQuestionIds.filter((id) => id !== questionId),
       }));
+      get().saveContextState();
+      useUIStore.getState().addToast('Q&A pair deleted', 'success');
     } catch {
       console.error('Failed to delete message');
+      useUIStore.getState().addToast('Failed to delete', 'error');
     }
   },
 
