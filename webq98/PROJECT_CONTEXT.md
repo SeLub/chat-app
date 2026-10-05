@@ -138,17 +138,18 @@ Multi-Provider AI Chat — десктопный инструмент для ра
 
 ## 5. Стек и правила кода
 
-- React 18 · TypeScript 5.8 (strict) · Vite 6 · Zustand 5 · Tailwind 4 (@tailwindcss/vite, typography, tw-animate-css) · react-router 7 · react-markdown + remark-gfm · sonner · lucide-react · Radix (только подключённые примитивы) · cva/clsx/tailwind-merge · @ricky0123/vad-web 0.0.30.
+- React 18 · TypeScript 5.8 (strict) · Vite 6 · Zustand 5 · Tailwind 4 (@tailwindcss/vite, typography, tw-animate-css) · react-router 7 · react-markdown + remark-gfm · sonner · lucide-react · Radix (только подключённые примитивы) · cva/clsx/tailwind-merge · @ricky0123/vad-web 0.0.30 · vitest · jsdom.
 - **Запрещённые зависимости** (сняты/не добавлять): react-query, framer-motion, cmdk, react-hook-form, zod, dnd-kit, Vaul, next-themes, Socket.IO.
 - **HTTP-вызовы — только через `src/lib/apiGateway.ts`.** Сырой `fetch` в компонентах/stores запрещён.
 - WebSocket — только через отдельный модуль `src/lib/aiHelperSocket.ts` (Фаза 3).
 - Новые зависимости — только если явно указаны в ТЗ.
-- `npm run build` и `npm run lint` обязаны проходить. TS strict, без `any` (кроме нормализации snake/camel с комментарием).
+- `npm run build`, `npm run lint` и `npm run test:run` обязаны проходить. TS strict, без `any` (кроме нормализации snake/camel с комментарием).
 - Коммит на каждое ТЗ: `TZ-N.M: краткое описание`.
 - **Zustand-подписки:** селектор в useStore() должен возвращать СТАБИЛЬНУЮ ссылку
   (поле state или примитив). Запрещено вызывать в селекторе функции, создающие
   новые объекты/массивы (selectQuestions(s) и т.п.) — это бесконечный цикл
   useSyncExternalStore. Деривация — только через useMemo от стабильных полей.
+- npm run test:run — все тесты зелёные (с ТЗ-2.4)
 
 ## 6. Дизайн-система (Leteem, адаптированная)
 
@@ -216,6 +217,7 @@ Multi-Provider AI Chat — десктопный инструмент для ра
 ## 9. Definition of Done (для любого ТЗ)
 
 - [ ] `npm run build` — успех; `npm run lint` — без ошибок.
+- [ ] `npm run test:run` — все тесты зелёные (с ТЗ-2.4).
 - [ ] Приложение запускается на :5175, консоль браузера без новых ошибок.
 - [ ] Все пункты «Критерии приёмки» ТЗ выполнены и проверены против **реального бэкенда** (:3000).
 - [ ] Поведение сверено с эталоном на :3000, где применимо.
