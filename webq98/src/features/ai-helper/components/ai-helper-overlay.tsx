@@ -1,29 +1,21 @@
-import { useEffect, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 import { useUIStore } from '@/stores/uiStore';
 import { useAiHelperStore } from '@/stores/aiHelperStore';
 import { Mic, MicOff, X, Minimize2, Maximize2 } from 'lucide-react';
 
-interface AIHelperOverlayProps {
-  onTranscribe?: (text: string) => void;
-}
-
-export function AiHelperOverlay({ onTranscribe }: AIHelperOverlayProps) {
+export function AiHelperOverlay() {
   const aiHelperOpen = useUIStore((s) => s.aiHelperOpen);
   const toggleAiHelper = useUIStore((s) => s.toggleAiHelper);
 
-  const lastTranscriptIndexRef = useRef(0);
   const status = useAiHelperStore((s) => s.status);
   const isCapturing = useAiHelperStore((s) => s.isCapturing);
   const transcripts = useAiHelperStore((s) => s.transcripts);
-  const hintText = useAiHelperStore((s) => s.hintText);
-  const hintStreaming = useAiHelperStore((s) => s.hintStreaming);
+  const isSendingLocal = useAiHelperStore((s) => s.isSendingLocal);
   const error = useAiHelperStore((s) => s.error);
 
   const startCapture = useAiHelperStore((s) => s.startCapture);
   const stopCapture = useAiHelperStore((s) => s.stopCapture);
-  const requestHint = useAiHelperStore((s) => s.requestHint);
-  const connect = useAiHelperStore((s) => s.connect);
-  const disconnect = useAiHelperStore((s) => s.disconnect);
+  const sendTranscriptsToChat = useAiHelperStore((s) => s.sendTranscriptsToChat);
 
   const [isDragging, setIsDragging] = useState(false);
   const [position, setPosition] = useState({ x: 20, y: 100 });
@@ -39,13 +31,6 @@ export function AiHelperOverlay({ onTranscribe }: AIHelperOverlayProps) {
       y: e.clientY - position.y,
     };
   };
-
-  useEffect(() => {
-    for (let i = lastTranscriptIndexRef.current; i < transcripts.length; i++) {
-      onTranscribe?.(transcripts[i].text);
-    }
-    lastTranscriptIndexRef.current = transcripts.length;
-  }, [transcripts, onTranscribe]);
 
   const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
     if (!isDragging) return;
@@ -124,25 +109,15 @@ export function AiHelperOverlay({ onTranscribe }: AIHelperOverlayProps) {
 
           <div className="flex items-center gap-2 mb-3">
             <button
-              onClick={requestHint}
-              disabled={hintStreaming || status !== 'connected'}
+              onClick={() => {
+                void sendTranscriptsToChat();
+              }}
+              disabled={isSendingLocal}
               className="px-2 py-1 text-xs bg-secondary text-secondary-foreground rounded-md hover:opacity-90 disabled:opacity-50"
             >
-              {hintStreaming ? 'Hinting…' : 'Request hint'}
-            </button>
-            <button
-              onClick={status === 'connected' ? disconnect : connect}
-              className="px-2 py-1 text-xs bg-secondary text-secondary-foreground rounded-md hover:opacity-90"
-            >
-              {status === 'connected' ? 'Disconnect' : 'Connect'}
+              {isSendingLocal ? 'Sending…' : '💬 Send to chat'}
             </button>
           </div>
-
-          {hintText && (
-            <div className="mb-3 p-2 bg-muted/50 rounded-md text-xs">
-              {hintText}
-            </div>
-          )}
 
           <div className="h-48 overflow-y-auto space-y-2">
             {transcripts.length === 0 ? (
@@ -151,8 +126,20 @@ export function AiHelperOverlay({ onTranscribe }: AIHelperOverlayProps) {
               </div>
             ) : (
               transcripts.map((t, idx) => (
-                <div key={idx} className="p-2 bg-muted/50 rounded-md text-xs">
-                  {t.text}
+                <div
+                  key={idx}
+                  className={`p-2 rounded-md text-xs ${
+                    t.role === 'interlocutor' ? 'bg-muted/40' : 'bg-muted/50'
+                  }`}
+                >
+                  <span
+                    className={
+                      t.role === 'user' ? 'text-primary font-semibold' : 'text-success font-semibold'
+                    }
+                  >
+                    [{t.role === 'user' ? 'Я' : 'Собеседник'}]
+                  </span>{' '}
+                  <span>{t.text}</span>
                 </div>
               ))
             )}
