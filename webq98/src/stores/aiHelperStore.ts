@@ -3,6 +3,7 @@ import type { AITranscript } from '@/types';
 import { createAiHelperSocket, type AiHelperSocket } from '@/lib/aiHelperSocket';
 import { startDualVad, type VadController } from '@/lib/vadManager';
 import { useUIStore } from '@/stores/uiStore';
+import { useSessionStore } from '@/stores/sessionStore';
 
 export type AiHelperStatus = 'disconnected' | 'connected';
 
@@ -13,6 +14,7 @@ interface AiHelperState {
   hintStreaming: boolean;
   hintText: string;
   requestHintPending: boolean;
+  isSendingLocal: boolean;
   error: string | null;
 
   connect: () => void;
@@ -20,6 +22,8 @@ interface AiHelperState {
   startCapture: () => Promise<void>;
   stopCapture: () => void;
   requestHint: () => void;
+  buildTranscriptText: () => string;
+  sendTranscriptsToChat: () => Promise<boolean>;
 
   _onTranscript: (role: AITranscript['role'], text: string) => void;
   _onHintToken: (token: string) => void;
@@ -50,6 +54,7 @@ export const useAiHelperStore = create<AiHelperState>((set, get) => ({
   hintStreaming: false,
   hintText: '',
   requestHintPending: false,
+  isSendingLocal: false,
   error: null,
 
   connect: () => {
@@ -102,6 +107,32 @@ export const useAiHelperStore = create<AiHelperState>((set, get) => ({
   requestHint: () => {
     set({ hintText: '', hintStreaming: true, requestHintPending: true });
     getSocket().requestHint();
+  },
+
+  buildTranscriptText: () => {
+    return get()
+      .transcripts.filter((t) => t.text.trim().length > 0)
+      .map((t) => `[${t.role === 'user' ? 'Я' : 'Собеседник'}]: ${t.text}`)
+      .join('\n');
+  },
+
+  sendTranscriptsToChat: async () => {
+    const text = get().buildTranscriptText();
+    if (!text) {
+      useUIStore.getState().addToast('Нет транскриптов для отправки', 'info');
+      return false;
+    }
+    const snapshot = [...get().transcripts];
+    void snapshot;
+    set({ isSendingLocal: true });
+    try {
+      await useSessionStore.getState().sendMessage(text);
+      set({ transcripts: [], isSendingLocal: false });
+      return true;
+    } catch {
+      set({ isSendingLocal: false });
+      return false;
+    }
   },
 
   _onTranscript: (role, text) => {

@@ -246,6 +246,8 @@ for (let i = 0; i < bytes.length; i += chunkSize) {
 const base64 = btoa(binary);
 ```
 
+> Примечание: React-версия использует round/floor-вариант (совпадает по диапазону, различие ≤1 LSB).
+
 ---
 
 ## 5. Серверная часть
@@ -434,7 +436,7 @@ curl -I http://localhost:3000/vad-assets/ort-wasm-simd-threaded.mjs
 
 Файлы библиотек 
 https://app.unpkg.com/@ricky0123/vad-web@0.0.30/files/dist
-https://app.unpkg.com/onnxruntime-web@1.29.0/files/dist
+https://app.unpkg.com/onnxruntime-web@1.22.0/files/dist
 
 ```
 
