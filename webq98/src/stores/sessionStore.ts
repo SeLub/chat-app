@@ -121,6 +121,7 @@ interface SessionStore {
   deselectAllQuestions: () => void;
   setRetainPercent: (v: number) => void;
   purgeSessionKeys: (sessionId: string) => void;
+  startFreshAfterDelete: () => Promise<void>;
 }
 
 // ── localStorage helpers with try/catch ──
@@ -760,5 +761,27 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     } catch {
       /* ignore */
     }
+  },
+
+  startFreshAfterDelete: async () => {
+    const newSession = await apiGateway.sessions.create();
+    if (!newSession) return;
+
+    set({
+      activeSessionId: newSession.id,
+      viewingSessionId: newSession.id,
+      currentSessionTitle: newSession.title || '',
+      messages: [],
+      totalInputTokens: 0,
+      totalOutputTokens: 0,
+      questionCounter: 0,
+      contextMode: 'standard',
+      selectedQuestionIds: [],
+      sysprompt: DEFAULT_SYSPROMPT,
+      syspromptDirty: false,
+      contextInfo: undefined,
+    });
+    localStorage.setItem('activeSessionId', newSession.id);
+    localStorage.setItem('viewingSessionId', newSession.id);
   },
 }));

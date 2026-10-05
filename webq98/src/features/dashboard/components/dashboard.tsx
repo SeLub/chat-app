@@ -68,11 +68,13 @@ export function Dashboard() {
   };
 
   const handleDeleteSession = async (id: string) => {
-    const { purgeSessionKeys, returnToCurrent, viewingSessionId, activeSessionId } = useSessionStore.getState();
+    const { purgeSessionKeys, returnToCurrent, startFreshAfterDelete, viewingSessionId, activeSessionId } = useSessionStore.getState();
     try {
       await apiGateway.sessions.delete(id);
       purgeSessionKeys(id);
-      if (viewingSessionId === id || activeSessionId === id) {
+      if (id === activeSessionId) {
+        await startFreshAfterDelete();
+      } else if (id === viewingSessionId) {
         returnToCurrent();
       }
     } catch (e) {
@@ -84,14 +86,17 @@ export function Dashboard() {
 
   const handleBulkDelete = async () => {
     if (selectedSessions.size === 0) return;
-    const { purgeSessionKeys, returnToCurrent, viewingSessionId, activeSessionId } = useSessionStore.getState();
+    const { purgeSessionKeys, returnToCurrent, startFreshAfterDelete, viewingSessionId, activeSessionId } = useSessionStore.getState();
     const idsToDelete = Array.from(selectedSessions);
     for (const id of idsToDelete) {
       await apiGateway.sessions.delete(id);
       purgeSessionKeys(id);
-      if (viewingSessionId === id || activeSessionId === id) {
-        returnToCurrent();
-      }
+    }
+    const lastDeleted = idsToDelete[idsToDelete.length - 1];
+    if (lastDeleted === activeSessionId) {
+      await startFreshAfterDelete();
+    } else if (lastDeleted === viewingSessionId) {
+      returnToCurrent();
     }
     setSelectedSessions(new Set());
     loadSessions();

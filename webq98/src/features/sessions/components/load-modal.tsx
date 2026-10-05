@@ -42,6 +42,11 @@ export function LoadModal() {
   }, [searchQuery]);
 
   useEffect(() => {
+    if (loadModalOpen) loadSessions();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loadModalOpen]);
+
+  useEffect(() => {
     loadSessions();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debouncedSearch]);
@@ -164,8 +169,7 @@ export function LoadModal() {
                         />
                       ) : (
                         <span className="flex-1 min-w-0 truncate">
-                          {(session.title || 'Untitled').replace(/^unsavedSession\s*\d+/, '') || 'Untitled'}
-                          {session.title?.startsWith('unsavedSession') ? ' 📝' : ''}
+                          {session.title || 'Untitled'}{session.title?.startsWith('unsavedSession') ? ' 📝' : ''}
                         </span>
                       )}
                       <div className="flex items-center gap-1.5 text-xs text-muted-foreground flex-shrink-0">
