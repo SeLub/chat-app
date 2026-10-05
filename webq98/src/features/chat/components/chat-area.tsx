@@ -541,7 +541,7 @@ export function ChatArea({ className }: { className?: string }) {
         ) : (
           <>
             {groupedByQuestion.map((group) => (
-              <div key={group.questionId} data-question-id={group.questionId} className="space-y-3">
+              <div key={group.questionId} data-chat-question-id={group.questionId} className="space-y-3">
                 <div className="flex items-start gap-3">
                   <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0 mt-0.5">
                     <span className="text-xs font-medium text-primary">U</span>
