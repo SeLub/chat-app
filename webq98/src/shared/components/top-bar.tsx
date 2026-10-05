@@ -1,3 +1,4 @@
+/* DEPRECATED: скелет логики перенесён в load-modal.tsx (ТЗ-2.3), файл оставлен для истории. Не монтировать. */
 import { MessageSquare, LayoutDashboard, Settings2, PanelRightClose, PanelRightOpen, Sparkles, Palette } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useUIStore } from '@/stores/uiStore';

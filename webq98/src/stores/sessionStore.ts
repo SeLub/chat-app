@@ -120,6 +120,7 @@ interface SessionStore {
   selectAllQuestions: () => void;
   deselectAllQuestions: () => void;
   setRetainPercent: (v: number) => void;
+  purgeSessionKeys: (sessionId: string) => void;
 }
 
 // ── localStorage helpers with try/catch ──
@@ -747,6 +748,15 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     set({ retainPercent: v });
     try {
       localStorage.setItem('retainPercent', String(v));
+    } catch {
+      /* ignore */
+    }
+  },
+
+  purgeSessionKeys: (sessionId: string) => {
+    try {
+      localStorage.removeItem(`contextMode_${sessionId}`);
+      localStorage.removeItem(`selectedIds_${sessionId}`);
     } catch {
       /* ignore */
     }

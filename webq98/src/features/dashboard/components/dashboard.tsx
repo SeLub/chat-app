@@ -13,6 +13,7 @@ import {
 import { useNavigate } from 'react-router-dom';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { apiGateway } from '@/lib/apiGateway';
+import { useSessionStore } from '@/stores/sessionStore';
 import type { Session } from '@/types';
 import { Button } from '@/components/ui/button';
 
@@ -67,18 +68,30 @@ export function Dashboard() {
   };
 
   const handleDeleteSession = async (id: string) => {
+    const { purgeSessionKeys, returnToCurrent, viewingSessionId, activeSessionId } = useSessionStore.getState();
     try {
       await apiGateway.sessions.delete(id);
-      loadSessions();
+      purgeSessionKeys(id);
+      if (viewingSessionId === id || activeSessionId === id) {
+        returnToCurrent();
+      }
     } catch (e) {
       console.error('Failed to delete session', e);
+    } finally {
+      loadSessions();
     }
   };
 
   const handleBulkDelete = async () => {
     if (selectedSessions.size === 0) return;
-    for (const id of selectedSessions) {
+    const { purgeSessionKeys, returnToCurrent, viewingSessionId, activeSessionId } = useSessionStore.getState();
+    const idsToDelete = Array.from(selectedSessions);
+    for (const id of idsToDelete) {
       await apiGateway.sessions.delete(id);
+      purgeSessionKeys(id);
+      if (viewingSessionId === id || activeSessionId === id) {
+        returnToCurrent();
+      }
     }
     setSelectedSessions(new Set());
     loadSessions();
@@ -100,8 +113,8 @@ export function Dashboard() {
     }
   };
 
-  const handleSelectSession = () => {
-    navigate('/');
+  const handleSelectSession = (sessionId: string) => {
+    navigate(`/?session=${sessionId}`);
   };
 
   const toggleSelect = (id: string) => {
@@ -222,7 +235,7 @@ export function Dashboard() {
                           ? 'bg-primary/10 border border-primary/30'
                           : 'hover:bg-accent border border-transparent'
                       }`}
-                      onClick={handleSelectSession}
+                      onClick={() => handleSelectSession(session.id)}
                     >
                       <input
                         type="checkbox"
