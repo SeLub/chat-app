@@ -143,6 +143,17 @@ describe('createAiHelperSocket', () => {
     expect(JSON.parse(MockWebSocket.instances[0].sent[0])).toEqual({ type: 'request_hint' });
   });
 
+  it('sendEndSession sends {type: "end_session"}', () => {
+    const cb = makeCallbacks();
+    const socket = createAiHelperSocket(cb);
+    socket.connect();
+    MockWebSocket.instances[0].simulateOpen();
+
+    socket.sendEndSession();
+
+    expect(JSON.parse(MockWebSocket.instances[0].sent[0])).toEqual({ type: 'end_session' });
+  });
+
   it('dispatches incoming transcript, hint_token, hint_done and error messages', () => {
     const cb = makeCallbacks();
     const socket = createAiHelperSocket(cb);
