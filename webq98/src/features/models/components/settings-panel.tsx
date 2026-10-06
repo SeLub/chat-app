@@ -179,7 +179,7 @@ export function SettingsPanel({ className }: { className?: string }) {
             value={syspromptInput}
             onChange={(e) => handleSyspromptChange(e.target.value)}
             onBlur={handleSyspromptBlur}
-            className="w-full h-32 px-3 py-2 text-xs bg-secondary border border-border rounded-md resize-none focus:outline-none focus:ring-1 focus:ring-primary"
+            className="w-full h-32 px-3 py-2 text-[13px] leading-relaxed bg-secondary border border-border rounded-md resize-none focus:outline-none focus:ring-1 focus:ring-primary"
             placeholder="Enter system prompt..."
           />
         </div>

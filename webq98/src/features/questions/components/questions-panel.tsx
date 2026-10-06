@@ -51,7 +51,7 @@ export function QuestionsPanel({ className }: { className?: string }) {
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto p-3 space-y-2">
+      <div className="flex-1 overflow-y-auto p-3 space-y-2.5">
         {/* Mode block */}
         <div className="bg-muted/50 rounded-lg p-2.5">
           <div className="flex items-center justify-between">
@@ -97,7 +97,7 @@ export function QuestionsPanel({ className }: { className?: string }) {
           <div
             key={q.id}
             data-question-id={q.id}
-            className="rounded-lg p-2.5 bg-card border border-border cursor-pointer hover:border-primary/50 transition-colors"
+            className="rounded-lg p-3 bg-card border border-border cursor-pointer hover:border-primary/50 transition-colors"
             onClick={() => scrollToQuestion(q.id)}
           >
             <div className="flex items-start gap-2">
@@ -114,7 +114,7 @@ export function QuestionsPanel({ className }: { className?: string }) {
                 <div className="text-xs font-semibold text-primary mb-1">
                   Q{q.number} • {shortModel(q.model)}
                 </div>
-                <div className="text-xs text-muted-foreground whitespace-pre-wrap line-clamp-3">
+                <div className="text-[13px] leading-snug text-muted-foreground whitespace-pre-wrap line-clamp-3">
                   {q.text}
                 </div>
               </div>

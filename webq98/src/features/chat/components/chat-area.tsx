@@ -31,6 +31,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useNavigate } from 'react-router-dom';
 import { cn, scrollToQuestion, formatSize } from '@/lib/utils';
+import { CodeBlock } from '@/components/chat/CodeBlock';
 import { useTheme } from '@/app/ThemeProvider';
 import type { Theme, Mode } from '@/app/ThemeProvider';
 import type { ResponseMetrics, AttachmentMeta, ImageData } from '@/types';
@@ -206,6 +207,7 @@ export function ChatArea({ className }: { className?: string }) {
   const [codeFiles, setCodeFiles] = useState<FilePreview[]>([]);
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -216,7 +218,8 @@ export function ChatArea({ className }: { className?: string }) {
   const lastMetrics = deriveLastMetrics(messages);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    const el = messagesContainerRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
   }, [messages]);
 
   useEffect(() => {
@@ -552,7 +555,7 @@ export function ChatArea({ className }: { className?: string }) {
       </div>
 
       {/* ── Messages ── */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-6">
+      <div ref={messagesContainerRef} className="flex-1 overflow-y-auto p-4 space-y-4">
         {groupedByQuestion.length === 0 && !isSending ? (
           <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
             <div className="w-16 h-16 rounded-[2rem] bg-primary/10 flex items-center justify-center mb-4 animate-pulse">
@@ -568,21 +571,17 @@ export function ChatArea({ className }: { className?: string }) {
             {groupedByQuestion.map((group, groupIdx) => {
               const hasExcluded = group.excludedIndices && group.excludedIndices.length > 0;
               return (
-                <div key={group.questionId} data-chat-question-id={group.questionId} className="space-y-3">
-                  {/* Question group header */}
-                  <div className="flex items-start gap-3">
-                    <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0 mt-0.5">
-                      <span className="text-xs font-medium text-primary">U</span>
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className="text-xs font-medium text-muted-foreground">You</span>
-                        {group.model && (
-                          <span className="text-xs text-muted-foreground bg-secondary px-1.5 py-0.5 rounded">
-                            {group.model}
-                          </span>
-                        )}
-                        <div className="ml-auto flex items-center gap-0.5">
+                <div key={group.questionId} data-chat-question-id={group.questionId} className="space-y-2">
+                  {/* Question card */}
+                  <div className="rounded-xl bg-primary/10 border border-primary/20 p-4">
+                    <div className="flex items-center gap-2 mb-1.5">
+                      <span className="text-xs font-semibold text-primary">Вы • Q{groupIdx + 1}</span>
+                      {group.model && (
+                        <span className="text-xs text-muted-foreground bg-secondary px-1.5 py-0.5 rounded">
+                          {group.model}
+                        </span>
+                      )}
+                      <div className="ml-auto flex items-center gap-0.5">
                           <Tooltip>
                             <TooltipTrigger asChild>
                               <Button
@@ -629,7 +628,7 @@ export function ChatArea({ className }: { className?: string }) {
                           </Tooltip>
                         </div>
                       </div>
-                      <div className="text-sm text-foreground bg-muted/50 rounded-lg p-3">
+                      <div className="text-[15px] leading-relaxed whitespace-pre-wrap text-content-text">
                         {group.question}
                       </div>
                       {group.attachmentsMeta && group.attachmentsMeta.length > 0 && (
@@ -688,25 +687,20 @@ export function ChatArea({ className }: { className?: string }) {
                           <TooltipContent side="bottom">Delete this question and answer</TooltipContent>
                         </Tooltip>
                       </div>
-                    </div>
                   </div>
 
                   {/* Context notice */}
-                  {hasExcluded && (
-                    <div className="ml-11 text-warning italic text-xs bg-warning/10 border-l-[3px] border-warning rounded-md px-3 py-2 mb-2">
-                      ⚠️ {group.excludedIndices!.map(n => `Q${n}`).join(', ')} исключены из контекста.
-                    </div>
-                  )}
-
-                  {/* Answers */}
-                  {group.answers.map((answer, idx) => (
-                    <div key={`ans-${idx}`} className="flex items-start gap-3">
-                      <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center flex-shrink-0 mt-0.5">
-                        <span className="text-xs font-medium text-primary">AI</span>
+                    {hasExcluded && (
+                      <div className="text-warning italic text-xs bg-warning/10 border-l-[3px] border-warning rounded-md px-3 py-2 mt-2">
+                        ⚠️ {group.excludedIndices!.map(n => `Q${n}`).join(', ')} исключены из контекста.
                       </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className="text-xs font-medium text-muted-foreground">AI</span>
+                    )}
+
+                    {/* Answers */}
+                    {group.answers.map((answer, idx) => (
+                      <div key={`ans-${idx}`} className="rounded-xl bg-card border border-border p-4">
+                        <div className="flex items-center gap-2 mb-1.5">
+                          <span className="text-xs font-semibold text-success">AI</span>
                           <button
                             onClick={() => handleCopy(answer, `copy-${idx}`)}
                             className="p-1 hover:bg-muted rounded transition-colors"
@@ -719,17 +713,18 @@ export function ChatArea({ className }: { className?: string }) {
                           </button>
                         </div>
                         {group.imageData?.thumbnailUrl && (
-                          <div className="ml-11 mt-1">
+                          <div className="mt-1.5">
                             <img
                               src={group.imageData.thumbnailUrl}
                               className="max-w-[200px] rounded-lg cursor-pointer hover:opacity-90 transition-opacity"
                               onClick={() => window.open(group.imageData!.fullUrl, '_blank')}
+                              onError={(e) => { e.currentTarget.style.display = 'none'; }}
                             />
                             <div className="text-xs text-muted-foreground mt-1">{group.imageData.filename}</div>
                           </div>
                         )}
-                        <div className="prose prose-sm max-w-none text-sm text-foreground bg-card border border-border rounded-lg p-4">
-                          <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                        <div className="chat-markdown">
+                          <ReactMarkdown remarkPlugins={[remarkGfm]} components={{ pre: CodeBlock }}>
                             {answer}
                           </ReactMarkdown>
                         </div>
@@ -775,11 +770,10 @@ export function ChatArea({ className }: { className?: string }) {
                           </Tooltip>
                         </div>
                       </div>
-                    </div>
-                  ))}
-                </div>
-              );
-            })}
+                    ))}
+                  </div>
+                );
+              })}
 
             {isSending && (
               <div className="flex items-start gap-3">
@@ -808,7 +802,12 @@ export function ChatArea({ className }: { className?: string }) {
           {fileSlot && (
             <div className="relative flex-shrink-0 w-16 h-16 rounded-lg overflow-hidden border border-border">
               {fileSlot.preview ? (
-                <img src={fileSlot.preview} alt={fileSlot.file.name} className="w-full h-full object-cover" />
+                <img
+                  src={fileSlot.preview}
+                  alt={fileSlot.file.name}
+                  className="w-full h-full object-cover"
+                  onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                />
               ) : (
                 <div className="w-full h-full flex items-center justify-center bg-muted">
                   {fileSlot.file.type.startsWith('image/') ? (
