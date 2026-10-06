@@ -61,7 +61,11 @@ html {
 body {
   font-family: var(--font-sans);
   background-color: hsl(var(--background));
-  background: linear-gradient(160deg, hsl(var(--background)) 0%, hsl(var(--primary) / 0.06) 100%);
+  background-image:
+    radial-gradient(ellipse 80% 55% at 15% 0%, hsl(var(--primary) / 0.14), transparent 62%),
+    radial-gradient(ellipse 65% 45% at 95% 100%, hsl(var(--tertiary) / 0.11), transparent 60%),
+    linear-gradient(160deg, hsl(var(--background)) 0%, hsl(var(--primary) / 0.08) 100%);
+  background-attachment: fixed;
   color: hsl(var(--foreground));
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -191,15 +195,14 @@ body {
   }
 }
 
-@layer utilities {
-  .glass {
-    background-color: hsl(var(--card) / 0.6);
-    backdrop-filter: blur(20px);
-    -webkit-backdrop-filter: blur(20px);
-  }
-  .glass-strong {
-    background-color: hsl(var(--card) / 0.85);
-    backdrop-filter: blur(28px);
-    -webkit-backdrop-filter: blur(28px);
-  }
+@utility glass {
+  background-color: hsl(var(--card) / 0.5);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+}
+
+@utility glass-strong {
+  background-color: hsl(var(--card) / 0.88);
+  backdrop-filter: blur(28px);
+  -webkit-backdrop-filter: blur(28px);
 }
