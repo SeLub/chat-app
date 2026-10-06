@@ -10,6 +10,13 @@ import { useProviderStore } from '@/stores/providerStore';
 import { useSessionStore } from '@/stores/sessionStore';
 import { cn } from '@/lib/utils';
 import { useState, useEffect } from 'react';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 
 export function SettingsPanel({ className }: { className?: string }) {
   const providers = useProviderStore((s) => s.providers);
@@ -56,6 +63,8 @@ export function SettingsPanel({ className }: { className?: string }) {
     setRetainInput(val);
     setRetainPercent(val);
   };
+
+  const providerConnected = providers.find((p) => p.name === currentProvider)?.status === 'connected';
 
   const userMsgCount = messages.filter((m) => m.role === 'user').length;
 
@@ -124,19 +133,23 @@ export function SettingsPanel({ className }: { className?: string }) {
               <div className="flex items-center justify-center py-4">
                 <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
               </div>
+            ) : !providerConnected ? (
+              <div className="px-3 py-2 text-sm bg-secondary border border-border rounded-md text-muted-foreground">
+                Provider unavailable
+              </div>
             ) : (
-              <select
-                value={currentModel || ''}
-                onChange={(e) => selectModel(e.target.value)}
-                className="w-full px-3 py-2 text-sm bg-secondary border border-border rounded-md focus:outline-none focus:ring-1 focus:ring-primary"
-              >
-                <option value="">Select a model...</option>
-                {models.map((m) => (
-                  <option key={m.name} value={m.name}>
-                    {m.name} ({(m.size / 1024 / 1024 / 1024).toFixed(1)}GB){m.type === 'vision' ? ' (vision)' : ''}
-                  </option>
-                ))}
-              </select>
+              <Select value={currentModel ?? ''} onValueChange={(v) => selectModel(v)}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Select a model..." />
+                </SelectTrigger>
+                <SelectContent position="popper" className="max-h-64 w-[var(--radix-select-trigger-width)]">
+                  {models.map((m) => (
+                    <SelectItem key={m.name} value={m.name}>
+                      {m.name} ({(m.size / 1024 / 1024 / 1024).toFixed(1)}GB){m.type === 'vision' ? ' (vision)' : ''}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             )}
             {currentModel && (
               <button
