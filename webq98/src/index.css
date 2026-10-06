@@ -61,6 +61,7 @@ html {
 body {
   font-family: var(--font-sans);
   background-color: hsl(var(--background));
+  background: linear-gradient(160deg, hsl(var(--background)) 0%, hsl(var(--primary) / 0.06) 100%);
   color: hsl(var(--foreground));
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -187,5 +188,18 @@ body {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
+  }
+}
+
+@layer utilities {
+  .glass {
+    background-color: hsl(var(--card) / 0.6);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+  }
+  .glass-strong {
+    background-color: hsl(var(--card) / 0.85);
+    backdrop-filter: blur(28px);
+    -webkit-backdrop-filter: blur(28px);
   }
 }
