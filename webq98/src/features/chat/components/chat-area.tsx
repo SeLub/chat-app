@@ -666,7 +666,7 @@ export function ChatArea({ className }: { className?: string }) {
                       <span className="text-xs font-semibold text-primary">Вы • Q{groupIdx + 1}</span>
                       {group.model && (
                         <span className="text-xs text-muted-foreground bg-secondary px-1.5 py-0.5 rounded">
-                          {group.model}
+                          {shortModel(group.model)}
                         </span>
                       )}
                       <div className="ml-auto flex items-center gap-0.5">

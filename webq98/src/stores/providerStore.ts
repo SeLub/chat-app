@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { ProviderInfo, ModelInfo } from '@/types';
+import type { ProviderInfo, ModelInfo, ProviderName } from '@/types';
 import { apiGateway } from '@/lib/apiGateway';
 import { useUIStore } from './uiStore';
 
@@ -9,7 +9,7 @@ let initialized = false;
 
 interface ProviderStore {
   providers: ProviderInfo[];
-  currentProvider: 'ollama' | 'llama.cpp';
+  currentProvider: ProviderName;
   models: ModelInfo[];
   currentModel: string | null;
   modelDetail: { details?: { size?: number; parent_model?: string; format?: string; family?: string } } | null;
@@ -17,7 +17,7 @@ interface ProviderStore {
   isLoadingModels: boolean;
 
   setProviders: (providers: ProviderInfo[]) => void;
-  setCurrentProvider: (provider: 'ollama' | 'llama.cpp') => void;
+  setCurrentProvider: (provider: ProviderName) => void;
   loadModels: (provider: string) => Promise<void>;
   selectModel: (name: string) => void;
   refreshStatus: () => Promise<void>;
@@ -85,7 +85,7 @@ export const useProviderStore = create<ProviderStore>((set, get) => ({
           size: m.size || 0,
           contextLength: m.contextLength || 0,
           type: m.type === 'vision' ? 'vision' : 'chat',
-          provider: provider as 'ollama' | 'llama.cpp',
+          provider: provider as ProviderName,
         }));
         set({ models });
       }
@@ -127,7 +127,7 @@ export const useProviderStore = create<ProviderStore>((set, get) => ({
 
       const currentMap: Record<string, string> = {};
       const providers: ProviderInfo[] = rawProviders.map((p) => {
-        const name = p.name as 'ollama' | 'llama.cpp';
+        const name = p.name as ProviderName;
         const status = (p.status === 'connected' ? 'connected' : p.status === 'checking' ? 'checking' : 'disconnected') as ProviderInfo['status'];
         currentMap[name] = status;
 
@@ -162,21 +162,32 @@ export const useProviderStore = create<ProviderStore>((set, get) => ({
     initialized = true;
 
     await get().refreshStatus();
-    const savedProvider = localStorage.getItem('selectedProvider');
-    if (savedProvider === 'ollama' || savedProvider === 'llama.cpp') {
-      if (savedProvider !== get().currentProvider) {
-        set({ currentProvider: savedProvider as 'ollama' | 'llama.cpp' });
-      }
+
+    // Resolve the live provider (§7.92): saved if connected, else first connected by priority
+    const saved = localStorage.getItem('selectedProvider');
+    const statusOf = (n: string) => get().providers.find((p) => p.name === n)?.status;
+    const PRIORITY: ProviderName[] = ['llama_cpp', 'ollama'];
+    let resolved: ProviderName | null = null;
+    if (saved === 'ollama' || saved === 'llama_cpp') {
+      if (statusOf(saved) === 'connected') resolved = saved;
     }
+    if (!resolved) {
+      resolved = PRIORITY.find((n) => statusOf(n) === 'connected') ?? null;
+    }
+    if (resolved && resolved !== get().currentProvider) {
+      set({ currentProvider: resolved });
+      localStorage.setItem('selectedProvider', resolved);
+    }
+
     await get().loadModels(get().currentProvider);
 
-    // Restore selected model
+    // Restore selected model; auto-select the only model (§7.93)
     const savedModel = localStorage.getItem('selectedModel');
-    if (savedModel) {
-      const models = get().models;
-      if (models.some((m) => m.name === savedModel)) {
-        get().selectModel(savedModel);
-      }
+    const models = get().models;
+    if (savedModel && models.some((m) => m.name === savedModel)) {
+      get().selectModel(savedModel);
+    } else if (models.length === 1) {
+      get().selectModel(models[0].name);
     }
   },
 
