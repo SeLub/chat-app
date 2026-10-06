@@ -31,65 +31,54 @@ let mermaidSeq = 0;
 
 function MermaidBlock({ code }: { code: string }) {
   const { isDark } = useTheme();
-  const [open, setOpen] = useState(false);
+  const [showDiagram, setShowDiagram] = useState(true);
   const [svg, setSvg] = useState<string | null>(null);
-  const [error, setError] = useState(false);
+  const [diagError, setDiagError] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  // смена темы → перерендер активной диаграммы
+  // автогидрат: контент стабилен ≥600 мс → рендер; смена темы — перерендер.
   useEffect(() => {
-    if (!open || error) return;
-    let cancelled = false;
-    (async () => {
+    if (!showDiagram) return;
+    setDiagError(false);
+    setLoading(true);
+    const generation = ++mermaidSeq;
+    const timer = setTimeout(async () => {
       try {
         const mermaid = await initMermaid(isDark);
-        const id = `mermaid-${++mermaidSeq}`;
+        const id = `mmd-${generation}`;
         const { svg: rendered } = await mermaid.render(id, code);
-        if (!cancelled) setSvg(rendered);
+        if (generation === mermaidSeq) setSvg(rendered);
       } catch {
-        if (!cancelled) setError(true);
+        if (generation === mermaidSeq) setDiagError(true);
+      } finally {
+        if (generation === mermaidSeq) setLoading(false);
       }
-    })();
-    return () => { cancelled = true; };
-  }, [open, isDark, error, code]);
+    }, 600);
+    return () => clearTimeout(timer);
+  }, [code, isDark, showDiagram]);
 
-  const toggle = async () => {
-    if (open) {
-      setOpen(false);
-      setSvg(null);
-      return;
-    }
-    setOpen(true);
-    setLoading(true);
-    try {
-      const mermaid = await initMermaid(isDark);
-      const id = `mermaid-${++mermaidSeq}`;
-      const { svg: rendered } = await mermaid.render(id, code);
-      setSvg(rendered);
-      setError(false);
-    } catch {
-      setError(true);
-    } finally {
-      setLoading(false);
-    }
+  const toggle = () => {
+    setShowDiagram((v) => !v);
   };
 
   return (
     <div className="p-3">
       <button
         onClick={toggle}
-        disabled={loading}
-        className="flex items-center gap-1.5 text-xs font-medium text-primary hover:opacity-80 transition-opacity disabled:opacity-50"
+        className="flex items-center gap-1.5 text-xs font-medium text-primary hover:opacity-80 transition-opacity"
       >
-        📊 {open ? 'Hide diagram' : 'Show diagram'}
+        📊 {showDiagram ? 'Hide diagram' : 'Show diagram'}
       </button>
-      {open && loading && !svg && (
+      {showDiagram && loading && !svg && !diagError && (
         <div className="text-xs text-muted-foreground mt-2">Rendering…</div>
       )}
-      {open && error && (
-        <div className="text-xs text-destructive mt-2">Diagram error — showing source</div>
+      {showDiagram && diagError && (
+        <>
+          <div className="text-xs text-destructive mt-2">Diagram error — showing source</div>
+          <pre className="overflow-x-auto mt-2 text-xs">{code}</pre>
+        </>
       )}
-      {open && svg && !error && (
+      {showDiagram && svg && !diagError && (
         <div
           className="mt-3 flex justify-center overflow-x-auto [&_svg]:max-w-full"
           dangerouslySetInnerHTML={{ __html: svg }}
