@@ -94,16 +94,21 @@ export function STTInput({ onTranscribe, className = '' }: STTInputProps) {
       : 'Голосовой ввод (нажмите для старта/стопа)';
 
   return (
-    <button
-      onClick={handleClick}
-      disabled={isProcessing}
-      title={title}
-      aria-label={isRecording ? 'Stop recording' : 'Start recording'}
-      className={`p-2.5 rounded-lg border border-border hover:bg-accent transition-colors flex-shrink-0 disabled:opacity-50 disabled:cursor-not-allowed ${
-        isRecording ? 'recording bg-destructive text-destructive-foreground animate-pulse' : ''
-      } ${className}`}
-    >
-      {isRecording ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
-    </button>
+    <div className="flex items-center gap-2 flex-shrink-0">
+      <button
+        onClick={handleClick}
+        disabled={isProcessing}
+        title={title}
+        aria-label={isRecording ? 'Stop recording' : 'Start recording'}
+        className={`p-2.5 rounded-lg border border-border hover:bg-accent transition-colors flex-shrink-0 disabled:opacity-50 disabled:cursor-not-allowed ${
+          isRecording ? 'recording bg-destructive text-destructive-foreground' : ''
+        } ${className}`}
+      >
+        {isProcessing ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+      </button>
+      {isRecording && (
+        <span className="text-xs text-destructive animate-in fade-in duration-300">recording…</span>
+      )}
+    </div>
   );
 }
