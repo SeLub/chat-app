@@ -72,7 +72,7 @@ export function SettingsPanel({ className }: { className?: string }) {
         : 'text-destructive';
 
   return (
-    <aside className={cn(`${className} border-l border-border bg-card flex flex-col`, className)}>
+    <aside className={cn(`${className} glass border-l border-border flex flex-col`, className)}>
       <div className="p-4 space-y-6 overflow-y-auto flex-1">
         {/* Provider Section */}
         <div>

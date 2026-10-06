@@ -133,17 +133,17 @@ function StatFooter({
       : undefined;
 
   return (
-    <div className="h-8 flex items-center gap-2 px-4 border-t border-border bg-card text-xs text-muted-foreground whitespace-nowrap overflow-x-auto">
-      <span className="flex items-center gap-1">
+    <div className="h-8 flex items-center gap-2 px-4 border-t border-border glass text-xs text-muted-foreground whitespace-nowrap overflow-x-auto">
+      <span className="flex items-center gap-1 font-mono text-[11px]">
         <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2a4 4 0 0 1 4 4v2a4 4 0 0 1-8 0V6a4 4 0 0 1 4-4z"/><path d="M16 14H8a4 4 0 0 0-4 4v2h16v-2a4 4 0 0 0-4-4z"/></svg>
         {currentModel || 'No model selected'}
       </span>
       <span>•</span>
-      <span>Size: {sizeGb} GB</span>
+      <span className="font-mono text-[11px]">Size: {sizeGb} GB</span>
       <span>•</span>
-      <span>Ctx: {ctx}</span>
+      <span className="font-mono text-[11px]">Ctx: {ctx}</span>
       <span>•</span>
-      <span>Total Time: {totalTime}</span>
+      <span className="font-mono text-[11px]">Total Time: {totalTime}</span>
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogTrigger asChild>
           <Button variant="ghost" size="sm" className="h-6 px-2 text-xs font-mono" onClick={() => setOpen(true)}>
@@ -375,12 +375,12 @@ export function ChatArea({ className }: { className?: string }) {
   const userMsgCount = messages.filter((m) => m.role === 'user').length;
 
   return (
-    <main className={cn('flex-1 flex flex-col overflow-hidden bg-background', className)}>
+    <main className={cn('flex-1 flex flex-col overflow-hidden bg-transparent', className)}>
       {/* ── Chat Header ── */}
-      <div className="h-[44px] flex items-center justify-between px-3 border-b border-border bg-card flex-shrink-0">
+      <div className="h-[44px] flex items-center justify-between px-3 border-b border-border glass-strong flex-shrink-0">
         <div className="flex items-center gap-2 min-w-0">
-          <MessageSquare className="w-4 h-4 text-muted-foreground flex-shrink-0" />
-          <h1 className="text-sm font-semibold text-foreground truncate">
+          <MessageSquare className="w-4 h-4 text-primary flex-shrink-0" />
+          <h1 className="text-sm font-black tracking-tighter italic text-foreground truncate">
             {currentSessionTitle || 'New Chat'}
           </h1>
         </div>
@@ -530,7 +530,7 @@ export function ChatArea({ className }: { className?: string }) {
       </div>
 
       {/* ── Context Bar ── */}
-      <div className={cn('h-7 flex items-center px-4 border-b border-border bg-card flex-shrink-0', !contextInfo && 'opacity-40')}>
+      <div className={cn('h-7 flex items-center px-4 border-b border-border glass flex-shrink-0', !contextInfo && 'opacity-40')}>
         <div className="flex-1 h-1.5 rounded-full bg-muted overflow-hidden">
           <div
             className={cn(
@@ -555,9 +555,11 @@ export function ChatArea({ className }: { className?: string }) {
       <div className="flex-1 overflow-y-auto p-4 space-y-6">
         {groupedByQuestion.length === 0 && !isSending ? (
           <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
-            <MessageSquare className="w-12 h-12 mb-4 opacity-20" />
-            <p className="text-lg font-medium">Start a conversation</p>
-            <p className="text-sm mt-1">
+            <div className="w-16 h-16 rounded-[2rem] bg-primary/10 flex items-center justify-center mb-4 animate-pulse">
+              <MessageSquare className="w-8 h-8" />
+            </div>
+            <p className="text-xl font-black tracking-tighter italic text-foreground">Start a conversation</p>
+            <p className="text-sm mt-1 italic">
               {currentModel ? `Using ${currentModel}` : 'Select a model to start'}
             </p>
           </div>
@@ -840,8 +842,8 @@ export function ChatArea({ className }: { className?: string }) {
       )}
 
       {/* ── Input Zone ── */}
-      <div className="p-4 border-t border-border bg-card">
-        <div className="flex items-end gap-2">
+      <div className="p-4 border-t border-border glass-strong">
+        <div className="flex items-end gap-2 bg-primary/5 rounded-[2rem] border border-transparent focus-within:border-primary/20 focus-within:bg-background transition-all px-3 py-2">
           <STTInput onTranscribe={(t) => setInputValue((prev) => (prev ? prev + ' ' + t : t))} />
 
           <Tooltip>
@@ -886,7 +888,10 @@ export function ChatArea({ className }: { className?: string }) {
           <button
             onClick={handleSend}
             disabled={isSending || !inputValue.trim() || !currentModel}
-            className="p-2.5 rounded-lg bg-primary text-primary-foreground hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0"
+            className={cn(
+              'p-2.5 rounded-[1.5rem] bg-primary text-primary-foreground hover:opacity-90 transition-all duration-500 disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0',
+              inputValue.trim() && currentModel ? 'scale-100' : 'scale-90',
+            )}
             aria-label="Send message"
           >
             {isSending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}

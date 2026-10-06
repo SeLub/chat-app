@@ -43,7 +43,7 @@ export function QuestionsPanel({ className }: { className?: string }) {
   const selected = contextMode === 'standard' ? total : selectedQuestionIds.length;
 
   return (
-    <aside className={`${className} flex flex-col h-full border-r border-border bg-card`}>
+    <aside className={`${className} flex flex-col h-full glass border-r border-border`}>
       {/* Header */}
       <div className="h-[44px] flex items-center px-3 border-b border-border flex-shrink-0">
         <ListChecks className="w-4 h-4 text-muted-foreground mr-2" />
