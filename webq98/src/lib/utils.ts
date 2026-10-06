@@ -12,6 +12,10 @@ export function formatSize(bytes?: number): string {
   return `${(bytes / 1024 / 1024).toFixed(2)} MB`;
 }
 
+export function getLanguageFromClassName(cls?: string): string | null {
+  return /language-(\w+)/.exec(cls ?? '')?.[1] ?? null;
+}
+
 export function scrollToQuestion(questionId: string) {
   const el = document.querySelector(`[data-chat-question-id="${CSS.escape(questionId)}"]`);
   if (!el) return;
