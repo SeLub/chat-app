@@ -1,5 +1,7 @@
+export type ProviderName = 'ollama' | 'llama_cpp';
+
 export interface ProviderInfo {
-  name: 'ollama' | 'llama.cpp';
+  name: ProviderName;
   status: 'connected' | 'disconnected' | 'checking';
   latencyMs?: number;
   error?: string;
@@ -46,7 +48,7 @@ export interface ModelInfo {
   size: number;
   contextLength: number;
   type: 'chat' | 'embedding' | 'vision';
-  provider: 'ollama' | 'llama.cpp';
+  provider: ProviderName;
 }
 
 export interface ModelDetail {

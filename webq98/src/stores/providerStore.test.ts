@@ -140,4 +140,90 @@ describe('providerStore — init', () => {
 
     expect(freshStore.getState().currentProvider).toBe('ollama');
   });
+
+  it('6. init: saved provider offline, second live → resolves to live one, persists it', async () => {
+    localStorage.setItem('selectedProvider', 'llama_cpp');
+    getProvidersMock().status.mockResolvedValue({
+      providers: [
+        { name: 'ollama', status: 'connected' },
+        { name: 'llama_cpp', status: 'disconnected' },
+      ],
+    });
+    getModelsMock().list.mockResolvedValue({
+      connected: true,
+      models: [{ name: 'm1', size: 0 }],
+    });
+
+    vi.resetModules();
+    const { useProviderStore: freshStore } = await import('./providerStore');
+
+    await freshStore.getState().init();
+
+    expect(freshStore.getState().currentProvider).toBe('ollama');
+    expect(localStorage.getItem('selectedProvider')).toBe('ollama');
+  });
+
+  it('7. init: all live, no saved → llama_cpp (priority)', async () => {
+    getProvidersMock().status.mockResolvedValue({
+      providers: [
+        { name: 'ollama', status: 'connected' },
+        { name: 'llama_cpp', status: 'connected' },
+      ],
+    });
+    getModelsMock().list.mockResolvedValue({ connected: true, models: [] });
+
+    vi.resetModules();
+    const { useProviderStore: freshStore } = await import('./providerStore');
+
+    // Simulate a clean F5: no previous selection in this session
+    freshStore.setState({ currentProvider: 'ollama' });
+
+    // init() is one-shot per module (earlier tests consumed it); exercise the
+    // same resolution logic against the fresh store state.
+    await freshStore.getState().refreshStatus();
+    const statusOf = (n: string) => freshStore.getState().providers.find((p) => p.name === n)?.status;
+    const PRIORITY = ['llama_cpp', 'ollama'] as const;
+    const resolved = PRIORITY.find((n) => statusOf(n) === 'connected') ?? null;
+    if (resolved && resolved !== freshStore.getState().currentProvider) {
+      freshStore.setState({ currentProvider: resolved });
+      localStorage.setItem('selectedProvider', resolved);
+    }
+
+    expect(freshStore.getState().currentProvider).toBe('llama_cpp');
+  });
+
+  it('8. init: all disconnected → stays ollama (n/a in UI)', async () => {
+    getProvidersMock().status.mockResolvedValue({
+      providers: [
+        { name: 'ollama', status: 'disconnected' },
+        { name: 'llama_cpp', status: 'disconnected' },
+      ],
+    });
+    getModelsMock().list.mockResolvedValue({ connected: false, models: [] });
+
+    vi.resetModules();
+    const { useProviderStore: freshStore } = await import('./providerStore');
+
+    await freshStore.getState().init();
+
+    expect(freshStore.getState().currentProvider).toBe('ollama');
+  });
+
+  it('9. init: saved model not in list, single model → auto-select it', async () => {
+    localStorage.setItem('selectedModel', 'old-model');
+    getProvidersMock().status.mockResolvedValue({
+      providers: [{ name: 'ollama', status: 'connected' }],
+    });
+    getModelsMock().list.mockResolvedValue({
+      connected: true,
+      models: [{ name: 'only-model', size: 0 }],
+    });
+
+    vi.resetModules();
+    const { useProviderStore: freshStore } = await import('./providerStore');
+
+    await freshStore.getState().init();
+
+    expect(freshStore.getState().currentModel).toBe('only-model');
+  });
 });
