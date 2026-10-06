@@ -5,6 +5,10 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+export function shortModel(model: string): string {
+  return model.split('/').pop()?.replace('.gguf', '') ?? model;
+}
+
 export function formatSize(bytes?: number): string {
   if (!bytes) return '0 B';
   if (bytes < 1024) return `${bytes} B`;

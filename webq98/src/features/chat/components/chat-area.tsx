@@ -30,7 +30,7 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { useNavigate } from 'react-router-dom';
 import { remarkPlugins, rehypePlugins } from '@/lib/chatRender';
-import { cn, scrollToQuestion, formatSize } from '@/lib/utils';
+import { cn, scrollToQuestion, formatSize, shortModel } from '@/lib/utils';
 import { CodeBlock } from '@/components/chat/CodeBlock';
 import { useTheme } from '@/app/ThemeProvider';
 import type { Theme, Mode } from '@/app/ThemeProvider';
@@ -128,6 +128,8 @@ function StatFooter({
 
   const totalTime = lastMetrics?.totalTime != null ? `${lastMetrics.totalTime}s` : '–';
 
+  const modelLabel = currentModel ? shortModel(currentModel) : 'No model selected';
+
   const contextLoad =
     currentContextLength
       ? Math.round((totalInputTokens + totalOutputTokens) / currentContextLength * 100)
@@ -137,7 +139,7 @@ function StatFooter({
     <div className="h-8 flex items-center gap-2 px-4 border-t border-border glass text-xs text-muted-foreground whitespace-nowrap overflow-x-auto">
       <span className="flex items-center gap-1 font-mono text-[11px]">
         <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2a4 4 0 0 1 4 4v2a4 4 0 0 1-8 0V6a4 4 0 0 1 4-4z"/><path d="M16 14H8a4 4 0 0 0-4 4v2h16v-2a4 4 0 0 0-4-4z"/></svg>
-        {currentModel || 'No model selected'}
+        {modelLabel}
       </span>
       <span>•</span>
       <span className="font-mono text-[11px]">Size: {sizeGb} GB</span>
@@ -191,6 +193,11 @@ export function ChatArea({ className }: { className?: string }) {
   const modelDetail = useProviderStore((s) => s.modelDetail);
   const currentContextLength = useProviderStore((s) => s.currentContextLength);
   const refreshStatus = useProviderStore((s) => s.refreshStatus);
+  const providers = useProviderStore((s) => s.providers);
+  const currentProvider = useProviderStore((s) => s.currentProvider);
+  const setCurrentProvider = useProviderStore((s) => s.setCurrentProvider);
+  const models = useProviderStore((s) => s.models);
+  const selectModel = useProviderStore((s) => s.selectModel);
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
   const viewingSessionId = useSessionStore((s) => s.viewingSessionId);
   const currentSessionTitle = useSessionStore((s) => s.currentSessionTitle);
@@ -372,10 +379,12 @@ export function ChatArea({ className }: { className?: string }) {
         : 'text-destructive'
     : '';
 
-  const incQA = contextInfo?.includedQAPairs ?? 0;
-  const totQA = contextInfo?.totalQAPairs ?? 0;
-
   const userMsgCount = messages.filter((m) => m.role === 'user').length;
+
+  const connectedProviders = providers.filter((p) => p.status === 'connected');
+  const currentProviderConnected = providers.find((p) => p.name === currentProvider)?.status === 'connected';
+  const providerLabel = currentProviderConnected ? currentProvider : 'n/a';
+  const modelAvailable = currentProviderConnected && models.length > 0;
 
   return (
     <main className={cn('flex-1 flex flex-col overflow-hidden bg-transparent', className)}>
@@ -386,6 +395,81 @@ export function ChatArea({ className }: { className?: string }) {
           <h1 className="text-sm font-black tracking-tighter italic text-foreground truncate">
             {currentSessionTitle || 'New Chat'}
           </h1>
+
+          {/* Provider / Model selectors */}
+          <div className="flex items-center gap-1 ml-2 min-w-0">
+            {connectedProviders.length > 0 ? (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button className="text-xs px-2 py-1 rounded-md hover:bg-accent transition-colors flex items-center gap-1">
+                    Provider: {providerLabel}
+                    <ChevronDown className="w-3 h-3" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start">
+                  <DropdownMenuItem onClick={() => refreshStatus()}>
+                    🔄 Refresh status
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  {connectedProviders.map((p) => (
+                    <DropdownMenuItem
+                      key={p.name}
+                      className="justify-between"
+                      onClick={() => setCurrentProvider(p.name)}
+                    >
+                      {p.name}
+                      {currentProvider === p.name && (
+                        <span className="text-primary">
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                            <polyline points="20 6 9 17 4 12" />
+                          </svg>
+                        </span>
+                      )}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : (
+              <span className="text-xs px-2 py-1 text-muted-foreground" title="No provider connected">
+                Provider: n/a
+              </span>
+            )}
+
+            {modelAvailable ? (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button className="text-xs px-2 py-1 rounded-md hover:bg-accent transition-colors flex items-center gap-1 max-w-[180px]">
+                    Model: {currentModel ? shortModel(currentModel) : '—'}
+                    <ChevronDown className="w-3 h-3" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="max-h-64 overflow-y-auto">
+                  {models.map((m) => (
+                    <DropdownMenuItem
+                      key={m.name}
+                      className="justify-between max-w-[280px]"
+                      onClick={() => selectModel(m.name)}
+                    >
+                      <span className="truncate">
+                        {shortModel(m.name)} ({(m.size / 1024 / 1024 / 1024).toFixed(1)}GB){m.type === 'vision' ? ' (vision)' : ''}
+                      </span>
+                      {currentModel === m.name && (
+                        <span className="text-primary flex-shrink-0">
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                            <polyline points="20 6 9 17 4 12" />
+                          </svg>
+                        </span>
+                      )}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : (
+              <span className="text-xs px-2 py-1 text-muted-foreground">
+                Model: —
+              </span>
+            )}
+          </div>
         </div>
         <div className="flex items-center gap-0.5 flex-shrink-0">
           <Tooltip>
@@ -533,7 +617,10 @@ export function ChatArea({ className }: { className?: string }) {
       </div>
 
       {/* ── Context Bar ── */}
-      <div className={cn('h-7 flex items-center px-4 border-b border-border glass flex-shrink-0', !contextInfo && 'opacity-40')}>
+      <div
+        className={cn('h-7 flex items-center px-4 border-b border-border glass flex-shrink-0', !contextInfo && 'opacity-40')}
+        title="Questions • Input/Output tokens • Context load"
+      >
         <div className="flex-1 h-1.5 rounded-full bg-muted overflow-hidden">
           <div
             className={cn(
@@ -549,8 +636,9 @@ export function ChatArea({ className }: { className?: string }) {
             style={{ width: `${pct}%` }}
           />
         </div>
-        <span className={cn('ml-2 text-xs whitespace-nowrap', pctColor)}>
-          {incQA}/{totQA} Q&A • {pct}%
+        <span className="ml-2 text-xs whitespace-nowrap text-muted-foreground">
+          {userMsgCount} • {totalInputTokens}/{totalOutputTokens} •{' '}
+          <span className={pctColor}>{pct}%</span>
         </span>
       </div>
 

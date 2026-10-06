@@ -5,7 +5,6 @@ import type { ToastMessage } from '@/types';
 interface UIStore {
   toasts: ToastMessage[];
   sidebarOpen: boolean;
-  rightPanelOpen: boolean;
   aiHelperOpen: boolean;
   saveModalOpen: boolean;
   loadModalOpen: boolean;
@@ -14,7 +13,6 @@ interface UIStore {
   addToast: (message: string, type?: ToastMessage['type']) => void;
   removeToast: (id: string) => void;
   toggleSidebar: () => void;
-  toggleRightPanel: () => void;
   toggleAiHelper: () => void;
   openSaveModal: () => void;
   closeSaveModal: () => void;
@@ -26,7 +24,6 @@ interface UIStore {
 export const useUIStore = create<UIStore>((set) => ({
   toasts: [],
   sidebarOpen: true,
-  rightPanelOpen: true,
   aiHelperOpen: false,
   saveModalOpen: false,
   loadModalOpen: false,
@@ -46,7 +43,6 @@ export const useUIStore = create<UIStore>((set) => ({
   },
 
   toggleSidebar: () => set((s) => ({ sidebarOpen: !s.sidebarOpen })),
-  toggleRightPanel: () => set((s) => ({ rightPanelOpen: !s.rightPanelOpen })),
   toggleAiHelper: () => set((s) => ({ aiHelperOpen: !s.aiHelperOpen })),
   openSaveModal: () => set({ saveModalOpen: true }),
   closeSaveModal: () => set({ saveModalOpen: false }),

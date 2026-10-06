@@ -22,6 +22,7 @@ interface ProviderStore {
   selectModel: (name: string) => void;
   refreshStatus: () => Promise<void>;
   init: () => Promise<void>;
+  // polling removed from UI (TZ-4.5), keep for now
   startPolling: () => void;
   stopPolling: () => void;
 }

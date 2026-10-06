@@ -1,5 +1,19 @@
 import { describe, it, expect } from 'vitest';
-import { formatSize, getLanguageFromClassName, isMermaid } from './utils';
+import { formatSize, getLanguageFromClassName, isMermaid, shortModel } from './utils';
+
+describe('shortModel', () => {
+  it('gguf path → basename without .gguf', () => {
+    expect(shortModel('/home/selub/Documents/progs/models/Qwen3.8-27B-Q4_K_XL.gguf')).toBe('Qwen3.8-27B-Q4_K_XL');
+  });
+
+  it('ollama tag → name without registry prefix', () => {
+    expect(shortModel('ollama/qwen2.5:7b')).toBe('qwen2.5:7b');
+  });
+
+  it('plain name unchanged', () => {
+    expect(shortModel('llama3.1')).toBe('llama3.1');
+  });
+});
 
 describe('formatSize', () => {
   it('0 → "0 B"', () => {
