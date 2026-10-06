@@ -145,7 +145,13 @@ export function CodeBlock({ children }: { children?: ReactNode }) {
           )}
         </button>
       </div>
-      {mermaid ? <MermaidBlock code={codeText} /> : children}
+      {mermaid ? (
+        <MermaidBlock code={codeText} />
+      ) : (
+        <pre className="overflow-x-auto">
+          {children}
+        </pre>
+      )}
     </div>
   );
 }
