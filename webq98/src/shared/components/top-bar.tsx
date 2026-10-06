@@ -1,5 +1,5 @@
 /* DEPRECATED: скелет логики перенесён в load-modal.tsx (ТЗ-2.3), файл оставлен для истории. Не монтировать. */
-import { MessageSquare, LayoutDashboard, Settings2, PanelRightClose, PanelRightOpen, Sparkles, Palette } from 'lucide-react';
+import { MessageSquare, LayoutDashboard, Settings2, Sparkles, Palette } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useUIStore } from '@/stores/uiStore';
 import { useSessionStore } from '@/stores/sessionStore';
@@ -38,11 +38,9 @@ const modes: { value: Mode; label: string }[] = [
 export function TopBar() {
   const navigate = useNavigate();
   const toggleSidebar = useUIStore((s) => s.toggleSidebar);
-  const toggleRightPanel = useUIStore((s) => s.toggleRightPanel);
   const toggleAiHelper = useUIStore((s) => s.toggleAiHelper);
   const openSaveModal = useUIStore((s) => s.openSaveModal);
   const toggleCommandPalette = useUIStore((s) => s.toggleCommandPalette);
-  const rightPanelOpen = useUIStore((s) => s.rightPanelOpen);
   const currentSessionTitle = useSessionStore((s) => s.currentSessionTitle);
   const currentModel = useProviderStore((s) => s.currentModel);
 
@@ -92,14 +90,6 @@ export function TopBar() {
               </Button>
             </TooltipTrigger>
             <TooltipContent side="bottom">Dashboard</TooltipContent>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button variant="ghost" size="icon" onClick={toggleRightPanel} aria-label="Toggle settings">
-                {rightPanelOpen ? <PanelRightClose className="w-4 h-4" /> : <PanelRightOpen className="w-4 h-4" />}
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="bottom">Settings</TooltipContent>
           </Tooltip>
           <Tooltip>
             <TooltipTrigger asChild>

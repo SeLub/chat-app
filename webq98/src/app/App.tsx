@@ -16,9 +16,8 @@ export default function App() {
 
   useEffect(() => {
     useProviderStore.getState().init();
-    useProviderStore.getState().startPolling();
+    // polling removed from UI (TZ-4.5), keep for now
     initSession();
-    return () => useProviderStore.getState().stopPolling();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
