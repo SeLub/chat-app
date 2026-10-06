@@ -28,7 +28,7 @@ export default function App() {
         <Route
           path="/"
           element={
-            <div className="flex flex-1 overflow-hidden gap-[7px] p-[7px]">
+            <div className="flex flex-1 overflow-hidden gap-2 p-2">
               <QuestionsPanel className="w-1/5 min-w-[240px]" />
               <ChatArea className="w-3/5" />
               <SettingsPanel className="w-1/5 min-w-[280px]" />
