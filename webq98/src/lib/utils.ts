@@ -16,6 +16,10 @@ export function getLanguageFromClassName(cls?: string): string | null {
   return /language-(\w+)/.exec(cls ?? '')?.[1] ?? null;
 }
 
+export function isMermaid(lang?: string | null): boolean {
+  return lang === 'mermaid';
+}
+
 export function scrollToQuestion(questionId: string) {
   const el = document.querySelector(`[data-chat-question-id="${CSS.escape(questionId)}"]`);
   if (!el) return;

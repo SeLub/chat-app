@@ -1,6 +1,8 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "@fontsource-variable/inter";
+/* hljs: github-dark глобально; в light-теме фон pre переопределяется токеном --muted */
+@import "highlight.js/styles/github-dark.css";
 @import "./css/themes/leteem.theme.css";
 @import "./css/themes/besafe.theme.css";
 @import "./css/themes/minimal.theme.css";
@@ -116,6 +118,8 @@ body {
   border-radius: var(--radius-lg); padding: 0; overflow-x: auto; margin: 0; }
 .chat-markdown pre code { background: hsl(var(--muted)); padding: 0.9em 1.1em; font-size: 0.86em;
   font-family: var(--font-mono, ui-monospace, monospace); line-height: 1.55; display: block; }
+/* hljs-блоки: фон из токенов (github-dark.css даёт только цвета токенов) */
+.chat-markdown pre code.hljs { background: hsl(var(--muted)); color: hsl(var(--content-text)); }
 .chat-markdown table { display: block; overflow-x: auto; max-width: 100%; width: 100%; border-collapse: collapse; font-size: 0.92em; }
 .chat-markdown th, td { border: 1px solid hsl(var(--border)); padding: 0.5em 0.8em; text-align: left; }
 .chat-markdown th { background: hsl(var(--muted)); font-weight: 650; }
