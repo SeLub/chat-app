@@ -2,6 +2,7 @@ import { useRef, useState } from 'react';
 import { useUIStore } from '@/stores/uiStore';
 import { useAiHelperStore } from '@/stores/aiHelperStore';
 import { Mic, MicOff, X, Minimize2, Maximize2 } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 
 export function AiHelperOverlay() {
   const aiHelperOpen = useUIStore((s) => s.aiHelperOpen);
@@ -54,7 +55,7 @@ export function AiHelperOverlay() {
         top: position.y,
         zIndex: 100,
       }}
-      className="w-80 bg-card border border-border rounded-lg shadow-xl overflow-hidden"
+      className="w-80 glass-strong border border-border rounded-xl shadow-xl overflow-hidden"
       onMouseMove={handleMouseMove}
       onMouseUp={handleMouseUp}
     >
@@ -64,7 +65,7 @@ export function AiHelperOverlay() {
       >
         <div className="flex items-center gap-2">
           <Sparkles className="w-4 h-4 text-primary" />
-          <span className="text-sm font-semibold">AI Helper</span>
+          <span className="text-sm font-black tracking-tighter italic">AI Helper</span>
         </div>
         <div className="flex items-center gap-1">
           <button
@@ -108,15 +109,15 @@ export function AiHelperOverlay() {
           </div>
 
           <div className="flex items-center gap-2 mb-3">
-            <button
+            <Button
               onClick={() => {
                 void sendTranscriptsToChat();
               }}
               disabled={isSendingLocal}
-              className="px-2 py-1 text-xs bg-secondary text-secondary-foreground rounded-md hover:opacity-90 disabled:opacity-50"
+              size="sm"
             >
               {isSendingLocal ? 'Sending…' : '💬 Send to chat'}
-            </button>
+            </Button>
           </div>
 
           <div className="h-48 overflow-y-auto space-y-2">
@@ -128,7 +129,7 @@ export function AiHelperOverlay() {
               transcripts.map((t, idx) => (
                 <div
                   key={idx}
-                  className={`p-2 rounded-md text-xs ${
+                  className={`p-3 rounded-lg border border-border text-xs animate-in fade-in slide-in-from-bottom-2 duration-300 ${
                     t.role === 'interlocutor' ? 'bg-muted/40' : 'bg-muted/50'
                   }`}
                 >
