@@ -571,7 +571,7 @@ export function ChatArea({ className }: { className?: string }) {
             {groupedByQuestion.map((group, groupIdx) => {
               const hasExcluded = group.excludedIndices && group.excludedIndices.length > 0;
               return (
-                <div key={group.questionId} data-chat-question-id={group.questionId} className="space-y-2">
+                <div key={group.questionId} data-chat-question-id={group.questionId} className="space-y-3">
                   {/* Question card */}
                   <div className="rounded-xl bg-primary/10 border border-primary/20 p-4">
                     <div className="flex items-center gap-2 mb-1.5">
