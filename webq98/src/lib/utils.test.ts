@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { formatSize, getLanguageFromClassName } from './utils';
+import { formatSize, getLanguageFromClassName, isMermaid } from './utils';
 
 describe('formatSize', () => {
   it('0 → "0 B"', () => {
@@ -34,5 +34,15 @@ describe('getLanguageFromClassName', () => {
 
   it("'language-python highlight' → 'python'", () => {
     expect(getLanguageFromClassName('language-python highlight')).toBe('python');
+  });
+});
+
+describe('isMermaid', () => {
+  it("'mermaid' → true", () => {
+    expect(isMermaid('mermaid')).toBe(true);
+  });
+
+  it('undefined → false', () => {
+    expect(isMermaid(undefined)).toBe(false);
   });
 });

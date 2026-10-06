@@ -28,8 +28,8 @@ import { useProviderStore } from '@/stores/providerStore';
 import { useUIStore } from '@/stores/uiStore';
 import { useState, useRef, useEffect, useCallback } from 'react';
 import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
 import { useNavigate } from 'react-router-dom';
+import { remarkPlugins, rehypePlugins } from '@/lib/chatRender';
 import { cn, scrollToQuestion, formatSize } from '@/lib/utils';
 import { CodeBlock } from '@/components/chat/CodeBlock';
 import { useTheme } from '@/app/ThemeProvider';
@@ -724,7 +724,7 @@ export function ChatArea({ className }: { className?: string }) {
                           </div>
                         )}
                         <div className="chat-markdown">
-                          <ReactMarkdown remarkPlugins={[remarkGfm]} components={{ pre: CodeBlock }}>
+                          <ReactMarkdown remarkPlugins={remarkPlugins} rehypePlugins={rehypePlugins} components={{ pre: CodeBlock }}>
                             {answer}
                           </ReactMarkdown>
                         </div>
