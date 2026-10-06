@@ -380,7 +380,7 @@ export function ChatArea({ className }: { className?: string }) {
   return (
     <main className={cn('flex-1 flex flex-col overflow-hidden bg-transparent', className)}>
       {/* ── Chat Header ── */}
-      <div className="h-[44px] flex items-center justify-between px-3 border-b border-border glass-strong flex-shrink-0">
+      <div className="h-[44px] flex items-center justify-between px-4 border-b border-border glass-strong flex-shrink-0">
         <div className="flex items-center gap-2 min-w-0">
           <MessageSquare className="w-4 h-4 text-primary flex-shrink-0" />
           <h1 className="text-sm font-black tracking-tighter italic text-foreground truncate">
@@ -573,8 +573,8 @@ export function ChatArea({ className }: { className?: string }) {
               return (
                 <div key={group.questionId} data-chat-question-id={group.questionId} className="space-y-3">
                   {/* Question card */}
-                  <div className="rounded-xl bg-primary/10 border border-primary/20 p-4">
-                    <div className="flex items-center gap-2 mb-1.5">
+                    <div className="rounded-xl bg-primary/10 border border-primary/20 p-4">
+                      <div className="flex items-center gap-2.5 mb-1.5">
                       <span className="text-xs font-semibold text-primary">Вы • Q{groupIdx + 1}</span>
                       {group.model && (
                         <span className="text-xs text-muted-foreground bg-secondary px-1.5 py-0.5 rounded">
@@ -699,7 +699,7 @@ export function ChatArea({ className }: { className?: string }) {
                     {/* Answers */}
                     {group.answers.map((answer, idx) => (
                       <div key={`ans-${idx}`} className="rounded-xl bg-card border border-border p-4">
-                        <div className="flex items-center gap-2 mb-1.5">
+                        <div className="flex items-center gap-2.5 mb-1.5">
                           <span className="text-xs font-semibold text-success">AI</span>
                           <button
                             onClick={() => handleCopy(answer, `copy-${idx}`)}
@@ -842,7 +842,7 @@ export function ChatArea({ className }: { className?: string }) {
 
       {/* ── Input Zone ── */}
       <div className="p-4 border-t border-border glass-strong">
-        <div className="flex items-end gap-2 bg-primary/10 rounded-[2rem] border border-transparent focus-within:border-primary/20 focus-within:bg-background transition-all px-3 py-2">
+        <div className="flex items-end gap-2 bg-primary/10 rounded-[2rem] border border-transparent focus-within:border-primary/20 focus-within:bg-background transition-all px-4 py-2.5">
           <STTInput onTranscribe={(t) => setInputValue((prev) => (prev ? prev + ' ' + t : t))} />
 
           <Tooltip>
@@ -881,7 +881,7 @@ export function ChatArea({ className }: { className?: string }) {
             onChange={(e) => setInputValue(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder="Type a message..."
-            className="flex-1 min-h-[40px] max-h-[200px] py-2.5 px-3 bg-secondary border border-border rounded-lg text-sm resize-none focus:outline-none focus:ring-1 focus:ring-primary"
+            className="flex-1 min-h-[44px] max-h-[200px] py-2.5 px-3 bg-secondary border border-border rounded-lg text-sm resize-none focus:outline-none focus:ring-1 focus:ring-primary"
             rows={1}
           />
           <button

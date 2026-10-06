@@ -72,7 +72,7 @@ export function SettingsPanel({ className }: { className?: string }) {
         : 'text-destructive';
 
   return (
-    <aside className={cn(`${className} glass border-l border-border flex flex-col`, className)}>
+    <aside className={cn(className, 'glass border-l border-border flex flex-col')}>
       <div className="p-4 space-y-6 overflow-y-auto flex-1">
         {/* Provider Section */}
         <div>
@@ -147,7 +147,7 @@ export function SettingsPanel({ className }: { className?: string }) {
               </button>
             )}
             {showDetail && modelDetail && (
-              <div className="text-xs text-muted-foreground space-y-1 bg-muted/50 rounded-md p-3">
+              <div className="text-xs text-muted-foreground space-y-1 bg-muted/50 rounded-md px-4 py-2.5">
                 <div>Size: {((modelDetail.details as { size?: number })?.size || 0) / 1024 / 1024 / 1024}GB</div>
                 {(modelDetail.details as { parent_model?: string })?.parent_model && (
                   <div>Parent: {(modelDetail.details as { parent_model?: string }).parent_model}</div>
@@ -179,7 +179,7 @@ export function SettingsPanel({ className }: { className?: string }) {
             value={syspromptInput}
             onChange={(e) => handleSyspromptChange(e.target.value)}
             onBlur={handleSyspromptBlur}
-            className="w-full h-32 px-3 py-2 text-[13px] leading-relaxed bg-secondary border border-border rounded-md resize-none focus:outline-none focus:ring-1 focus:ring-primary"
+            className="w-full h-32 px-4 py-2.5 text-[13px] leading-relaxed bg-secondary border border-border rounded-md resize-none focus:outline-none focus:ring-1 focus:ring-primary"
             placeholder="Enter system prompt..."
           />
         </div>
