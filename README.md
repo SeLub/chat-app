@@ -79,9 +79,9 @@ chmod +x run-ollama-docker.sh
 2. Download models: `ollama pull qwen2.5-coder`
 3. Build the frontend (React app in `webq98/`) and start the backend (pnpm is the default package manager — both lockfiles are `pnpm-lock.yaml`):
 ```bash
-pnpm install
+cd server && pnpm install && cd ..
 cd webq98 && pnpm install && pnpm run build && cd ..
-pnpm start
+cd server && pnpm start
 ```
 Open in browser: [http://localhost:3000](http://localhost:3000) — the backend serves the production build from `webq98/dist` (SPA-fallback for deep routes; API under `/api`, WebSocket under `/ws`, VAD assets under `/vad-assets`).
 
@@ -95,7 +95,7 @@ The UI is a React 18 + Vite + Tailwind 4 SPA located in `webq98/`.
 For real-time speech recognition, start both whisper instances at once:
 
 ```bash
-pnpm run whisper
+cd server && pnpm run whisper
 ```
 
 This runs `scripts/whisper.sh`, which launches two `whisper-server` processes:
@@ -157,34 +157,35 @@ PORT=3000
 
 ```text
 chat-app/
- ├── src/                            # Backend (Express 5 + better-sqlite3 + WS), port :3000
- │   ├── controllers/
- │   │   └── chatController.js       # Handles context building, LLM calls, and KV-cache bypass
- │   ├── services/
- │   │   ├── contextBuilder.js       # Pure math for LIFO trimming and Q&A filtering
- │   │   ├── sessionService.js       # Session and message management
- │   │   ├── fileService.js          # PDF/DOC/XLS/code processing
- │   │   └── webService.js           # URL content extraction
- │   ├── providers/
- │   │   ├── OllamaProvider.js
- │   │   └── LlamaCppProvider.js     # Handles llama.cpp specific cache parameters
- │   ├── db/                         # SQLite repos; runtime DB files live in data/ (gitignored)
- │   └── routes/
- ├── tests/                          # Backend tests (node --test)
- ├── public/vad-assets/              # VAD/ORT assets, served with COOP/COEP headers
+ ├── server/                         # Backend (Express 5 + better-sqlite3 + WS), port :3000
+ │   ├── src/
+ │   │   ├── controllers/
+ │   │   │   └── chatController.js   # Handles context building, LLM calls, and KV-cache bypass
+ │   │   ├── services/
+ │   │   │   ├── contextBuilder.js   # Pure math for LIFO trimming and Q&A filtering
+ │   │   │   ├── sessionService.js   # Session and message management
+ │   │   │   ├── fileService.js      # PDF/DOC/XLS/code processing
+ │   │   │   └── webService.js       # URL content extraction
+ │   │   ├── providers/
+ │   │   │   ├── OllamaProvider.js
+ │   │   │   └── LlamaCppProvider.js # Handles llama.cpp specific cache parameters
+ │   │   └── routes/
+ │   ├── tests/                      # Backend tests (node --test)
+ │   ├── public/vad-assets/          # VAD/ORT assets, served with COOP/COEP headers
+ │   └── data/                       # Runtime SQLite (chat.db), gitignored
  ├── webq98/                         # Frontend: React 18 + Vite + Tailwind 4
  │   ├── src/                        # UI logic, Standard/Manual mode toggling
  │   └── dist/                       # Production build (gitignored), served by the backend
- └── data/                           # Runtime SQLite (chat.db), gitignored
+ └── docs/
 ```
 
 ---
 
 ## Adding a New Provider
 To add a third provider (e.g., vLLM, LocalAI):
-1. Create a class extending `BaseProvider` in `src/providers/`.
-2. Register it in `src/providers/providerManager.js`.
-3. Add configuration in `src/config/providers.js`.
+1. Create a class extending `BaseProvider` in `server/src/providers/`.
+2. Register it in `server/src/providers/providerManager.js`.
+3. Add configuration in `server/src/config/providers.js`.
 *No changes to controllers, services, or routes are needed.*
 
 ---
