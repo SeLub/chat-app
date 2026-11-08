@@ -184,13 +184,16 @@ export async function buildLLMContext(sessionId, currentAttachments = [], contex
 /**
  * Получить Q&A пары сессии для отображения в UI
  * @param {string} sessionId
- * @returns {Array} массив { questionId, questionText, answerText, questionChars, answerChars, totalChars, sortOrder, model }
+ * @returns {Array} массив { questionId, questionText, answerText, questionChars, answerChars, totalChars, sortOrder, model, attachments_meta, metrics, image_data }
  */
 export function getQAPairs(sessionId) {
     const db = getDb();
     // === ИЗМЕНЕНО: добавлено поле model в SELECT ===
+    // TZ-B.2b: контракт ответа (ТЗ §API, конституция §3.3) требует attachments_meta,
+    // metrics и image_data в Q&A-парах — без них после F5/Load не рендерятся
+    // бейджи вложений и превью (фронт ждёт их через parseLoose)
     const messages = db.prepare(
-        'SELECT role, content, question_id, sort_order, model FROM messages WHERE session_id = ? ORDER BY sort_order ASC'
+        'SELECT role, content, question_id, sort_order, model, attachments_meta, metrics, image_data FROM messages WHERE session_id = ? ORDER BY sort_order ASC'
     ).all(sessionId);
 
     const qaPairs = [];
@@ -206,7 +209,9 @@ export function getQAPairs(sessionId) {
                 answerChars: 0,
                 totalChars: msg.content.length,
                 sortOrder: msg.sort_order,
-                model: msg.model || 'unknown' // === ИЗМЕНЕНО: сохраняем модель вопроса ===
+                model: msg.model || 'unknown', // === ИЗМЕНЕНО: сохраняем модель вопроса ===
+                attachments_meta: msg.attachments_meta || '[]',
+                image_data: msg.image_data || '{}'
             };
         } else if (msg.role === 'assistant' && currentQuestion) {
             currentQuestion.answerText = msg.content;
@@ -214,7 +219,10 @@ export function getQAPairs(sessionId) {
             currentQuestion.totalChars = currentQuestion.questionChars + msg.content.length;
             // Если у ассистента есть модель, обновляем (на случай, если она отличается, но обычно она та же)
             if (msg.model) currentQuestion.model = msg.model; 
-            
+            currentQuestion.metrics = msg.metrics || '{}';
+            // image_data ассистента приоритетнее (превью в ответе), если у него есть реальное содержимое
+            if (msg.image_data && msg.image_data !== '{}') currentQuestion.image_data = msg.image_data;
+
             qaPairs.push(currentQuestion);
             currentQuestion = null;
         }
