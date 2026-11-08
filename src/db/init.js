@@ -120,6 +120,15 @@ export function initializeSchema(database) {
     `);
 }
 
+export function setDbPath(customPath) {
+    // Переключает путь БД (для тестов: ':memory:'). Закрывает открытое соединение при смене пути.
+    if (db && db.name !== customPath) {
+        db.close();
+        db = null;
+    }
+    dbPath = customPath;
+}
+
 export function closeDb() {
     if (db) {
         db.close();
