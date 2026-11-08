@@ -18,7 +18,7 @@ interface ProviderStore {
 
   setProviders: (providers: ProviderInfo[]) => void;
   setCurrentProvider: (provider: ProviderName) => void;
-  loadModels: (provider: string) => Promise<void>;
+  loadModels: (provider: ProviderName) => Promise<void>;
   selectModel: (name: string) => void;
   refreshStatus: () => Promise<void>;
   init: () => Promise<void>;
@@ -69,12 +69,29 @@ export const useProviderStore = create<ProviderStore>((set, get) => ({
   },
 
   setCurrentProvider(provider) {
-    set({ currentProvider: provider });
+    // TZ-A.1: сброс модели/деталей/контекста предыдущего провайдера ДО загрузки новых —
+    // иначе старая модель «прилипает» к новому провайдеру
+    set({
+      currentProvider: provider,
+      currentModel: null,
+      modelDetail: null,
+      currentContextLength: null,
+    });
     localStorage.setItem('selectedProvider', provider);
-    get().loadModels(provider);
+    void get()
+      .loadModels(provider)
+      .then(() => {
+        // TZ-A.1: единственная модель нового провайдера → авто-выбор (§7.93)
+        if (get().currentModel === null) {
+          const providerModels = get().models.filter((m) => m.provider === provider);
+          if (providerModels.length === 1) {
+            void get().selectModel(providerModels[0].name);
+          }
+        }
+      });
   },
 
-  async loadModels(provider: string) {
+  async loadModels(provider: ProviderName) {
     set({ isLoadingModels: true });
     try {
       const data = await apiGateway.models.list(provider);
@@ -85,7 +102,7 @@ export const useProviderStore = create<ProviderStore>((set, get) => ({
           size: m.size || 0,
           contextLength: m.contextLength || 0,
           type: m.type === 'vision' ? 'vision' : 'chat',
-          provider: provider as ProviderName,
+          provider,
         }));
         set({ models });
       }
