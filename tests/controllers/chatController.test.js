@@ -72,8 +72,7 @@ describe('chatHandler: Phase B (attachments)', () => {
 
             assert.equal(res.statusCode, 200, `handler failed: ${JSON.stringify(res.body)}`);
             assert.equal(res.body.response, 'mock answer');
-            // файл ещё существует здесь — его удаление это TZ-B.3
-            await fs.access(csvPath);
+            // удаление tmp-файла — предмет TZ-B.3 (отдельные тесты)
         });
     });
 
@@ -170,6 +169,58 @@ describe('chatHandler: Phase B (attachments)', () => {
             // Ошибки экстракции конкретного файла (errors из extractFromPaths) покрыты
             // в tests/db/attachmentRepo.test.js; ветка "log + continue" в контроллере —
             // та же точка возврата, что и базовая (meta = []), см. PR-описание.
+        });
+    });
+
+    describe('TZ-B.3: cleanup временных файлов в finally', () => {
+        it('tmp file deleted after successful handling', async () => {
+            const csvPath = path.join(tempDir, 'report_b3_ok.csv');
+            await fs.writeFile(csvPath, 'a,b\n1,2\n', 'utf-8');
+
+            const req = {
+                body: { message: 'Вопрос', model: 'test-model', sessionId, questionId: 'q_3_1' },
+                files: {
+                    file: [{ path: csvPath, originalname: 'report_b3_ok.csv', mimetype: 'text/csv', size: 9 }],
+                },
+                provider: makeProvider(),
+                providerName: 'mock',
+            };
+            const res = makeRes();
+            await chatHandler(req, res);
+
+            assert.equal(res.statusCode, 200, `handler failed: ${JSON.stringify(res.body)}`);
+            await assert.rejects(() => fs.access(csvPath), 'tmp-файл должен быть удалён после обработки');
+        });
+
+        it('tmp files deleted even when provider.chat fails', async () => {
+            const p1 = path.join(tempDir, 'cf_b3.ts');
+            const p2 = path.join(tempDir, 'cf_b3.js');
+            await fs.writeFile(p1, 'export const x = 1;\n', 'utf-8');
+            await fs.writeFile(p2, 'const y = 2;\n', 'utf-8');
+
+            const failingProvider = {
+                name: 'mock-fail',
+                detectModelType: () => 'chat',
+                chat: async () => { throw new Error('provider down'); },
+            };
+
+            const req = {
+                body: { message: 'Вопрос', model: 'test-model', sessionId, questionId: 'q_3_2' },
+                files: {
+                    codeFiles: [
+                        { path: p1, originalname: 'cf_b3.ts', mimetype: 'text/plain', size: 19 },
+                        { path: p2, originalname: 'cf_b3.js', mimetype: 'text/javascript', size: 13 },
+                    ],
+                },
+                provider: failingProvider,
+                providerName: 'mock-fail',
+            };
+            const res = makeRes();
+            await chatHandler(req, res);
+
+            assert.equal(res.statusCode, 500, 'ошибка провайдера должна вернуть 500');
+            await assert.rejects(() => fs.access(p1), 'tmp-файл 1 должен быть удалён даже при ошибке провайдера');
+            await assert.rejects(() => fs.access(p2), 'tmp-файл 2 должен быть удалён даже при ошибке провайдера');
         });
     });
 });
