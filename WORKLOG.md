@@ -101,4 +101,20 @@
 - **Инфраструктура тестов:** в репо есть `tests/db/*.test.js` (node:test) от владельца, но они сломаны: импортируют `setDbPath`, которого нет в `src/db/init.js`; скрипта запуска нет. Включаем: добавляем `setDbPath`/скрипт `test:backend` (enabler-коммит до TZ-B.*), тесты Фазы B — в той же конвенции (node:test + `:memory:`).
 - B.3: cleanup — try/finally вокруг тела chatHandler, `fs.promises.unlink(...).catch(()=>{})`, директорию `uploads/tmp` не удаляем.
 
-**Статус:** Фаза B — в работе, ветка `tz/phase-b`.
+**Исполнение Фазы B (ветка `tz/phase-b`, каждый пункт: красный тест → фикс → зелёный).**
+- `269fb62` docs: регламент v1.2 + анализ фазы.
+- `d559b32` **enabler**: `setDbPath` в `db/init.js` (тесты владельца импортировали несуществующий экспорт), скрипт `test:backend` (node --test glob), тест-онли фиксы: WAL проверяется на файловой БД (на `:memory:` WAL невозможен), FK-проект в сетапе sessionRepo, детерминированный порядок `updated_at`. Итог: 44/44 → **52/52** с тестами Фазы B.
+- `82aac57` **B.1**: `chatRoutes` → `multer.diskStorage` (`uploads/tmp/`, паттерн имени из ТЗ + санитизация разделителей пути против traversal, лимит 50 MB сохранён). Контроллер восстанавливает `buffer` чтением с диска — сервисы `fileService`/`imageService` не тронуты, все ветки (документы/код/изображения) работают. Тест: файл только с path (без buffer) обрабатывается.
+- `3066e6a` **B.2**: `extractFiles([path], sessionId)` до `addMessage` для doc-файла и каждого codeFile; `currentAttachments` = свежие `{fileId,name,size,type}` (серверный путь в meta не утекает); ошибки — log.warn + продолжение. Тесты: строка в `attachments` + fileId в `attachments_meta`; 2 codeFiles → 2 строки/2 fileId; без файлов → `[]`.
+- `92e2265` **B.2b** (разрыв контракта, обнаружен при анализе): `getQAPairs` теперь возвращает `attachments_meta`, `metrics`, `image_data` (сырые JSON-строки — паритет эталону `public/script.js:156`, фронтовый `parseLoose` понимает оба вида). Без этого после F5/Load не рендерятся бейджи/превью и приёмка Фазы B невыполнима.
+- `f76c589` **B.3**: `finally` вокруг тела chatHandler — `fs.promises.unlink` всех tmp-путей (успех и любая ошибка, включая падение провайдера); директория `uploads/tmp` сохраняется. Тесты: файл удалён после успеха; удалены при 500 от провайдера.
+- **B.4** (`filesContextChars`) — SKIP (решение владельца); `buildLLMContext` уже читал `attachments_meta` — контекст следующего вопроса заработал без правок.
+- `46918b1` **B.5**: контракт-тест фронта — `mapQAPairsToMessages` не падает от `fileId` в `attachments_meta`, поле доезжает до store (optimistic-сообщение оставлено как есть, по ТЗ).
+
+**Ограничение (вне скоупа ТЗ, к сведению):** `attachmentRepo.extractFromPaths` читает файл как utf-8 — для бинарных PDF/DOC `extracted_text` будет шумом (codeFiles и CSV/текст — корректно). На контекст модели это не влияет (в промпт документа попадает честный текст из `processDocument`); предложение — в BACKLOG как «binary-safe extraction» на решение владельца.
+
+**Гейты на HEAD:** build ✓ · lint ✓ (max-warnings 0) · test:run ✓ **84/84** (+1) · test:backend ✓ **52/52** (+8).
+
+**Ручная приёмка (за владельцем):** отправить PDF → строка в `attachments`, `attachments_meta` с fileId; 2–3 codeFiles → 2–3 строки; F5 → новый вопрос → в логах `fixedChars > 0` (`filesContext` подмешан); бейджи вложений и превью видны после F5/Load; `uploads/tmp` пустеет после запроса; отправка изображения (vision) работает как раньше.
+
+**Статус:** Фаза B выполнена, гейты зелёные, коммиты `TZ-B.*`. PR-2 открыт; фаза C — после вердикта.
