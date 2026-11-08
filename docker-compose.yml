@@ -17,16 +17,14 @@ services:
       # Оптимизация памяти
       - OLLAMA_FLASH_ATTENTION=true
       - OLLAMA_NUM_PARALLEL=2 # Allows 2 concurrent requests (good for Kilo Code)
+      
+      # GPU access via nvidia runtime
+      - NVIDIA_VISIBLE_DEVICES=all
+    runtime: nvidia
     deploy:
       resources:
         limits:
           memory: 48G  # Increased from 32G to 48G to better utilize your 64GB system RAM
-          # GPUs are handled separately below
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "/bin/ollama", "list"]
