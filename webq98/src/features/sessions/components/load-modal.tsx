@@ -70,8 +70,14 @@ export function LoadModal() {
   }, [debouncedSearch]);
 
   const handleSelectSession = async (id: string) => {
-    await switchToViewing(id);
-    closeLoadModal();
+    // D.3: модалка не виснет при ошибке — finally закрывает, catch показывает toast (паритет с dashboard)
+    try {
+      await switchToViewing(id);
+    } catch {
+      useUIStore.getState().addToast('Failed to open conversation', 'error');
+    } finally {
+      closeLoadModal();
+    }
   };
 
   const handleStartEdit = (session: SessionItem) => {
