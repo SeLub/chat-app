@@ -208,4 +208,4 @@
 
 **Ручная приёмка (за владельцем, по ТЗ):** `npm run build` (webq98) → `npm start` → :3000 отдаёт React-SPA (`/` — ChatArea+QuestionsPanel, `/dashboard` — Dashboard); AI Helper работает (VAD/WS/whisper — vad-assets с :3000, COOP/COEP навешены); Command palette (Cmd+K), Save/Load/Export; консоль браузера без новых ошибок.
 
-**Статус:** ✅ Фаза F исполнена — последняя кодовая фаза трека «Миграция на React». PR: см. следующую запись.
+**Статус:** ✅ Фаза F исполнена — последняя кодовая фаза трека «Миграция на React». **PR открыт: [#7](https://github.com/SeLub/chat-app/pull/7)** (`tz/phase-f` → `main`, поверх `tz/phase-e`; 8 коммитов фазы F: 1 docs-анализ + F.1/F.2 + F.3 + F.4 + F.5 + F.6 + docs-исполнена; порядок merge: #6 → #7). Трек «Миграция на React» — все кодовые фазы A/B/D/F исполнены, E — верификация; осталась ручная приёмка владельца (E.3 + приёмка F).
