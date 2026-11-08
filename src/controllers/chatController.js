@@ -28,6 +28,9 @@ export async function chatHandler(req, res) {
         questionId
     });
 
+    // TZ-B.3: временные файлы (diskStorage, uploads/tmp) удаляются после обработки в любом исходе
+    const tmpFilePaths = [file?.path, ...codeFiles.map((cf) => cf?.path)].filter(Boolean);
+
     try {
         // TZ-B.1: при diskStorage у файлов нет буфера — восстанавливаем из файла на диске.
         // Сервисы (fileService/imageService) продолжают работать с buffer без изменений,
@@ -265,5 +268,8 @@ export async function chatHandler(req, res) {
     } catch (error) {
         log.error('Error processing URLs', { error: error.message });
         res.status(500).json({ error: 'Failed to process message' });
+    } finally {
+        // TZ-B.3: cleanup — сама директория uploads/tmp сохраняется (переиспользуется)
+        await Promise.all(tmpFilePaths.map((p) => fs.promises.unlink(p).catch(() => {})));
     }
 }
