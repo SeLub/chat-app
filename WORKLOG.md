@@ -209,3 +209,45 @@
 **Ручная приёмка (за владельцем, по ТЗ):** `npm run build` (webq98) → `npm start` → :3000 отдаёт React-SPA (`/` — ChatArea+QuestionsPanel, `/dashboard` — Dashboard); AI Helper работает (VAD/WS/whisper — vad-assets с :3000, COOP/COEP навешены); Command palette (Cmd+K), Save/Load/Export; консоль браузера без новых ошибок.
 
 **Статус:** ✅ Фаза F исполнена — последняя кодовая фаза трека «Миграция на React». **PR открыт: [#7](https://github.com/SeLub/chat-app/pull/7)** (`tz/phase-f` → `main`, поверх `tz/phase-e`; 8 коммитов фазы F: 1 docs-анализ + F.1/F.2 + F.3 + F.4 + F.5 + F.6 + docs-исполнена; порядок merge: #6 → #7). Трек «Миграция на React» — все кодовые фазы A/B/D/F исполнены, E — верификация; осталась ручная приёмка владельца (E.3 + приёмка F).
+
+---
+
+## 2026-11-08 — Трек «Миграция на React» завершён (PR #6/#7 merged); закрытие трека: ветки, BACKLOG, план реструктуризации, вердикт по ветке `context`
+
+**Merge-статус.** PR #6 (Фаза E, docs) merged 2026-11-08T17:10:47Z; PR #7 (Фаза F) merged 2026-11-08T17:21:48Z, merge-коммит `57a3ba4` — оба владельцем. `main` синхронизирован.
+
+**Инфраструктура/гигиена веток.** По указанию владельца удалены `tz/phase-e` и `tz/phase-f` (remote + локально) по регламенту v1.2. В репо остались: `main` + `origin/context`.
+
+**Анализ ветки `context` (подсчёт контекста) — вердикт: УДАЛЯТЬ МОЖНО.**
+- `origin/context` (tip `9e7d2ad`, 2026-08-19 «feat: STT Whisper integration») — **полный предок `main`** (`git merge-base --is-ancestor` = true): 0 уникальных коммитов, ветка после форка не развивалась ни разу, tip == merge-base. Любой её код уже в `main` (в эволюционировавшем виде), удаления ни одного байта работы не происходит.
+- Сравнение реализации подсчёта контекста (tip ветки → `main`), расхождения — только эволюция трека миграции:
+  1. **Manual-фильтрация (`cutContext`)**: ветка — `includeQuestionIds.length > 0` (баг: «Manual + все сняты» отправлял ВСЕ пары); `main` — `Array.isArray` (TZ-A.7, решение #100): `[]` = «ничего», `null` = «все».
+  2. **Контракт `getQAPairs`**: ветка — `{questionId, questionText, answerText, questionChars, answerChars, totalChars, sortOrder, model}`; `main` — + `attachments_meta`, `metrics`, `image_data` (TZ-B.2b) — бейджи/превью после F5/Load. Ядро подсчёта символов (`content.length` → `totalChars`) НЕ менялось.
+  3. **chatController**: ветка — memoryStorage, `currentAttachments = attachmentMeta || []` (клиентская мета, фронт её не слал → вложения никогда не доходили до контекста); `main` — diskStorage + восстановление буфера + `extractFiles` → `{fileId,name,size,type}` + cleanup в `finally` (TZ-B.1–B.3) — только в `main` файлы реально попадают в подсчёт контекста (`filesContext`).
+  4. Формула/политика подсчёта НЕ менялись ни там, ни там: символы, `availableChars × retainPercent` (80%-буфер по умолчанию), LIFO-обрезка; pct считался на фронте (`contextInfo.totalChars / maxChars`, легаси `script.js:1288`) → в React то же через `sessionStore.contextInfo` (`contextSize, totalChars, includedQAPairs, totalQAPairs`).
+  5. Альтернативной/«другой» реализации подсчёта в ветке НЕТ — в ней нет ни одного коммита сверх общей истории.
+- **Рекомендация: `git push origin --delete context`** — исполню по вердикту владельца (сам не удаляю: указание было «выяснить»).
+
+**BACKLOG пополнен (BACKLOG.md):** владелец принял весь отложенный список к реализации в следующем треке (после реструктуризации): #1 E2E Playwright, #2 статус-точки провайдеров, #3 attachments-таблица пуста, #4 демонтаж панели — помечены «к реализации»; добавлены новые: **#5** удаление `public/` (чек-лист ТЗ, vad-assets переезжают), **#6** binary-safe extraction (utf-8 шум для PDF/DOC, наблюдение Фазы B), **#7** code-splitting >500 kB (vite warning из логов гейтов).
+
+**План глобальной реструктуризации создан:** `plans/restructure-server-frontend.md` (статус ПРОЕКТ, ждёт вердикта). Ключевое: аудит 18 записей корня; целевая структура `server/` (самодостаточен: src+tests+package+scripts+public/vad-assets+data) + `frontend/` (бывший webq98) + `docs/` (процесс/планы/справочники); 6 точек решения (D1 pnpm vs npm — рекомендация npm; D2 ai_helper.db затрекчена — untrack; D3 legacy select_dir/test-файлы — архив; D4 процесс-документы в docs/; D5 docker-compose в корне; D6 имя frontend); 5 фаз исполнения (R.1 префлайт+тег отката → R.2 server → R.3 frontend → R.4 корень/docs → R.5 финал), гейты и live-smoke после каждой фазы; оценка 5–7 ч. Отмечено: битая ссылка README `run-ollama-docker.sh` (файла нет).
+
+**Статус:** ✅ Трек «Миграция на React» ЗАВЕРШЁН (A–F, PR #2/#3/#5/#6/#7 merged; C — анулирован владельцем). Следующий трек: глобальная реструктуризация (план готов) + backlog-пункты.
+
+---
+
+## 2026-11-09 — Верды владельца по плану реструктуризации → исполнены досрочно в PR #8: pnpm по умолчанию, `ai_helper.db` untrack → `data/`, архив `test-mic.html`
+
+**Контекст.** Владелец выдал вердикты по точкам решения D1–D3 плана `plans/restructure-server-frontend.md` (PR #8, ветка `tz/track-closeout`) и подтвердил: ветка `context` удалена владельцем самостоятельно (remote; после `git fetch --prune` локальных следов нет — вердикт «УДАЛЯТЬ МОЖНО» из прошлого WORKLOG-записи исполнен). D4/D5/D6 приняты как рекомендовано; исполнение реструктуризации — отдельным треком `tz/restructure-*`.
+
+**D1 — pnpm по умолчанию (решение #113).** Удалены npm-артефакты: `package-lock.json` (корень) и `webq98/package-lock.json`. Корневой `pnpm-lock.yaml` оказался устаревшим (содержал фронтовые devDeps, удалённые в TZ-F.6) — обновлен свежей резолюцией `pnpm install --lockfile-only` (pnpm 10.34.9, 248 пакетов, резолюция соответствует текущему `package.json`). В `webq98/` добавлен собственный `pnpm-lock.yaml` (607 пакетов; ранее lock внутри webq98 отсутствовал вовсе — только npm). Команды в README и PROJECT_CONTEXT (§2, §6/§8, §9) переведены на pnpm (`pnpm install/start/run dev/run build/run lint/test:run/run whisper`). README: блок Project Structure приведён к фактической структуре (прежний описывал до-React-era `server/`+`public/`), в Requirements добавлен pnpm 10+.
+
+**D2 — `ai_helper.db` untrack → `data/` (решение #114).** `git rm --cached ai_helper.db`; файл физически перемещён в `data/ai_helper.db` (байты сохранены — требование владельца «сохранить тестовые данные в БД» выполнено). `.gitignore`: `data/chat.*` → `data/*.db*` (покрывает chat.db/-shm/-wal и ai_helper.db). Уточнение по факту: файл в git ПУСТ (0 строк в обеих таблицах) — таблицы ai-helper (`ai_helper_sessions`/`ai_helper_messages`) живут в `data/chat.db` через общий `getDb()` (`src/db/init.js`); код ссылок на корневой файл не имеет. Живая БД с тестовыми данными владельца — `data/chat.db` на машине владельца — данной операцией не затрагивается вовсе.
+
+**D3 — архив ad-hoc артефактов (решение #115).** `test-mic.html` → `docs/reference/legacy-scratch/test-mic.html` (по указанию владельца; каталог по образцу golden-master `docs/reference/public-archive/`). Остаток D3 (`select_dir/`, `test-ai-helper-repo.js`) — в R.4 реструктуризации.
+
+**Документы.** План реструктуризации: статус «ВЕРДИКТЫ ПРИНЯТЫ», §2/§4/§5/§6 отражают верды и досрочное исполнение; целевая структура — `pnpm-lock.yaml` в `server/` и `frontend/`. PROJECT_CONTEXT: решения #113–115, карта §10 (`data/` без ai_helper.db), команды pnpm. README — см. D1.
+
+**Гейты (после изменений, узел `tz/track-closeout`):** build ✓ · lint ✓ (--max-warnings 0) · test:run ✓ 88/88 · test:backend ✓ 59/59. Красный-первый неприменим: 0 строк исполняемого кода (git-гигиена, lockfiles, docs).
+
+**Статус:** ✅ Верды D1–D3 исполнены; PR #8 обновлён (документы + хозработы). Реструктуризация `server/` + `frontend/` — следующий трек (план готов, верды учтены).

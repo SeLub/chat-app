@@ -24,11 +24,11 @@ Multi-Provider AI Chat — десктопный инструмент для ра
 |---|---|---|---|
 | Бэкенд (Express + БД) | репозиторий сервера | 3000 | **НЕ ИЗМЕНЯТЬ без прямого указания в ТЗ** |
 | Эталонный фронтенд | `public/` (index.html, script.js, style.css, ...) | 3000 | **ТОЛЬКО ЧИТАТЬ. Golden master для сверки поведения. Не изменять, не удалять** |
-| Новый фронтенд (наш) | `webq98/` | 5175 | `npm run dev`, `npm run build`, `npm run lint` |
+| Новый фронтенд (наш) | `webq98/` | 5175 | `pnpm run dev`, `pnpm run build`, `pnpm run lint` |
 | whisper.cpp (STT) | внешний сервис | 8081 | доступен через бэкенд |
 
 - Прокси из vite: `/api` → :3000, `/ws` → :3000 (ws:true), `/vad-assets` → :3000.
-- Бэкенд должен быть запущен (`npm start` на сервере), иначе API вернёт сетевые ошибки.
+- Бэкенд должен быть запущен (`pnpm start` на сервере), иначе API вернёт сетевые ошибки.
 
 ## 3. ЖЕЛЕЗНЫЙ КОНТРАКТ БЭКЕНДА
 
@@ -144,7 +144,7 @@ Multi-Provider AI Chat — десктопный инструмент для ра
 - **HTTP-вызовы — только через `src/lib/apiGateway.ts`.** Сырой `fetch` в компонентах/stores запрещён.
 - WebSocket — только через отдельный модуль `src/lib/aiHelperSocket.ts` (Фаза 3).
 - Новые зависимости — только если явно указаны в ТЗ.
-- `npm run build`, `npm run lint` и и `npm run test:run` обязаны проходить. TS strict, без `any` (кроме нормализации snake/camel с комментарием).
+- `pnpm run build`, `pnpm run lint` и `pnpm run test:run` обязаны проходить. TS strict, без `any` (кроме нормализации snake/camel с комментарием).
 - Коммит на каждое ТЗ: `TZ-N.M: краткое описание`.
 - **Zustand-подписки:** селектор в useStore() должен возвращать СТАБИЛЬНУЮ ссылку
   (поле state или примитив). Запрещено вызывать в селекторе функции, создающие
@@ -281,6 +281,9 @@ Multi-Provider AI Chat — десктопный инструмент для ра
 | 110 | `public/` (кроме `vad-assets`) → `docs/reference/public-archive/` — golden master. Не изменять | TZ-F.3 |
 | 111 | Тестовая стратегия: каждый фикс — тест в той же фазе (выполнено для A–D, red-first). E2E Playwright — SKIP владельца → BACKLOG #1 | TZ-E.1/E.2 |
 | 112 | §7.49 (AI Helper «мёртвый фасад») — аннулировано: AI Helper работает end-to-end (WS + whisper + LLM + БД) | TZ-E, вердикт приёмки B |
+| 113 | pnpm — пакетный менеджер по умолчанию: npm-артефакты (`package-lock.json` в корне и в `webq98/`) удалены; корневой `pnpm-lock.yaml` обновлён (устарел — содержал devDeps, удалённые в TZ-F.6), в `webq98/` добавлен свой `pnpm-lock.yaml`; команды в README/§ — pnpm | вердикт владельца 2026-11-09 (D1 плана реструктуризации) |
+| 114 | `ai_helper.db` выведен из git → `data/ai_helper.db` (untracked; gitignore `data/*.db*`). Файл пуст (0 строк): таблицы ai-helper живут в `data/chat.db` через общий `getDb()`; локальные данные владельца не затронуты | вердикт владельца 2026-11-09 (D2) |
+| 115 | `test-mic.html` → `docs/reference/legacy-scratch/` (архив ad-hoc артефактов); `select_dir/` и `test-ai-helper-repo.js` переедут туда же в R.4 реструктуризации | вердикт владельца 2026-11-09 (D3) |
 
 ## 8. Запрещено
 
@@ -293,11 +296,11 @@ Multi-Provider AI Chat — десктопный инструмент для ра
 
 ## 9. Definition of Done (для любого ТЗ)
 
-- [ ] `npm run build` — успех; `npm run lint` — без ошибок.
+- [ ] `pnpm run build` — успех; `pnpm run lint` — без ошибок.
 - [ ] Приложение запускается на :5175, консоль браузера без новых ошибок.
 - [ ] Все пункты «Критерии приёмки» ТЗ выполнены и проверены против **реального бэкенда** (:3000).
 - [ ] Поведение сверено с эталоном на :3000, где применимо.
-- [ ] npm run test:run — все тесты зелёные (с ТЗ-2.4)
+- [ ] pnpm run test:run — все тесты зелёные (с ТЗ-2.4)
 - [ ] Коммит создан.
 
 
@@ -320,7 +323,7 @@ chat-app/
 ├── tests/                         # node --test (test:backend): db/, controllers/, services/, app/
 ├── public/
 │   └── vad-assets/                # ЕДИНСТВЕННОЕ содержимое: VAD/ORT-ассеты (решение #109, COOP/COEP)
-├── ai_helper.db, data/            # SQLite
+├── data/                          # runtime SQLite (chat.db; *.db* в gitignore; решение #114)
 └── webq98/                        # НАШ ФРОНТЕНД — вся работа здесь
     ├── PROJECT_CONTEXT.md         # эта конституция
     ├── package.json, vite.config.ts, eslint.config.js, index.html
