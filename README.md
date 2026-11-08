@@ -77,25 +77,25 @@ chmod +x run-ollama-docker.sh
 ### Option 2: Local Installation
 1. Install [Ollama](https://ollama.com) or run `llama-server`.
 2. Download models: `ollama pull qwen2.5-coder`
-3. Build the frontend (React app in `webq98/`) and start the backend:
+3. Build the frontend (React app in `webq98/`) and start the backend (pnpm is the default package manager — both lockfiles are `pnpm-lock.yaml`):
 ```bash
-npm install
-cd webq98 && npm install && npm run build && cd ..
-npm start
+pnpm install
+cd webq98 && pnpm install && pnpm run build && cd ..
+pnpm start
 ```
 Open in browser: [http://localhost:3000](http://localhost:3000) — the backend serves the production build from `webq98/dist` (SPA-fallback for deep routes; API under `/api`, WebSocket under `/ws`, VAD assets under `/vad-assets`).
 
 ### Frontend (`webq98/`)
 The UI is a React 18 + Vite + Tailwind 4 SPA located in `webq98/`.
-* **Development:** `cd webq98 && npm run dev` — Vite dev server on **:5175**, proxying `/api`, `/ws` and `/vad-assets` to the backend on :3000.
-* **Production:** `npm run build` → outputs `webq98/dist`; the backend on :3000 serves this build, with an SPA-fallback that returns `index.html` for unknown GET routes.
+* **Development:** `cd webq98 && pnpm run dev` — Vite dev server on **:5175**, proxying `/api`, `/ws` and `/vad-assets` to the backend on :3000.
+* **Production:** `pnpm run build` → outputs `webq98/dist`; the backend on :3000 serves this build, with an SPA-fallback that returns `index.html` for unknown GET routes.
 * The legacy static frontend is archived read-only in `docs/reference/public-archive/` (golden master, do not modify).
 
 ### Whisper (STT)
 For real-time speech recognition, start both whisper instances at once:
 
 ```bash
-pnpm whisper
+pnpm run whisper
 ```
 
 This runs `scripts/whisper.sh`, which launches two `whisper-server` processes:
@@ -156,26 +156,26 @@ PORT=3000
 ## Project Structure
 
 ```text
-server/
- ├── src/
- │   ├── controllers/                
+chat-app/
+ ├── src/                            # Backend (Express 5 + better-sqlite3 + WS), port :3000
+ │   ├── controllers/
  │   │   └── chatController.js       # Handles context building, LLM calls, and KV-cache bypass
- │   ├── services/                   
+ │   ├── services/
  │   │   ├── contextBuilder.js       # Pure math for LIFO trimming and Q&A filtering
  │   │   ├── sessionService.js       # Session and message management
  │   │   ├── fileService.js          # PDF/DOC/XLS/code processing
  │   │   └── webService.js           # URL content extraction
- │   ├── providers/                  
- │   │   ├── OllamaProvider.js       
+ │   ├── providers/
+ │   │   ├── OllamaProvider.js
  │   │   └── LlamaCppProvider.js     # Handles llama.cpp specific cache parameters
- │   └── routes/                     
- │       ├── chatRoutes.js
- │       └── sessionRoutes.js
- │
- └── public/                         # Frontend
-     ├── index.html
-     ├── style.css
-     └── script.js                   # UI logic, Standard/Manual mode toggling
+ │   ├── db/                         # SQLite repos; runtime DB files live in data/ (gitignored)
+ │   └── routes/
+ ├── tests/                          # Backend tests (node --test)
+ ├── public/vad-assets/              # VAD/ORT assets, served with COOP/COEP headers
+ ├── webq98/                         # Frontend: React 18 + Vite + Tailwind 4
+ │   ├── src/                        # UI logic, Standard/Manual mode toggling
+ │   └── dist/                       # Production build (gitignored), served by the backend
+ └── data/                           # Runtime SQLite (chat.db), gitignored
 ```
 
 ---
@@ -191,6 +191,7 @@ To add a third provider (e.g., vLLM, LocalAI):
 
 ## Requirements
 * Node.js 18+
+* pnpm 10+ — the default package manager (root and `webq98/` both use `pnpm-lock.yaml`)
 * Ollama installed and running, OR
 * llama.cpp server (`llama-server`) with a loaded GGUF model.
 

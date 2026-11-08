@@ -233,3 +233,21 @@
 **План глобальной реструктуризации создан:** `plans/restructure-server-frontend.md` (статус ПРОЕКТ, ждёт вердикта). Ключевое: аудит 18 записей корня; целевая структура `server/` (самодостаточен: src+tests+package+scripts+public/vad-assets+data) + `frontend/` (бывший webq98) + `docs/` (процесс/планы/справочники); 6 точек решения (D1 pnpm vs npm — рекомендация npm; D2 ai_helper.db затрекчена — untrack; D3 legacy select_dir/test-файлы — архив; D4 процесс-документы в docs/; D5 docker-compose в корне; D6 имя frontend); 5 фаз исполнения (R.1 префлайт+тег отката → R.2 server → R.3 frontend → R.4 корень/docs → R.5 финал), гейты и live-smoke после каждой фазы; оценка 5–7 ч. Отмечено: битая ссылка README `run-ollama-docker.sh` (файла нет).
 
 **Статус:** ✅ Трек «Миграция на React» ЗАВЕРШЁН (A–F, PR #2/#3/#5/#6/#7 merged; C — анулирован владельцем). Следующий трек: глобальная реструктуризация (план готов) + backlog-пункты.
+
+---
+
+## 2026-11-09 — Верды владельца по плану реструктуризации → исполнены досрочно в PR #8: pnpm по умолчанию, `ai_helper.db` untrack → `data/`, архив `test-mic.html`
+
+**Контекст.** Владелец выдал вердикты по точкам решения D1–D3 плана `plans/restructure-server-frontend.md` (PR #8, ветка `tz/track-closeout`) и подтвердил: ветка `context` удалена владельцем самостоятельно (remote; после `git fetch --prune` локальных следов нет — вердикт «УДАЛЯТЬ МОЖНО» из прошлого WORKLOG-записи исполнен). D4/D5/D6 приняты как рекомендовано; исполнение реструктуризации — отдельным треком `tz/restructure-*`.
+
+**D1 — pnpm по умолчанию (решение #113).** Удалены npm-артефакты: `package-lock.json` (корень) и `webq98/package-lock.json`. Корневой `pnpm-lock.yaml` оказался устаревшим (содержал фронтовые devDeps, удалённые в TZ-F.6) — обновлен свежей резолюцией `pnpm install --lockfile-only` (pnpm 10.34.9, 248 пакетов, резолюция соответствует текущему `package.json`). В `webq98/` добавлен собственный `pnpm-lock.yaml` (607 пакетов; ранее lock внутри webq98 отсутствовал вовсе — только npm). Команды в README и PROJECT_CONTEXT (§2, §6/§8, §9) переведены на pnpm (`pnpm install/start/run dev/run build/run lint/test:run/run whisper`). README: блок Project Structure приведён к фактической структуре (прежний описывал до-React-era `server/`+`public/`), в Requirements добавлен pnpm 10+.
+
+**D2 — `ai_helper.db` untrack → `data/` (решение #114).** `git rm --cached ai_helper.db`; файл физически перемещён в `data/ai_helper.db` (байты сохранены — требование владельца «сохранить тестовые данные в БД» выполнено). `.gitignore`: `data/chat.*` → `data/*.db*` (покрывает chat.db/-shm/-wal и ai_helper.db). Уточнение по факту: файл в git ПУСТ (0 строк в обеих таблицах) — таблицы ai-helper (`ai_helper_sessions`/`ai_helper_messages`) живут в `data/chat.db` через общий `getDb()` (`src/db/init.js`); код ссылок на корневой файл не имеет. Живая БД с тестовыми данными владельца — `data/chat.db` на машине владельца — данной операцией не затрагивается вовсе.
+
+**D3 — архив ad-hoc артефактов (решение #115).** `test-mic.html` → `docs/reference/legacy-scratch/test-mic.html` (по указанию владельца; каталог по образцу golden-master `docs/reference/public-archive/`). Остаток D3 (`select_dir/`, `test-ai-helper-repo.js`) — в R.4 реструктуризации.
+
+**Документы.** План реструктуризации: статус «ВЕРДИКТЫ ПРИНЯТЫ», §2/§4/§5/§6 отражают верды и досрочное исполнение; целевая структура — `pnpm-lock.yaml` в `server/` и `frontend/`. PROJECT_CONTEXT: решения #113–115, карта §10 (`data/` без ai_helper.db), команды pnpm. README — см. D1.
+
+**Гейты (после изменений, узел `tz/track-closeout`):** build ✓ · lint ✓ (--max-warnings 0) · test:run ✓ 88/88 · test:backend ✓ 59/59. Красный-первый неприменим: 0 строк исполняемого кода (git-гигиена, lockfiles, docs).
+
+**Статус:** ✅ Верды D1–D3 исполнены; PR #8 обновлён (документы + хозработы). Реструктуризация `server/` + `frontend/` — следующий трек (план готов, верды учтены).
