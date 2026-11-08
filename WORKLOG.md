@@ -40,3 +40,29 @@
 **План работ:** PR-1 = Фаза A (критические фиксы) → PR-2 = Фаза B (attachments в БД) → PR-3 = Фаза C (демонтаж правой панели) → PR-4 = Фаза D (UX-паритет) → PR-5 = Фаза E (unit-тесты + регрессия; E.2 в бэклоге) → PR-6 = Фаза F (переключение статики, архивация `public/`).
 
 **Статус:** решения зафиксированы. Фаза A — в работе.
+
+---
+
+## 2026-11-08 — Фаза A: критические фиксы (TZ-A.1–A.10) — выполнена
+
+**Сделано** (каждый пункт: красный тест → фикс → зелёный, §7.40).
+- **A.1** `providerStore.setCurrentProvider`: сброс `currentModel/modelDetail/currentContextLength` до `loadModels`; авто-выбор единственной модели нового провайдера (фильтр по `m.provider`, guard от гонки). Тесты A.1.1–A.1.3 (красные до фикса).
+- **A.2** `TooltipContent`: `z-50` → `z-[60]`, `collisionPadding={12}` сохранён. Аудит `chat-area.tsx`: конфликтующих `z-*` у StatFooter/контекст-бара/шапки НЕ обнаружено — правка только в tooltip. Ручная приёмка (тултип поверх статистики) — за владельцем.
+- **A.3** `apiGateway`: `chatApi.send`, `modelsApi.list/show`, внутренний `request` — `provider: ProviderName`; `providerStore.loadModels` тоже `ProviderName` (каст удалён). Тест 8a: `'llama.cpp'` в localStorage → fallback по приоритету §7.92 (поведение init уже было корректным — тест закрепляет контракт).
+- **A.5** `normalizeTranscript()` в `lib/audio.ts` + вызов в `stt-input.tsx`; append в `chat-area.tsx:934` не вставляет второй пробел. Тесты 8–10.
+- **A.6** `AudioContext` кэшируется в `useRef` (lazy init), `close()` в cleanup; `bufferToWave(…, 16000)` — явная фиксация 16 kHz для STT-пути. Тесты 6–7.
+- **A.7** `src/services/contextBuilder.js`: фильтр по `Array.isArray(includeQuestionIds)` — `null` = все пары, `[]` = 0 пар; `excludedIndices` при `[]` = `[1..N]` (подтверждено чтением кода). Фронт-тест 8b закрепляет контракт `sendMessage`. Бэкенд-vitest не настроен (нет скрипта) → по ТЗ покрыто фронт-тестом.
+- **A.8** `vadManager.startDualVad`: ресурсы в try/catch; при любой ошибке (отказ в микрофоне и т.п.) — stop tracks + destroy VAD + rethrow. Приёмка ручная.
+- **A.9** overlay: `onClick={() => void (isCapturing ? stopCapture() : startCapture())}` — без unhandled rejection.
+- **A.10** `Sparkles` из `lucide-react`, локальная SVG-копия удалена.
+
+**Гейты:** `npm run build` ✓ · `npm run lint` ✓ (max-warnings 0) · `npm run test:run` ✓ **83/83** (было 73, +10).
+
+**Отклонения от буквы ТЗ (с Reasons):**
+- A.5: чистка вынесена в чистую функцию `normalizeTranscript` вместо inline — покрыта юнит-тестами (решение 111).
+- A.6: «подстраховка» — параметр `sampleRateOverride` в `bufferToWave`, а не хардкод внутри: функция остаётся точным портом эталона, его тесты не ломаются.
+- A.4/D.4/D.5 — дубли, отдельно не исполнялись (решение от 2026-11-08, п. 6).
+
+**Ручная приёмка (в песочнице нет Ollama/llama.cpp/whisper — за владельцем):** A.1 (смена провайдера в UI), A.2 (тултип поверх статистики), A.5 (STT-фраза → одна строка), A.6 (10 транскрипций подряд), A.7 (Manual+все сняты → `excludedIndices=[1..N]`, `includedQAPairs=0`), A.8 (отказ в микрофоне → захват не остаётся), A.9 (отмена шаринга → консоль чистая).
+
+**Статус:** Фаза A выполнена, гейты зелёные, коммиты `TZ-A.*`. Ожидаю проверку владельца; PR-1 — после подтверждения.
