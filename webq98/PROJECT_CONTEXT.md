@@ -263,10 +263,28 @@ Multi-Provider AI Chat — десктопный инструмент для ра
 | 92 | Провайдер: init резолвит ЖИВОГО (saved valid+connected → saved; иначе первый connected по приоритету [llama_cpp, ollama]); выбор закрепляется в localStorage; все живы + нет saved → llama_cpp | решение владельца |
 | 93 | Единственная модель провайдера → автоселект (узаконено наблюдение) | UX |
 | 94 | КОНТРАКТ-АУДИТ: 'llama.cpp' (точка) в типах/валидации — ошибка из baseline, propagated моим ТЗ-1.2 вопреки §3.2 ('llama_cpp'); рантайм работал на значениях бэкенда, ломались только string-сравнения. Урок: валидационные строки брать из §3, не из типов baseline | mea culpa ревьюера |
+| 95 | `providerStore.setCurrentProvider` сбрасывает `currentModel` (и modelDetail/currentContextLength) ПЕРЕД `loadModels`; единственная модель нового провайдера → авто-выбор | TZ-A.1, §7.93 |
+| 96 | `TooltipContent` — `z-[60]`; конфликтующие `z-*` в `chat-area` убраны | TZ-A |
+| 97 | `apiGateway.chat.send`/`modelsApi.*` принимают `ProviderName` (не `string`) — защита от тихого fallback'а `providerMiddleware` | TZ-A |
+| 98 | STT: `result.text` нормализуется (`\n → ' '`, `\s+ → ' '`, `trim`) — одна строка | TZ-A |
+| 99 | STT: `AudioContext` — `useRef` + lazy init + `close()` в cleanup | TZ-A |
+| 100 | `contextBuilder.cutContext`: `includeQuestionIds = []` = «ничего не включать»; `null` = «все». Различие через `Array.isArray` | TZ-A.7 |
+| 101 | `vadManager.startDualVad`: `try/catch` вокруг `getDisplayMedia` + `getUserMedia`; cleanup `displayStream` при любой ошибке | TZ-A.8 |
+| 102 | `ai-helper-overlay.onClick`: `void (…)` для промисов — без unhandled rejection | TZ-A |
+| 103 | Демонтаж правой панели (чат `w-4/5`, левая `w-1/5`, SettingsPanel → DEPRECATED-скелет) — **АННУЛИРОВАНО владельцем**: PR #4 закрыт без merge, панель остаётся смонтированной как слот Project | вердикт владельца 2026-11-08, BACKLOG #4 |
+| 104 | Dashboard: `groupOpen[category] !== false` — группы развёрнуты по умолчанию («развёрнута, если явно не закрыта») | TZ-D.1 |
+| 105 | CommandPalette: при `query.length < 2` — `setSessions([])` (старый список не мигает) | TZ-D.2 |
+| 106 | LoadModal: `try/catch/finally` вокруг `switchToViewing` — toast при ошибке, модалка не виснет | TZ-D.3 |
+| 107 | Attachments (бэкенд): `chatRoutes` → `diskStorage` (uploads/tmp); `chatController` вызывает `attachmentService.extractFiles` до `addMessage`; `attachments_meta` содержит `fileId`; cleanup tmp в `finally`; `getQAPairs` возвращает `attachments_meta`/`metrics`/`image_data` | TZ-B.1/B.2/B.2b/B.3 |
+| 108 | `src/app.js`: статика из `webq98/dist`; SPA-fallback (завершающий `app.use`, т.к. сниппет ТЗ с `app.get('*')` ломается на Express 5/path-to-regexp v8): `/api` `/ws` `/vad-assets` → 404 JSON, остальное → `dist/index.html`. Роут `/ai-helper-overlay.html` удалён (AI Helper — React-компонент в SPA) | TZ-F.1 |
+| 109 | `public/vad-assets/` — остаются на месте (WASM/ONNX 1.22.0, COOP/COEP навешены, явная статика `app.use('/vad-assets', …)` — широкая статика больше не указывает на `public/`). Не копировать в `webq98/public`, не удалять | TZ-F.2 |
+| 110 | `public/` (кроме `vad-assets`) → `docs/reference/public-archive/` — golden master. Не изменять | TZ-F.3 |
+| 111 | Тестовая стратегия: каждый фикс — тест в той же фазе (выполнено для A–D, red-first). E2E Playwright — SKIP владельца → BACKLOG #1 | TZ-E.1/E.2 |
+| 112 | §7.49 (AI Helper «мёртвый фасад») — аннулировано: AI Helper работает end-to-end (WS + whisper + LLM + БД) | TZ-E, вердикт приёмки B |
 
 ## 8. Запрещено
 
-1. Изменять бэкенд и `public/` (эталон).
+1. Изменять `docs/reference/public-archive/` (golden master легаси-фронта, read-only) и содержимое `public/vad-assets/` (не копировать в `webq98/public`, не удалять — решение #109).
 2. Предполагать стриминг `/api/chat`.
 3. Вызывать `/qa-pairs`, `/context-config`.
 4. Сырой fetch/WebSocket вне выделенных модулей.
@@ -292,37 +310,42 @@ Multi-Provider AI Chat — десктопный инструмент для ра
 
 ```
 chat-app/
-├── docs/AI_HELPER_STT.md  # STT-подсистема: версии, протокол, грабли (читать в ТЗ-3.2/3.3)
-├── server/                        # БЭКЕНД — не изменять
-│   └── src/ (controllers, services, providers, routes)
-├── public/                        # ЭТАЛОН — только читать
-│   ├── index.html, script.js, style.css, apiGateway.js, logger.js
-│   ├── dashboard.html, dashboard.js
-│   └── ai-helper-overlay.html, ai-helper.js
+├── docs/
+│   ├── AI_HELPER_STT.md         # STT-подсистема: версии, протокол, грабли (читать в ТЗ-3.2/3.3)
+│   └── reference/public-archive/ # GOLDEN MASTER легаси-фронта — только читать (решение #110)
+├── src/                           # БЭКЕНД (Express + better-sqlite3 + WS; порт :3000)
+│   ├── server.js, app.js          # app.js: статика webq98/dist + SPA-fallback (решение #108)
+│   ├── db/ (init.js: setDbPath, repos)
+│   └── controllers, services, providers, routes, ws, middleware
+├── tests/                         # node --test (test:backend): db/, controllers/, services/, app/
+├── public/
+│   └── vad-assets/                # ЕДИНСТВЕННОЕ содержимое: VAD/ORT-ассеты (решение #109, COOP/COEP)
+├── ai_helper.db, data/            # SQLite
 └── webq98/                        # НАШ ФРОНТЕНД — вся работа здесь
     ├── PROJECT_CONTEXT.md         # эта конституция
     ├── package.json, vite.config.ts, eslint.config.js, index.html
+    ├── dist/                      # production-сборка (gitignore) — её отдаёт бэкенд :3000
     └── src/
         ├── main.tsx, index.css
         ├── app/                   # App.tsx, ThemeProvider.tsx
-        ├── lib/                   # apiGateway.ts, logger.ts, utils.ts (scrollToQuestion)
-        ├── stores/                # sessionStore.ts, providerStore.ts, uiStore.ts
+        ├── lib/                   # apiGateway.ts, logger.ts, utils.ts, audio.ts, vadManager.ts, aiHelperSocket.ts
+        ├── stores/                # sessionStore.ts, providerStore.ts, uiStore.ts, aiHelperStore.ts
         ├── types/index.ts
         ├── components/ui/         # button, dialog, select, switch, tooltip, dropdown-menu
         ├── features/
         │   ├── chat/components/chat-area.tsx        # средняя колонка целиком
         │   ├── questions/components/questions-panel.tsx   # левая панель
-        │   ├── models/components/settings-panel.tsx       # правая панель
-        │   ├── sessions/components/save-modal.tsx
+        │   ├── models/components/settings-panel.tsx       # правая панель — смонтирована, слот Project (решение #103)
+        │   ├── sessions/components/save-modal.tsx, load-modal.tsx
         │   ├── dashboard/components/dashboard.tsx
         │   ├── ai-helper/components/ai-helper-overlay.tsx
-        │   └── stt/components/stt-input.tsx         # переписывается в ТЗ-2.5
+        │   └── stt/components/stt-input.tsx
         └── shared/components/     # sidebar.tsx, top-bar.tsx (не монтируются,
                                    #  сохранить как скелет Load-модалки), command-palette.tsx
 ```
 
 ## 11. Бэклог бэкенда (следующая инициатива после фронтенда)
 1. detectModelType: vision-поддержка GGUF/mmproj-моделей (Qwen3.8-... отфильтровывается, §7.45)
-2. attachments: сохранять пути/метаданные присланных файлов в БД (сейчас — только в тексте сообщения)
+2. ~~attachments: сохранять пути/метаданные присланных файлов в БД~~ — ВЫПОЛНЕНО (Фаза B, TZ-B.2: таблица `attachments` + `attachments_meta`)
 3. (из §7.27) Архивация: timestamp-суффикс против дублей unsavedSession N
-4. Чистка backend/package.json: фронтовые devDeps, дубль vitest, проверить актуальность form-data (см. §5.3 документации — глобальный FormData вместо него)
+4. ~~Чистка backend/package.json: фронтовые devDeps, дубль vitest~~ — ВЫПОЛНЕНО (Фаза F, TZ-F.6)
