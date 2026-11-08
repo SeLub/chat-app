@@ -931,7 +931,7 @@ export function ChatArea({ className }: { className?: string }) {
       {/* ── Input Zone ── */}
       <div className="p-4 border-t border-border glass-strong">
         <div className="flex items-end gap-2 bg-primary/10 rounded-[2rem] border border-transparent focus-within:border-primary/20 focus-within:bg-background transition-all px-4 py-2.5">
-          <STTInput onTranscribe={(t) => setInputValue((prev) => (prev ? prev + ' ' + t : t))} />
+          <STTInput onTranscribe={(t) => setInputValue((prev) => (prev ? prev + (prev.endsWith(' ') ? '' : ' ') + t : t))} />
 
           <Tooltip>
             <TooltipTrigger asChild>

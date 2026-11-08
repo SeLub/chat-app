@@ -1,7 +1,7 @@
 import { Mic, MicOff } from 'lucide-react';
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import { sttApi } from '@/lib/apiGateway';
-import { bufferToWave } from '@/lib/audio';
+import { bufferToWave, normalizeTranscript } from '@/lib/audio';
 import { useUIStore } from '@/stores/uiStore';
 
 interface STTInputProps {
@@ -14,6 +14,16 @@ export function STTInput({ onTranscribe, className = '' }: STTInputProps) {
   const [isProcessing, setIsProcessing] = useState(false);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<BlobPart[]>([]);
+  // TZ-A.6: AudioContext кэшируется в ref — WebAudio имеет лимит ~6 активных
+  // контекстов в Chrome, создание на каждую транскрипцию рано или поздно падает
+  const audioContextRef = useRef<AudioContext | null>(null);
+
+  useEffect(() => {
+    return () => {
+      void audioContextRef.current?.close();
+      audioContextRef.current = null;
+    };
+  }, []);
 
   const processAndTranscribeAudio = useCallback(async () => {
     try {
@@ -24,15 +34,25 @@ export function STTInput({ onTranscribe, className = '' }: STTInputProps) {
       }
 
       const arrayBuffer = await webmBlob.arrayBuffer();
-      const audioContext = new AudioContext({ sampleRate: 16000 });
+      if (!audioContextRef.current) {
+        audioContextRef.current = new AudioContext({ sampleRate: 16000 });
+      }
+      const audioContext = audioContextRef.current;
       const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
-      const wavBlob = bufferToWave(audioBuffer, audioBuffer.length);
+      // TZ-A.6: страховка — whisper.cpp ждёт ровно WAV PCM 16 kHz
+      const wavBlob = bufferToWave(audioBuffer, audioBuffer.length, 16000);
 
       const result = await sttApi.transcribe(wavBlob);
 
-      if (result && result.text && result.text.trim()) {
-        onTranscribe(result.text.trim());
-        useUIStore.getState().addToast('Текст добавлен в поле ввода', 'success');
+      if (result && result.text) {
+        // TZ-A.5: чистим переносы — в поле ввода должна попасть одна строка
+        const cleaned = normalizeTranscript(result.text);
+        if (cleaned) {
+          onTranscribe(cleaned);
+          useUIStore.getState().addToast('Текст добавлен в поле ввода', 'success');
+        } else {
+          useUIStore.getState().addToast('Не удалось распознать речь', 'error');
+        }
       } else {
         useUIStore.getState().addToast('Не удалось распознать речь', 'error');
       }
