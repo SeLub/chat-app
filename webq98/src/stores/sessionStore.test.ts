@@ -139,6 +139,35 @@ describe('sessionStore — normalization and init', () => {
     expect(state.questionCounter).toBe(2);
   });
 
+  it('1b. TZ-B.5: attachments_meta с fileId (после Фазы B) — фронт не падает от лишнего поля, fileId доезжает до store', async () => {
+    localStorage.setItem('activeSessionId', 's1b');
+    localStorage.setItem('viewingSessionId', 's1b');
+
+    const sessionData = { id: 's1b', title: 'T', category: '', sysprompt: '', message_count: 2, created_at: '', updated_at: '' };
+    s().get.mockResolvedValue(sessionData);
+
+    // Форма ответа после TZ-B.2/B.2b: meta содержит fileId; image_data/metrics — JSON-строки
+    s().getMessages.mockResolvedValue([
+      {
+        questionId: 'q_1_10',
+        questionText: 'Q1',
+        answerText: 'A1',
+        model: 'm',
+        attachments_meta: '[{"fileId":"file-abc","name":"doc.csv","size":42,"type":"text"}]',
+        metrics: '{"tps":7}',
+        image_data: '{}',
+      },
+    ]);
+
+    await useSessionStore.getState().init();
+
+    const state = useSessionStore.getState();
+    expect(state.messages.length).toBe(2);
+
+    const meta = state.messages[0].attachmentsMeta as unknown as { fileId?: string; name: string; size: number; type?: string }[];
+    expect(meta).toEqual([{ fileId: 'file-abc', name: 'doc.csv', size: 42, type: 'text' }]);
+  });
+
   it('2. init without saved active (localStorage empty) → creates new session', async () => {
     s().create.mockResolvedValue({ id: 'new1', title: '' });
 

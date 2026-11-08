@@ -58,8 +58,11 @@ describe('sessionRepo', () => {
         });
 
         it('should create session with project mode', () => {
+            // sessions.project_id ссылается на projects(id) при foreign_keys=ON —
+            // сначала создаём проект (раньше тест падал с SQLITE_CONSTRAINT_FOREIGNKEY)
+            getDb().prepare("INSERT INTO projects (id, name, path) VALUES ('proj-123', 'Test Project', '/tmp/test-project')").run();
             const result = sessionRepo.createSession(null, 'project', 'proj-123');
-            
+
             const session = sessionRepo.getSession(result.id);
             assert.equal(session.mode, 'project');
             assert.equal(session.project_id, 'proj-123');
@@ -83,12 +86,19 @@ describe('sessionRepo', () => {
 
     describe('listSessions', () => {
         it('should list all sessions ordered by updated_at DESC', () => {
+            // datetime('now') имеет секундную гранулярность: сессии, созданные подряд,
+            // получают одинаковый updated_at и порядок становится недетерминированным.
+            // Фиксируем updated_at явно — намерение теста (сортировка DESC) сохранено.
             sessionRepo.createSession('First');
             sessionRepo.createSession('Second');
             sessionRepo.createSession('Third');
-            
+            const setTs = getDb().prepare('UPDATE sessions SET updated_at = ? WHERE title = ?');
+            setTs.run('2026-01-01 00:00:01', 'First');
+            setTs.run('2026-01-01 00:00:02', 'Second');
+            setTs.run('2026-01-01 00:00:03', 'Third');
+
             const sessions = sessionRepo.listSessions();
-            
+
             assert.equal(sessions.length, 3);
             assert.equal(sessions[0].title, 'Third'); // newest first
             assert.equal(sessions[2].title, 'First');

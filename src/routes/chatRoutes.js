@@ -1,15 +1,33 @@
 // src/routes/chatRoutes.js
 import { Router } from 'express';
 import multer from 'multer';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { chatHandler } from '../controllers/chatController.js';
 import { providerMiddleware } from '../middleware/providerMiddleware.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// TZ-B.1: diskStorage вместо memoryStorage — attachmentRepo.extractFromPaths
+// должен читать файл по пути (uploads/tmp/), а не из памяти
+const tmpDir = path.join(__dirname, '..', '..', 'uploads', 'tmp');
+if (!fs.existsSync(tmpDir)) fs.mkdirSync(tmpDir, { recursive: true });
+
+// Санитизация имени: убираем разделители пути (защита от path traversal при записи)
+const sanitizeName = (name) => name.replace(/[/\\]+/g, '_');
 
 const router = Router();
 
 // Multer для обработки multipart/form-data (файлы + текстовые поля)
 const upload = multer({
-    storage: multer.memoryStorage(),  // Храним файлы в памяти (буфер)
-    limits: { fileSize: 50 * 1024 * 1024 }  // 50MB лимит
+    storage: multer.diskStorage({
+        destination: (req, file, cb) => cb(null, tmpDir),
+        filename: (req, file, cb) =>
+            cb(null, `${Date.now()}_${Math.random().toString(36).slice(2)}_${sanitizeName(file.originalname)}`)
+    }),
+    limits: { fileSize: 50 * 1024 * 1024 }  // 50MB лимит (сохранён)
 });
 
 // POST /api/chat

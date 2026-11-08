@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "start": "node src/server.js",
-    "whisper": "bash scripts/whisper.sh"
+    "whisper": "bash scripts/whisper.sh",
+    "test:backend": "node --test \"tests/**/*.test.js\""
   },
   "keywords": [],
   "author": "",
