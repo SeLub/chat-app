@@ -38,38 +38,62 @@ const vadOptions: Pick<
 };
 
 export async function startDualVad(h: VadHandlers): Promise<VadController> {
-  const displayStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
-  const sysAudioTrack = displayStream.getAudioTracks()[0];
+  // TZ-A.8: все захваченные ресурсы объявляем заранее, чтобы при ЛЮБОЙ ошибке
+  // (отказ в микрофоне, недоступность VAD, отсутствие аудиодорожки) освободить
+  // уже полученное — иначе экран продолжает захватываться после отказа.
+  let displayStream: MediaStream | null = null;
+  let micVad: Awaited<ReturnType<typeof MicVAD.new>> | null = null;
+  let systemVad: Awaited<ReturnType<typeof MicVAD.new>> | null = null;
 
-  if (!sysAudioTrack) {
-    displayStream.getTracks().forEach((t) => t.stop());
-    h.onError('Поставьте галочку «Поделиться звуком вкладки/системы»');
-    throw new Error('No system audio track in display stream');
+  try {
+    displayStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
+    const sysAudioTrack = displayStream.getAudioTracks()[0];
+
+    if (!sysAudioTrack) {
+      h.onError('Поставьте галочку «Поделиться звуком вкладки/системы»');
+      throw new Error('No system audio track in display stream');
+    }
+
+    const sysOnlyStream = new MediaStream([sysAudioTrack]);
+
+    micVad = await MicVAD.new({
+      ...vadOptions,
+      onSpeechEnd: (audio) => h.onSpeechChunk('user', audio),
+      getStream: async () =>
+        navigator.mediaDevices.getUserMedia({
+          audio: {
+            channelCount: 1,
+            echoCancellation: true,
+            autoGainControl: true,
+            noiseSuppression: true,
+          },
+        }),
+    });
+    await micVad.start();
+
+    systemVad = await MicVAD.new({
+      ...vadOptions,
+      onSpeechEnd: (audio) => h.onSpeechChunk('interlocutor', audio),
+      getStream: async () => sysOnlyStream,
+    });
+    await systemVad.start();
+  } catch (e) {
+    // TZ-A.8: освобождаем всё, что успели получить, и пробрасываем ошибку дальше
+    try {
+      micVad?.pause();
+      micVad?.destroy();
+    } catch {
+      // ignore
+    }
+    try {
+      systemVad?.pause();
+      systemVad?.destroy();
+    } catch {
+      // ignore
+    }
+    displayStream?.getTracks().forEach((t) => t.stop());
+    throw e;
   }
-
-  const sysOnlyStream = new MediaStream([sysAudioTrack]);
-
-  const micVad = await MicVAD.new({
-    ...vadOptions,
-    onSpeechEnd: (audio) => h.onSpeechChunk('user', audio),
-    getStream: async () =>
-      navigator.mediaDevices.getUserMedia({
-        audio: {
-          channelCount: 1,
-          echoCancellation: true,
-          autoGainControl: true,
-          noiseSuppression: true,
-        },
-      }),
-  });
-  await micVad.start();
-
-  const systemVad = await MicVAD.new({
-    ...vadOptions,
-    onSpeechEnd: (audio) => h.onSpeechChunk('interlocutor', audio),
-    getStream: async () => sysOnlyStream,
-  });
-  await systemVad.start();
 
   let stopped = false;
 
