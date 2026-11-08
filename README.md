@@ -84,6 +84,19 @@ npm start
 ```
 Open in browser: [http://localhost:3000](http://localhost:3000)
 
+### Whisper (STT)
+For real-time speech recognition, start both whisper instances at once:
+
+```bash
+pnpm whisper
+```
+
+This runs `scripts/whisper.sh`, which launches two `whisper-server` processes:
+- Port **8081** — microphone (user voice)
+- Port **8082** — system audio (interlocutor voice)
+
+Both use `models/ggml-medium.bin`, language `ru`, 12 threads. Press `Ctrl+C` to stop both.
+
 ---
 
 ## Configuration
