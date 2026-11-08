@@ -1,5 +1,5 @@
 import { logger } from './logger';
-import type { ChatRequestData, ChatResponse, ModelListResponse, ModelShowResponse, ProviderStatusResponse } from '@/types';
+import type { ChatRequestData, ChatResponse, ModelListResponse, ModelShowResponse, ProviderName, ProviderStatusResponse } from '@/types';
 
 export class ApiError extends Error {
   constructor(
@@ -15,7 +15,7 @@ export class ApiError extends Error {
 async function request<T>(
   method: string,
   path: string,
-  options: { body?: unknown; provider?: string; headers?: Record<string, string> } = {},
+  options: { body?: unknown; provider?: ProviderName; headers?: Record<string, string> } = {},
 ): Promise<T | null> {
   const { body, headers = {}, provider } = options;
 
@@ -118,7 +118,7 @@ export const sessionsApi = {
 export const chatApi = {
   send(
     data: ChatRequestData,
-    provider: string,
+    provider: ProviderName,
     files?: { file?: File; codeFiles?: File[] },
   ): Promise<ChatResponse | null> {
     const formData = new FormData();
@@ -154,7 +154,7 @@ export const chatApi = {
 
 // === Models API ===
 export const modelsApi = {
-  list(provider: string): Promise<ModelListResponse | null> {
+  list(provider: ProviderName): Promise<ModelListResponse | null> {
     logger.debug('API GET /api/models', { provider });
     return request<ModelListResponse>(
       'GET',
@@ -162,7 +162,7 @@ export const modelsApi = {
       { provider },
     );
   },
-  show(name: string, provider: string): Promise<ModelShowResponse | null> {
+  show(name: string, provider: ProviderName): Promise<ModelShowResponse | null> {
     return request<ModelShowResponse>(
       'POST',
       '/api/show',

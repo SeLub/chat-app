@@ -209,6 +209,26 @@ describe('providerStore — init', () => {
     expect(freshStore.getState().currentProvider).toBe('ollama');
   });
 
+  it('8a. TZ-A.3: saved "llama.cpp" (с точкой) невалиден → fallback на первый connected по приоритету', async () => {
+    localStorage.setItem('selectedProvider', 'llama.cpp');
+    getProvidersMock().status.mockResolvedValue({
+      providers: [
+        { name: 'ollama', status: 'connected' },
+        { name: 'llama_cpp', status: 'connected' },
+      ],
+    });
+    getModelsMock().list.mockResolvedValue({ connected: true, models: [] });
+
+    vi.resetModules();
+    const { useProviderStore: freshStore } = await import('./providerStore');
+
+    await freshStore.getState().init();
+
+    // приоритет §7.92: [llama_cpp, ollama] → оба живы → llama_cpp
+    expect(freshStore.getState().currentProvider).toBe('llama_cpp');
+    expect(localStorage.getItem('selectedProvider')).toBe('llama_cpp');
+  });
+
   it('9. init: saved model not in list, single model → auto-select it', async () => {
     localStorage.setItem('selectedModel', 'old-model');
     getProvidersMock().status.mockResolvedValue({
@@ -225,5 +245,54 @@ describe('providerStore — init', () => {
     await freshStore.getState().init();
 
     expect(freshStore.getState().currentModel).toBe('only-model');
+  });
+});
+
+describe('providerStore — TZ-A.1 setCurrentProvider (сброс и авто-выбор модели)', () => {
+  it('A.1.1: смена провайдера сбрасывает currentModel/modelDetail/currentContextLength', async () => {
+    getModelsMock().show.mockResolvedValue({ model_info: { 'llama.context_length': 4096 } });
+
+    const store = useProviderStore.getState();
+    await store.selectModel('old-model');
+    expect(useProviderStore.getState().currentModel).toBe('old-model');
+    expect(useProviderStore.getState().currentContextLength).toBe(4096);
+
+    useProviderStore.getState().setCurrentProvider('llama_cpp');
+
+    const state = useProviderStore.getState();
+    expect(state.currentProvider).toBe('llama_cpp');
+    expect(state.currentModel).toBeNull();
+    expect(state.modelDetail).toBeNull();
+    expect(state.currentContextLength).toBeNull();
+  });
+
+  it('A.1.2: у нового провайдера ровно одна модель → авто-выбор', async () => {
+    getModelsMock().list.mockResolvedValue({
+      connected: true,
+      models: [{ name: 'solo-model', size: 0 }],
+    });
+    getModelsMock().show.mockResolvedValue({ parameters: { context_length: 8192 } });
+
+    useProviderStore.getState().setCurrentProvider('llama_cpp');
+
+    await vi.waitFor(() => {
+      expect(useProviderStore.getState().currentModel).toBe('solo-model');
+    });
+    expect(localStorage.getItem('selectedModel')).toBe('solo-model');
+  });
+
+  it('A.1.3: несколько моделей → авто-выбора нет, currentModel остаётся null', async () => {
+    getModelsMock().list.mockResolvedValue({
+      connected: true,
+      models: [{ name: 'm1', size: 0 }, { name: 'm2', size: 0 }],
+    });
+
+    useProviderStore.getState().setCurrentProvider('llama_cpp');
+
+    await vi.waitFor(() => {
+      expect(useProviderStore.getState().models.length).toBe(2);
+    });
+    await new Promise((r) => setTimeout(r, 0)); // даём микротаскам .then() отработать
+    expect(useProviderStore.getState().currentModel).toBeNull();
   });
 });
