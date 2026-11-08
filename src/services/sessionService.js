@@ -1,100 +1,88 @@
 // src/services/sessionService.js
-import { createLogger } from '../utils/logger.js';
+import * as sessionRepo from '../db/sessionRepo.js';
+import * as messageRepo from '../db/messageRepo.js';
+import * as attachmentRepo from '../db/attachmentRepo.js';
+import { buildLLMContext, getQAPairs, updateContextConfig, getContextConfig, removeQAPairs } from './contextBuilder.js';
 
-const log = createLogger('SessionService');
-
-const sessions = new Map();
-
-let cleanupInterval = null;
-
-export function startSessionCleanup() {
-    if (cleanupInterval) return;
-    cleanupInterval = setInterval(() => {
-        const now = Date.now();
-        const THIRTY_MINUTES = 30 * 60 * 1000;
-        for (const [id, session] of sessions.entries()) {
-            if (now - session.lastAccess > THIRTY_MINUTES) {
-                sessions.delete(id);
-                log.info('Cleaned up expired session', { sessionId: id.slice(0, 8) });
-            }
-        }
-    }, 5 * 60 * 1000);
+// === Sessions ===
+export function createNewSession(title = null, mode = 'chat', projectId = null) {
+    return sessionRepo.createSession(title, mode, projectId);
 }
 
-export function stopSessionCleanup() {
-    if (cleanupInterval) {
-        clearInterval(cleanupInterval);
-        cleanupInterval = null;
-    }
+export function getSession(id) {
+    return sessionRepo.getSession(id);
 }
 
-function generateId() {
-    const bytes = new Uint8Array(16);
-    crypto.getRandomValues(bytes);
-    return Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
+export function listSessions(options = {}) {
+    return sessionRepo.listSessions(options);
 }
 
-export function createSession() {
-    const sessionId = generateId();
-    sessions.set(sessionId, {
-        messages: [],
-        createdAt: Date.now(),
-        lastAccess: Date.now()
-    });
-    log.info('Created session', { sessionId: sessionId.slice(0, 8) });
-    return { sessionId };
+export function updateSessionMeta(id, updates) {
+    return sessionRepo.updateSession(id, updates);
 }
 
-export function storeMessage(sessionId, { role, content, model }) {
-    const session = sessions.get(sessionId);
-    if (!session) {
-        throw new Error(`Session '${sessionId.slice(0, 8)}...' not found`);
-    }
-    session.messages.push({ role, content, model });
-    session.lastAccess = Date.now();
-    return [...session.messages];
+export function deleteSession(id) {
+    return sessionRepo.deleteSession(id);
 }
 
-export function getHistory(sessionId) {
-    const session = sessions.get(sessionId);
-    if (!session) {
-        throw new Error(`Session '${sessionId.slice(0, 8)}...' not found`);
-    }
-    session.lastAccess = Date.now();
-    return [...session.messages];
+export function archiveSession(id, newTitle) {
+    return sessionRepo.archiveSession(id, newTitle);
 }
 
-export function clearSession(sessionId) {
-    const exists = sessions.has(sessionId);
-    sessions.delete(sessionId);
-    log.info('Cleared session', { sessionId: sessionId.slice(0, 8), existed: exists });
-    return exists;
+// === Messages ===
+export function getMessagesBySession(sessionId) {
+    return messageRepo.getMessagesBySession(sessionId);
 }
 
-export function seedMessages(sessionId, messages) {
-    const session = sessions.get(sessionId);
-    if (!session) {
-        throw new Error(`Session '${sessionId.slice(0, 8)}...' not found`);
-    }
-    session.messages = [...messages];
-    session.lastAccess = Date.now();
-    log.info('Seeded session with messages', { sessionId: sessionId.slice(0, 8), count: messages.length });
+// === НОВОЕ: Возвращает сгруппированные Q&A пары (Вариант B) ===
+// Используется для /api/sessions/:id/messages, чтобы фронтенд получал 
+// и список вопросов (keys), и ответы (values) из одного источника.
+export function getGroupedMessages(sessionId) {
+    return getQAPairs(sessionId);
 }
 
-export function truncateToContext(history, contextLength) {
-    const maxChars = contextLength * 4;
-    const safetyMargin = maxChars * 0.8;
+export function addMessage(sessionId, message) {
+    return messageRepo.addMessage(sessionId, message);
+}
 
-    let totalChars = history.reduce((sum, m) => sum + (m.content?.length || 0), 0);
+export function deleteMessagesByQuestionId(questionId) {
+    return messageRepo.deleteMessagesByQuestionId(questionId);
+}
 
-    if (totalChars <= safetyMargin) {
-        return history;
-    }
+/**
+ * Построить контекст для LLM с обрезкой истории.
+ * @param {string} sessionId
+ * @param {Array}  currentAttachments - файлы, прикреплённые к текущему сообщению
+ * @param {number} contextSize        - контекст модели в токенах (по умолчанию 65536)
+ * @param {number} retainPercent      - % доступного бюджета для истории (0-100, по умолчанию 80)
+ * @param {string[]|null} includeQuestionIds - массив ID вопросов, включенных в контекст (null = все)
+ * @returns {Promise<{ conversation: Array, contextSize: number, retainPercent: number, info: Object }>}
+ */
+export async function buildContext(sessionId, currentAttachments = [], contextSize = 65536, retainPercent = 80, includeQuestionIds = null) {
+    return await buildLLMContext(sessionId, currentAttachments, contextSize, retainPercent, includeQuestionIds);
+}
 
-    while (history.length > 2 && totalChars > maxChars) {
-        const removed = history.shift();
-        totalChars -= (removed.content?.length || 0);
-    }
+export function getQAPairsForSession(sessionId) {
+    return getQAPairs(sessionId);
+}
 
-    return history;
+export function updateSessionContextConfig(sessionId, config) {
+    return updateContextConfig(sessionId, config);
+}
+
+export function getSessionContextConfig(sessionId) {
+    return getContextConfig(sessionId);
+}
+
+export function removeSessionQAPairs(sessionId, questionIds) {
+    return removeQAPairs(sessionId, questionIds);
+}
+
+// === Attachments ===
+export async function extractFiles(paths, sessionId) {
+    return await attachmentRepo.extractFromPaths(paths, sessionId);
+}
+
+export function getAttachment(fileId) {
+    return attachmentRepo.getAttachment(fileId);
 }

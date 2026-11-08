@@ -3,6 +3,7 @@ import express from 'express';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import sttRoutes from './routes/sttRoutes.js'; 
 
 // Единый обработчик ошибок провайдеров
 import { createLogger } from './utils/logger.js';
@@ -15,6 +16,20 @@ const app = express();
 
 // Middleware
 app.use(express.json());
+
+// === COOP/COEP только для AI Helper и его ассетов ===
+const coepHeaders = (req, res, next) => {
+    res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
+    res.setHeader('Cross-Origin-Embedder-Policy', 'credentialless');
+    next();
+};
+
+app.use('/vad-assets', coepHeaders);
+app.get('/ai-helper-overlay.html', coepHeaders, (req, res) => {
+    res.sendFile(path.join(__dirname, '..', 'public', 'ai-helper-overlay.html'));
+});
+// =====================================================
+
 app.use(express.static(path.join(__dirname, '..', 'public')));
 
 // Создание директорий для загрузок
@@ -29,18 +44,20 @@ export { uploadsDir, thumbnailsDir };
 import modelRoutes from './routes/modelRoutes.js';
 import chatRoutes from './routes/chatRoutes.js';
 import imageRoutes from './routes/imageRoutes.js';
+import sessionRoutes from './routes/sessionRoutes.js';
+import attachmentRoutes from './routes/attachmentRoutes.js';
 
 // ВАЖНО: Добавляем маршрут /api/show отдельно
 import { showModelHandler } from './controllers/modelController.js';
 import { providerMiddleware } from './middleware/providerMiddleware.js';
 import { getProvider, listProviders, getDefaultProviderName } from './providers/providerManager.js';
-import { startSessionCleanup } from './services/sessionService.js';
 
 app.use('/api/models', modelRoutes);
 app.use('/api/chat', chatRoutes);
 app.use('/api/images', imageRoutes);
-
-startSessionCleanup();
+app.use('/api/sessions', sessionRoutes);
+app.use('/api/attachments', attachmentRoutes);
+app.use('/api/stt', sttRoutes);
 app.use((err, req, res, next) => {
     // Ошибки подключения к провайдеру
     if (err.code === 'ECONNREFUSED' || err.code === 'ENOTFOUND' || err.code === 'ETIMEDOUT') {
