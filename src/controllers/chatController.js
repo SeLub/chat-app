@@ -6,6 +6,7 @@ import { saveImageFiles } from '../services/imageService.js';
 import { isImageFile } from '../utils/imageUtils.js';
 import { createLogger } from '../utils/logger.js';
 import * as sessionService from '../services/sessionService.js';
+import * as attachmentService from '../services/attachmentService.js';
 import { getContextConfig } from '../services/contextBuilder.js';
 
 const log = createLogger('ChatController');
@@ -163,7 +164,35 @@ export async function chatHandler(req, res) {
             });
 
 
-            const currentAttachments = attachmentMeta || [];
+            // TZ-B.2: вложения сохраняются в БД (таблица attachments) через attachmentService.extractFiles
+            // ДО addMessage; attachments_meta получает свежесозданный { fileId, name, size, type },
+            // а не клиентские метаданные (req.body.attachments фронт не шлёт). Ошибки экстракции
+            // логируются и НЕ прерывают обработку запроса.
+            const extractPaths = [];
+            if (file && !isImageFile(file.mimetype)) extractPaths.push(file.path);
+            for (const cf of codeFiles) {
+                if (cf?.path) extractPaths.push(cf.path);
+            }
+
+            const extractedResults = [];
+            for (const p of extractPaths) {
+                try {
+                    const { results, errors } = await attachmentService.extractFiles([p], sessionId);
+                    if (errors.length > 0) {
+                        log.warn('Attachment extraction errors', { path: p, errors });
+                    }
+                    extractedResults.push(...results);
+                } catch (extractError) {
+                    log.error('extractFiles failed', { path: p, error: extractError.message });
+                }
+            }
+
+            const currentAttachments = extractedResults.map((r) => ({
+                fileId: r.fileId,
+                name: r.name,
+                size: r.size,
+                type: r.type
+            }));
             const contextResult = await sessionService.buildContext(
                 sessionId,
                 currentAttachments,
