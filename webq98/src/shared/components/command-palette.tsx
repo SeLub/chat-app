@@ -35,6 +35,7 @@ export function CommandPalette() {
       loadSessions();
     } else {
       setShowSessions(false);
+      setSessions([]); // D.2: сбрасываем старый список — иначе при следующем вводе «мигает»
     }
   }, [query]); // loadSessions намеренно исключён из deps: эффект триггерится только сменой searchQuery
   /* eslint-enable react-hooks/exhaustive-deps */
