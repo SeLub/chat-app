@@ -24,6 +24,14 @@ export function isMermaid(lang?: string | null): boolean {
   return lang === 'mermaid';
 }
 
+/**
+ * D.1 (ТЗ «Миграция на React»): группы dashboard развёрнуты по умолчанию.
+ * Инвертированная семантика: группа открыта, если явно не закрыта (`false`).
+ */
+export function isGroupOpen(groupOpen: Record<string, boolean>, category: string): boolean {
+  return groupOpen[category] !== false;
+}
+
 export function scrollToQuestion(questionId: string) {
   const el = document.querySelector(`[data-chat-question-id="${CSS.escape(questionId)}"]`);
   if (!el) return;
