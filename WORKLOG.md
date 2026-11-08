@@ -65,7 +65,7 @@
 
 **Ручная приёмка (в песочнице нет Ollama/llama.cpp/whisper — за владельцем):** A.1 (смена провайдера в UI), A.2 (тултип поверх статистики), A.5 (STT-фраза → одна строка), A.6 (10 транскрипций подряд), A.7 (Manual+все сняты → `excludedIndices=[1..N]`, `includedQAPairs=0`), A.8 (отказ в микрофоне → захват не остаётся), A.9 (отмена шаринга → консоль чистая).
 
-**Статус:** Фаза A выполнена, гейты зелёные, коммиты `TZ-A.*`. По flow v1.1 открывается PR-1 (`qwen` → `main`); следующая фаза (B) не начинается до вердикта по PR.
+**Статус:** ✅ **merged** (PR [#2](https://github.com/SeLub/chat-app/pull/2), merge `9c1ae1e`; ветка `qwen` удалена по решению владельца).
 
 ---
 
@@ -79,4 +79,26 @@
 3. Цикл фикса: новые коммиты в `qwen` автоматически обновляют открытый PR; после merge следующий PR содержит только дельту новой фазы.
 4. Статусная модель: `в работе → PR фазы → ревью → (фикс → ревью)* → merged | отклонено | отложено`.
 
-**PR-1 (Фаза A):** коммиты `53cf1e6…0fb4b3c` (7 коммитов Фазы A + 2 docs). Гейты на HEAD: build ✓, lint ✓ (max-warnings 0), test:run ✓ 83/83. **PR открыт: [#2](https://github.com/SeLub/chat-app/pull/2)** (`qwen` → `main`, 90 коммитов, 128 файлов). Следующая фаза (B) — после вердикта по PR-2.
+**Итог:** Фаза A прошла по этому циклу (PR #2 → merged). Веха устарела в части ветки `qwen` — см. следующую запись (v1.2).
+
+---
+
+## 2026-11-08 — Поправка в flow: WORKFLOW v1.2 — ветка на каждую фазу; Фаза B стартует
+
+**Контекст.** Владелец смержил PR #2 (Фаза A) и изменил модель веток: ветка `qwen` удаляется, каждая фаза — в отдельной ветке.
+
+**Решения.**
+1. WORKFLOW v1.2: каждая фаза — в ветке `tz/phase-<буква>` от свежего `main`; после merge ветка фазы закрывается, следующая фаза стартует от обновлённого `main`.
+2. Ветка `qwen` удалена (remote и локально). История Фазы A — в `main` через merge PR #2.
+3. Фаза B — в ветке `tz/phase-b`.
+
+**Анализ Фазы B (верификация кода перед исполнением).**
+- B.1: `chatRoutes.js:10-13` — multer.memoryStorage подтверждён; лимит 50 MB сохраняем.
+- B.2: `chatController.js:157` — `currentAttachments = attachmentMeta || []` подтверждён; фронт поле `attachments` в FormData НЕ шлёт (apiGateway:125-138) → сейчас `attachments_meta` в БД всегда `[]`; `attachmentService.extractFiles` → `attachmentRepo.extractFromPaths` → `{ results: [{fileId,name,size,type,path}], errors }` — контракт совпадает с ТЗ.
+- **Критический нюанс B.1:** потребители `file.buffer` (`fileService.processDocument/processCodeFiles`, image-ветка `chatController.js:58-59`) при diskStorage получают `buffer === undefined` → ветки документов/кода/картинок ломаются. Решение: chatController восстанавливает буфер чтением с диска (`fs.readFile(file.path)`) в начале обработки — сервисы не трогаем (минимальный диф), extractFiles получает путь.
+- **Обнаруженный разрыв контракта:** `GET /api/sessions/:id/messages` (`getQAPairs`, contextBuilder.js:189-194) НЕ выбирает `attachments_meta`/`metrics`/`image_data` из messages → после F5/Load бейджи вложений не рендерятся, хотя фронт (`mapQAPairsToMessages`) их ждёт и контракт API (ТЗ §API) это требует. Без правки `getQAPairs` приёмочный пункт «attachmentsMeta-бейджи рендерятся» невыполним → включаем в Фазу B отдельным пунктом (B.2b), обоснование в PR.
+- B.4 (`filesContextChars`) — SKIP (решение владельца); `buildLLMContext` уже читает `attachments_meta` (contextBuilder.js:120-128) — контекстная сторона заработает после B.2.
+- **Инфраструктура тестов:** в репо есть `tests/db/*.test.js` (node:test) от владельца, но они сломаны: импортируют `setDbPath`, которого нет в `src/db/init.js`; скрипта запуска нет. Включаем: добавляем `setDbPath`/скрипт `test:backend` (enabler-коммит до TZ-B.*), тесты Фазы B — в той же конвенции (node:test + `:memory:`).
+- B.3: cleanup — try/finally вокруг тела chatHandler, `fs.promises.unlink(...).catch(()=>{})`, директорию `uploads/tmp` не удаляем.
+
+**Статус:** Фаза B — в работе, ветка `tz/phase-b`.
