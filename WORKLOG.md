@@ -189,3 +189,23 @@
 - F.5: `README.md` (англ.) — секция Setup учит `npm install && npm start` без сборки фронта; добавить «Frontend (webq98/)»: dev на 5175, `npm run build` → `webq98/dist`, бэкенд :3000 отдаёт собранный SPA.
 - F.6: root `package.json` devDeps — 11 фронтовых пакетов (`@tailwindcss/forms/typography/vite`, `@types/react(-dom)`, `@typescript-eslint/*`, `@vitejs/plugin-react`, `eslint`, `tailwindcss`, `vitest`) — бэкендом не импортируются (тесты на `node:test`, root eslint-конфига нет), дублируются в `webq98/`. `jsdom` из **dependencies** (не dev) используется `src/services/webService.js` — НЕ трогаем. По ТЗ F.6 «желательно»; lockfile синхронизирую `npm install --package-lock-only --ignore-scripts` (node_modules не меняется).
 - Тесты F.1/F.2 (red-first, `node:test`): новый `tests/app/static.test.js` — app поднимается на ephemeral-порту (`app.listen(0)`), `setDbPath(':memory:')` до импорта; фикстура `webq98/dist/index.html` создаётся при отсутствии (dist в .gitignore, реальная сборка не трогается); 7 сценариев: `/` == dist/index.html; deep-route `/dashboard` == index.html (SPA-fallback); `/api/*` miss → 404 JSON; `/ws/ai-helper` (plain GET) → 404 JSON; `/vad-assets/*` miss → 404 JSON; `/vad-assets/vad.worklet.bundle.min.js` → 200 + COOP/COEP; `/ai-helper-overlay.html` → больше НЕ оверлей (== index.html).
+
+---
+
+## 2026-11-08 — Фаза F исполнена (TZ-F.1–F.6, гейты зелёные, live-smoke :3123)
+
+**Исполнение (ветка `tz/phase-f`, red-first где применимо).**
+- `9b60e87` docs: анализ фазы (ветвление поверх `tz/phase-e`, подводный камень vad-assets, отклонение Express 5).
+- **F.1/F.2**: `src/app.js` — статика → `webq98/dist`; SPA-fallback завершающим `app.use` (GET/HEAD; `/api` `/ws` `/vad-assets` → 404 JSON `{error:'Not found'}`; иначе `sendFile(dist/index.html)` — сниппет ТЗ `app.get('*')` на Express 5 кидает TypeError, семантика сохранена); роут `/ai-helper-overlay.html` удалён вместе со своим COOP/COEP; добавлена ЯВНАЯ статика `app.use('/vad-assets', express.static('…/public/vad-assets'))` после `coepHeaders` — без неё vad-assets потеряли бы раздачу после переключения корня. Red-first: 6/7 тестов красные до фикса (F.2.1 зелёный — работает и сегодня через широкую статику) → 7/7 зелёные после.
+- **F.3**: `git mv` пофайлово 10 файлов из `public/` (включая корневой `ort-wasm-simd-threaded.wasm` — его использует только легаси `script.js`; фронт грузит ORT из `/vad-assets/`, проверено по `vadManager.ts:26-27`) → `docs/reference/public-archive/` + README «golden master, не изменять». `public/` теперь содержит только `vad-assets/`.
+- **F.4**: `PROJECT_CONTEXT.md` §7 — решения 95–112 (адаптации: #103 — демонтаж панели АННУЛИРОВАН владельцем, панель остаётся слотом Project; #111 — E2E SKIP → BACKLOG #1); §8 п.1 — read-only архива + запрет на vad-assets; §10 — карта репозитория (реальный бэкенд `src/` вместо несуществующего `server/`, `public/` → только vad-assets, архив, `webq98/dist`, актуальные stores/lib); §11 — отметки «ВЫПОЛНЕНО» по п.2 (Фаза B) и п.4 (F.6).
+- **F.5**: `README.md` — Setup дополнен сборкой фронта (`cd webq98 && npm install && npm run build` перед `npm start`), новая секция «Frontend (`webq98/`)»: dev :5175 с прокси, `webq98/dist` отдаётся бэкендом :3000, архив легаси read-only.
+- **F.6**: root `package.json` — удалены все 11 фронтовых devDeps (`@tailwindcss/*`, `@types/react(-dom)`, `@typescript-eslint/*`, `@vitejs/plugin-react`, `eslint`, `tailwindcss`, `vitest`); `jsdom` (dependencies, используется `webService.js`) не тронут; lockfile синхронизирован `npm install --package-lock-only --ignore-scripts` (−5449 строк, node_modules не менялся), бэкенд-тесты после — зелёные.
+
+**Live-smoke (`PORT=3123 node src/server.js`, реальный dist):** `/` → React `index.html` (`data-theme="leteem"`) ✓ · `/dashboard` → 200 text/html (SPA-fallback) ✓ · `/api/nope` → 404 JSON ✓ · `/vad-assets/silero_vad_v5.onnx` → 200 + COOP same-origin + COEP credentialless ✓ · `/ai-helper-overlay.html` → SPA ✓ · `AI Helper WebSocket server configured on /ws/ai-helper` в логе ✓.
+
+**Гейты на HEAD:** build ✓ (24.8s) · lint ✓ (max-warnings 0) · test:run ✓ **88/88** (9 файлов) · test:backend ✓ **59/59** (+7: tests/app/static.test.js).
+
+**Ручная приёмка (за владельцем, по ТЗ):** `npm run build` (webq98) → `npm start` → :3000 отдаёт React-SPA (`/` — ChatArea+QuestionsPanel, `/dashboard` — Dashboard); AI Helper работает (VAD/WS/whisper — vad-assets с :3000, COOP/COEP навешены); Command palette (Cmd+K), Save/Load/Export; консоль браузера без новых ошибок.
+
+**Статус:** ✅ Фаза F исполнена — последняя кодовая фаза трека «Миграция на React». PR: см. следующую запись.
