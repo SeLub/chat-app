@@ -400,6 +400,30 @@ describe('sessionStore — sendMessage lifecycle', () => {
     expect(requestData.includeQuestionIds).toEqual(['q_1_1']);
   });
 
+  it('8b. TZ-A.7: manual + все галочки сняты (selectedQuestionIds=[]) → includeQuestionIds=[] как есть', async () => {
+    const store = useSessionStore.getState();
+    store.activeSessionId = 'a1';
+    store.viewingSessionId = 'a1';
+    store.messages = [
+      { role: 'user', content: 'Q1', questionId: 'q_1_1', model: 'm' },
+    ];
+    store.questionCounter = 1;
+    store.totalInputTokens = 0;
+    store.totalOutputTokens = 0;
+    store.contextMode = 'manual';
+    store.selectedQuestionIds = [];
+
+    s().create.mockResolvedValue({ id: 'a1' });
+
+    (apiGateway.chat.send as FnMock).mockResolvedValue({ response: 'OK' });
+
+    await store.sendMessage('new Q');
+
+    const callArgs = (apiGateway.chat.send as FnMock).mock.calls[0];
+    const requestData = callArgs[0] as { includeQuestionIds: string[] };
+    expect(requestData.includeQuestionIds).toEqual([]);
+  });
+
   it('9. sendMessage: syspromptDirty=true → sessions.update called BEFORE chat.send', async () => {
     const store = useSessionStore.getState();
     store.activeSessionId = 'a1';
