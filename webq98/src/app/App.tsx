@@ -3,7 +3,6 @@ import { Routes, Route } from 'react-router-dom';
 import { useProviderStore } from '@/stores/providerStore';
 import { useSessionStore } from '@/stores/sessionStore';
 import { ChatArea } from '@/features/chat/components/chat-area';
-import { SettingsPanel } from '@/features/models/components/settings-panel';
 import { QuestionsPanel } from '@/features/questions/components/questions-panel';
 import { AiHelperOverlay } from '@/features/ai-helper/components/ai-helper-overlay';
 import { CommandPalette } from '@/shared/components/command-palette';
@@ -29,8 +28,7 @@ export default function App() {
           element={
             <div className="flex flex-1 overflow-hidden gap-2 p-2">
               <QuestionsPanel className="w-1/5 min-w-[240px]" />
-              <ChatArea className="w-3/5" />
-              <SettingsPanel className="w-1/5 min-w-[280px]" />
+              <ChatArea className="w-4/5" />
             </div>
           }
         />
