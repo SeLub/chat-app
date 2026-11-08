@@ -1,4 +1,5 @@
 // src/controllers/chatController.js
+import fs from 'fs';
 import { processDocument, processCodeFiles } from '../services/fileService.js';
 import { processUrlsFromText } from '../services/webService.js';
 import { saveImageFiles } from '../services/imageService.js';
@@ -27,6 +28,14 @@ export async function chatHandler(req, res) {
     });
 
     try {
+        // TZ-B.1: при diskStorage у файлов нет буфера — восстанавливаем из файла на диске.
+        // Сервисы (fileService/imageService) продолжают работать с buffer без изменений,
+        // а extractFiles (TZ-B.2) получает путь.
+        if (file?.path) file.buffer = await fs.promises.readFile(file.path);
+        for (const cf of codeFiles) {
+            if (cf?.path) cf.buffer = await fs.promises.readFile(cf.path);
+        }
+
         // === Обработка URL ===
         const { processedText } = await processUrlsFromText(message);
         message = processedText;
