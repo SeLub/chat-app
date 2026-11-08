@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { formatSize, getLanguageFromClassName, isMermaid, shortModel } from './utils';
+import { formatSize, getLanguageFromClassName, isGroupOpen, isMermaid, shortModel } from './utils';
 
 describe('shortModel', () => {
   it('gguf path → basename without .gguf', () => {
@@ -58,5 +58,23 @@ describe('isMermaid', () => {
 
   it('undefined → false', () => {
     expect(isMermaid(undefined)).toBe(false);
+  });
+});
+
+describe('isGroupOpen (D.1: группы dashboard развёрнуты по умолчанию)', () => {
+  it('нет записи → развёрнута (default open — фикс D.1)', () => {
+    expect(isGroupOpen({}, 'Work')).toBe(true);
+  });
+
+  it('явно false → свёрнута', () => {
+    expect(isGroupOpen({ Work: false }, 'Work')).toBe(false);
+  });
+
+  it('явно true → развёрнута', () => {
+    expect(isGroupOpen({ Work: true }, 'Work')).toBe(true);
+  });
+
+  it('другие категории не влияют', () => {
+    expect(isGroupOpen({ Other: false }, 'Work')).toBe(true);
   });
 });

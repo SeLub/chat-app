@@ -15,6 +15,7 @@ import { useNavigate } from 'react-router-dom';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { apiGateway } from '@/lib/apiGateway';
 import { downloadJson } from '@/lib/export';
+import { isGroupOpen } from '@/lib/utils';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useUIStore } from '@/stores/uiStore';
 import type { Session } from '@/types';
@@ -238,10 +239,10 @@ export function Dashboard() {
           Object.entries(grouped).map(([category, items]) => (
             <div key={category} className="mb-6 glass rounded-xl p-4 animate-in fade-in duration-500">
               <button
-                onClick={() => setGroupOpen((prev) => ({ ...prev, [category]: !prev[category] }))}
+                onClick={() => setGroupOpen((prev) => ({ ...prev, [category]: !isGroupOpen(prev, category) }))}
                 className="flex items-center gap-2 py-2 text-sm font-semibold text-muted-foreground uppercase tracking-wider"
               >
-                {groupOpen[category] ? (
+                {isGroupOpen(groupOpen, category) ? (
                   <ChevronUp className="w-4 h-4" />
                 ) : (
                   <ChevronDown className="w-4 h-4" />
@@ -250,7 +251,7 @@ export function Dashboard() {
                 {category} ({items.length})
               </button>
 
-              {groupOpen[category] && (
+              {isGroupOpen(groupOpen, category) && (
                 <div className="space-y-1 mt-2">
                   {items.map((session) => (
                     <div
