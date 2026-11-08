@@ -61,14 +61,25 @@ describe('Database Initialization', () => {
     });
 
     it('should set correct pragmas', () => {
-        setDbPath(':memory:');
-        const db = getDb();
+        // WAL физически неприменим к ':memory:'-БД (SQLite возвращает 'memory'),
+        // поэтому проверяем на временном файле — намерение теста (инициализация
+        // включает journal_mode=WAL и foreign_keys=ON) сохранено.
+        const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'db-pragma-'));
+        const tempDbPath = path.join(tempDir, 'pragma.db');
+        try {
+            setDbPath(tempDbPath);
+            const db = getDb();
 
-        const journalMode = db.pragma('journal_mode', { simple: true });
-        const foreignKeys = db.pragma('foreign_keys', { simple: true });
+            const journalMode = db.pragma('journal_mode', { simple: true });
+            const foreignKeys = db.pragma('foreign_keys', { simple: true });
 
-        assert.equal(journalMode, 'wal');
-        assert.equal(foreignKeys, 1);
+            assert.equal(journalMode, 'wal');
+            assert.equal(foreignKeys, 1);
+        } finally {
+            closeDb();
+            fs.rmSync(tempDir, { recursive: true, force: true });
+            setDbPath(':memory:');
+        }
     });
 
     it('should be idempotent (multiple calls safe)', () => {
