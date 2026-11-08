@@ -1,0 +1,66 @@
+/* leteem theme */
+[data-theme='leteem'] {
+  /* Light */
+  --background: 207 70% 90%;
+  --foreground: 206.3 100% 30%;
+  --card: 0 0% 100%;
+  --card-foreground: 0 0% 0%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 0 0% 0%;
+  --primary: 199 100% 40%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 240 5% 96%;
+  --secondary-foreground: 240 5% 10%;
+  --muted: 240 5% 96%;
+  --muted-foreground: 240 2% 56%;
+  --accent: 199 89% 95%;
+  --accent-foreground: 199 100% 40%;
+  --tertiary: 199 100% 40%;
+  --tertiary-foreground: 0 0% 100%;
+  --destructive: 4 100% 60%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 240 6% 90%;
+  --input: 240 5% 96%;
+  --ring: 199 100% 40%;
+  --message-own: 199 100% 40%;
+  --message-own-text: 0 0% 100%;
+  --message-other: 240 5% 96%;
+  --message-other-text: 0 0% 0%;
+  --online-status: 140 50% 48%;
+  --content-text: 220 15% 15%;
+  --success: 140 60% 40%;
+  --warning: 38 92% 50%;
+}
+
+[data-theme='leteem'].dark {
+  /* Dark */
+  --background: 207 30% 14%;
+  --foreground: 0 0% 100%;
+  --card: 0 0% 17%;
+  --card-foreground: 0 0% 100%;
+  --popover: 0 0% 17%;
+  --popover-foreground: 0 0% 100%;
+  --primary: 254 68% 68%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 0 0% 17%;
+  --secondary-foreground: 0 0% 98%;
+  --muted: 0 0% 17%;
+  --muted-foreground: 240 2% 56%;
+  --accent: 0 0% 17%;
+  --accent-foreground: 254 68% 68%;
+  --tertiary: 254 68% 68%;
+  --tertiary-foreground: 0 0% 100%;
+  --destructive: 4 100% 65%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 0 0% 23%;
+  --input: 0 0% 17%;
+  --ring: 254 68% 68%;
+  --message-own: 254 68% 68%;
+  --message-own-text: 0 0% 100%;
+  --message-other: 0 0% 17%;
+  --message-other-text: 0 0% 100%;
+  --online-status: 140 50% 48%;
+  --content-text: 0 0% 88%;
+  --success: 140 60% 55%;
+  --warning: 38 92% 60%;
+}

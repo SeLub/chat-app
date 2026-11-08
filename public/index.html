@@ -5,6 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Multi-Provider AI Chat</title>
     <link rel="stylesheet" href="style.css">
+    <script src="logger.js"></script>
+    <script src="apiGateway.js"></script>
 </head>
 <body>
     <div class="container">
@@ -25,34 +27,24 @@
         <!-- Middle Panel: Chat -->
         <div class="middle-panel">
             <div class="chat-header">
-                <div class="selected-model-indicator">
-                    <span class="model-icon">🤖</span>
-                    <span class="model-name" id="selectedModelName">No model selected</span>
-                    <div class="model-info-inline">
-                        <span class="info-badge">
-                            <span class="badge-label">Size:</span>
-                            <span id="modelSize">-</span>
-                        </span>
-                        <span class="info-separator">•</span>
-                        <span class="info-badge">
-                            <span class="badge-label">Ctx:</span>
-                            <span id="modelContext">-</span>
-                        </span>
-                    </div>
+                <div class="chat-header-left">
+                    <span class="chat-header-icon">💬</span>
+                    <span class="chat-header-title" id="chatHeaderTitle">New Chat</span>
                 </div>
-                <div class="chat-actions">
-                    <a href="/dashboard.html" class="action-btn dashboard-btn">📊 Dashboard</a>
-                    <div class="dropdown">
-                        <button class="action-btn" onclick="toggleDropdown()">Menu ▼</button>
-                        <div class="dropdown-content" id="dropdownMenu">
-                            <button class="dropdown-item" onclick="saveConversation()">💾 Save Conversation</button>
-                            <button class="dropdown-item" onclick="showLoadModal()">📂 Load Conversation</button>
-                            <button class="dropdown-item" onclick="returnToCurrent()">⬅️ Return to Current</button>
-                            <button class="dropdown-item" onclick="clearChat()">🗑️ Clear Current Chat</button>
-                            <button class="dropdown-item" onclick="exportConversation()">📤 Export to File</button>
-                        </div>
-                    </div>
+                <a href="/dashboard.html" class="action-btn dashboard-btn">📊 Dashboard</a>
+            </div>
+            <div class="chat-context-bar" id="chatContextBar">
+                <div class="chat-context-progress" id="chatContextProgress">
+                    <div class="chat-context-fill" id="chatContextFill"></div>
                 </div>
+                <span class="chat-context-value" id="chatContextValue">0/0 Q&A • 0%</span>
+            </div>
+            <div class="chat-buttons">
+                            <button onclick="saveConversation()">💾 Save Conversation</button>
+                            <button onclick="showLoadModal()">📂 Load Conversation</button>
+                            <button onclick="returnToCurrent()">⬅️ Return to Current</button>
+                            <button onclick="clearChat()">🗑️ Clear Current Chat</button>
+                            <button onclick="exportConversation()">📤 Export to File</button>
             </div>
             <div class="chat-messages" id="chatMessages">
                 <div class="message bot-message">
@@ -67,6 +59,9 @@
             <div class="chat-input-container">
                 <div class="input-wrapper">
                     <textarea class="chat-input" id="chatInput" placeholder="Type your message..." rows="1"></textarea>
+                    <!-- Найди место с кнопками управления чатом и добавь эту: -->
+                    <button class="action-btn" onclick="openAIHelper()" title="Открыть AI Helper для звонков"> 🎧 AI Helper </button>
+                    <button id="micBtn" class="mic-btn" title="Голосовой ввод (нажмите для старта/стопа)"> 🎤 </button>
                     <button class="send-btn" id="sendBtn" onclick="sendMessage()">Send</button>
                 </div>
                 <div class="input-actions">
@@ -79,58 +74,137 @@
                     <input type="file" id="codeInput" style="display: none;" multiple accept=".js,.ts,.jsx,.tsx,.py,.java,.html,.css,.scss,.json,.xml,.yaml,.yml,.md,.txt,.sql,.php,.rb,.go,.rs,.cpp,.c,.h,.cs,.swift,.kt,.scala,.sh,.bat,.dockerfile,.gitignore,.env" onchange="handleCodeUpload(event)">
                 </div>
                 <div class="file-preview" id="filePreview"></div>
-                <div style="margin-top: 10px; font-size: 0.85em; color: #666;">
-                    ⚠️ Large documents may be truncated to fit the model's context window<br>
-                    ⚠️ Images require vision models (llama3.2-vision, llava, gemma3, etc.)<br>
-                    💡 Code files will be analyzed for structure, patterns, and recommendations
+            </div>
+            <div class="stat-footer">
+                <div class="stat-footer-row">
+                    <span class="model-icon">🤖</span>
+                    <span class="model-name" id="selectedModelName">No model selected</span>
+                    <span class="info-badge">
+                        <span class="badge-label">Size:</span>
+                        <span id="modelSize">-</span>
+                    </span>
+                    <span class="info-separator">•</span>
+                    <span class="info-badge">
+                        <span class="badge-label">Ctx:</span>
+                        <span id="modelContext">-</span>
+                    </span>
+                    <span class="stat-item-inline">
+                        <span class="stat-label">Total Time:</span>
+                        <span class="stat-value" id="totalTime">-</span>
+                    </span>
+                    <button class="tps-button" id="tps" onclick="openStatsModal()">TPS</button>
+                </div>
+            </div>
+
+            <div class="modal" id="statsModal">
+                <div class="modal-content stats-modal-content">
+                    <div class="modal-header">📊 Detailed Statistics</div>
+                    <div class="stats-modal-body">
+                        <div class="stats-grid">
+                            <div class="stats-grid-item highlight">
+                                <span class="stats-grid-label">TPS</span>
+                                <span class="stats-grid-value" id="modalTps">-</span>
+                            </div>
+                            <div class="stats-grid-item">
+                                <span class="stats-grid-label">Prompt Speed</span>
+                                <span class="stats-grid-value" id="modalPromptSpeed">-</span>
+                            </div>
+                            <div class="stats-grid-item">
+                                <span class="stats-grid-label">TTFT</span>
+                                <span class="stats-grid-value" id="modalTtft">-</span>
+                            </div>
+                            <div class="stats-grid-item">
+                                <span class="stats-grid-label">Load Time</span>
+                                <span class="stats-grid-value" id="modalLoadTime">-</span>
+                            </div>
+                            <div class="stats-grid-item">
+                                <span class="stats-grid-label">Total Time</span>
+                                <span class="stats-grid-value" id="modalTotalTime">-</span>
+                            </div>
+                        </div>
+                        <div class="stats-divider"></div>
+                        <div class="stats-grid">
+                            <div class="stats-grid-item">
+                                <span class="stats-grid-label">Input Tokens</span>
+                                <span class="stats-grid-value" id="modalInputTokens">-</span>
+                            </div>
+                            <div class="stats-grid-item">
+                                <span class="stats-grid-label">Output Tokens</span>
+                                <span class="stats-grid-value" id="modalOutputTokens">-</span>
+                            </div>
+                            <div class="stats-grid-item">
+                                <span class="stats-grid-label">Context Load</span>
+                                <span class="stats-grid-value" id="modalContextLoad">-</span>
+                            </div>
+                            <div class="stats-grid-item">
+                                <span class="stats-grid-label">Questions</span>
+                                <span class="stats-grid-value" id="modalQuestionCount">-</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-actions">
+                        <button class="action-btn" onclick="closeStatsModal()">Close</button>
+                    </div>
                 </div>
             </div>
         </div>
 
         <!-- Right Panel: Models & Statistics -->
         <div class="right-panel">
-            <!-- Section 1: Models -->
+            <!-- Models Section -->
             <div class="right-section models-section-container">
-                <div class="section-header">
-                    🤖 Models
-                </div>
+                <div class="section-header">🤖 Models</div>
                 <div class="section-content">
                     <!-- Provider Selection -->
                     <div class="provider-selection">
                         <h3>Provider</h3>
                         <div class="provider-radios">
                             <label class="radio-label" data-provider="ollama">
-                                <input type="radio" name="provider" value="ollama" checked onchange="handleProviderChange()">
+                                <input type="radio" name="provider" value="ollama" checked>
                                 <span class="provider-name">Ollama</span>
-                                <span class="status-indicator" id="status-ollama" title="Checking...">
+                                <span class="status-indicator" id="status-ollama">
                                     <span class="status-dot"></span>
                                 </span>
                             </label>
                             <label class="radio-label" data-provider="llama_cpp">
-                                <input type="radio" name="provider" value="llama_cpp" onchange="handleProviderChange()">
+                                <input type="radio" name="provider" value="llama_cpp">
                                 <span class="provider-name">llama.cpp</span>
-                                <span class="status-indicator" id="status-llama_cpp" title="Checking...">
+                                <span class="status-indicator" id="status-llama_cpp">
                                     <span class="status-dot"></span>
                                 </span>
                             </label>
                         </div>
                     </div>
-
+                    
                     <!-- Model Selection -->
                     <div class="model-selection">
                         <h3>Select Model</h3>
-                        <select class="model-dropdown" id="modelDropdown" onchange="handleModelSelect()">
+                        <select id="modelDropdown" class="model-dropdown">
                             <option value="">Loading models...</option>
                         </select>
                     </div>
                 </div>
             </div>
-
-            <!-- Section 2: Statistics -->
-            <div class="right-section stats-section-container">
-                <div class="section-header">
-                    📊 Statistics
+            
+            <!-- System Prompt Section (НОВОЕ) -->
+            <div class="right-section sysprompt-section-container">
+                <div class="section-header">📝 System Prompt</div>
+                <div class="section-content">
+                    <textarea 
+                        id="syspromptTextarea" 
+                        class="sysprompt-textarea" 
+                        placeholder="Enter system prompt for the AI assistant..."
+                        rows="8"
+                    ></textarea>
+                    <div class="sysprompt-hint">
+                        <small>Instructions for the AI. Saved per session.</small>
+                    </div>
                 </div>
+            </div>
+            
+            <!-- Statistics Section -->
+            <div class="right-section stats-section-container">
+                <div class="section-header">📊 Statistics</div>
                 <div class="section-content">
                     <div class="stats-section">
                         <h3>Session Stats</h3>
@@ -149,28 +223,6 @@
                         <div class="stat-item">
                             <span class="stat-label">Context Load:</span>
                             <span class="stat-value" id="contextLoad">0%</span>
-                        </div>
-                        
-                        <h3>Last Response</h3>
-                        <div class="stat-item">
-                            <span class="stat-label">TPS:</span>
-                            <span class="stat-value" id="tps">-</span>
-                        </div>
-                        <div class="stat-item">
-                            <span class="stat-label">Prompt Speed:</span>
-                            <span class="stat-value" id="promptSpeed">-</span>
-                        </div>
-                        <div class="stat-item">
-                            <span class="stat-label">TTFT:</span>
-                            <span class="stat-value" id="ttft">-</span>
-                        </div>
-                        <div class="stat-item">
-                            <span class="stat-label">Load Time:</span>
-                            <span class="stat-value" id="loadTime">-</span>
-                        </div>
-                        <div class="stat-item">
-                            <span class="stat-label">Total Time:</span>
-                            <span class="stat-value" id="totalTime">-</span>
                         </div>
                     </div>
                 </div>
@@ -217,7 +269,6 @@
 
     <div class="toast" id="toast"></div>
 
-    <script src="logger.js"></script>
     <script src="script.js"></script>
 </body>
 </html>

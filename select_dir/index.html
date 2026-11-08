@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RAG Path Calculator</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 800px;
+            margin: 40px auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .config {
+            background: #eef;
+            padding: 10px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+            font-family: monospace;
+            font-size: 14px;
+        }
+        button {
+            background: #2980b9;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        #result {
+            margin-top: 20px;
+            padding: 15px;
+            background: #fff;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-family: monospace;
+            white-space: pre-wrap;
+            display: none;
+        }
+        #result.show { display: block; }
+        .highlight { color: #27ae60; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>RAG Path Calculator</h1>
+    
+    <div class="config">
+        <strong>ENV PROJECT_ROOT:</strong> /home/selub/Documents/progs
+    </div>
+
+    <p>Выберите файл из папки проекта (например, из <code>zoog/</code>).</p>
+    
+    <input type="file" id="fileInput" webkitdirectory multiple>
+    <button onclick="calculatePath()">Рассчитать</button>
+
+    <div id="result"></div>
+</div>
+
+<script src="script.js"></script>
+</body>
+</html>
