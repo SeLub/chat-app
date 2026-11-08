@@ -77,12 +77,19 @@ chmod +x run-ollama-docker.sh
 ### Option 2: Local Installation
 1. Install [Ollama](https://ollama.com) or run `llama-server`.
 2. Download models: `ollama pull qwen2.5-coder`
-3. Install app dependencies and start:
+3. Build the frontend (React app in `webq98/`) and start the backend:
 ```bash
 npm install
+cd webq98 && npm install && npm run build && cd ..
 npm start
 ```
-Open in browser: [http://localhost:3000](http://localhost:3000)
+Open in browser: [http://localhost:3000](http://localhost:3000) — the backend serves the production build from `webq98/dist` (SPA-fallback for deep routes; API under `/api`, WebSocket under `/ws`, VAD assets under `/vad-assets`).
+
+### Frontend (`webq98/`)
+The UI is a React 18 + Vite + Tailwind 4 SPA located in `webq98/`.
+* **Development:** `cd webq98 && npm run dev` — Vite dev server on **:5175**, proxying `/api`, `/ws` and `/vad-assets` to the backend on :3000.
+* **Production:** `npm run build` → outputs `webq98/dist`; the backend on :3000 serves this build, with an SPA-fallback that returns `index.html` for unknown GET routes.
+* The legacy static frontend is archived read-only in `docs/reference/public-archive/` (golden master, do not modify).
 
 ### Whisper (STT)
 For real-time speech recognition, start both whisper instances at once:
