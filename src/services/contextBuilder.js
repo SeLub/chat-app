@@ -38,8 +38,11 @@ export function cutContext(qaHistory, targetChars, includeQuestionIds = null) {
     const totalQAPairs = qaPairs.length;
 
     // 2. Фильтрация для Manual режима
+    // TZ-A.7: Array.isArray различает null (не задано → все пары) и [] (задано пустым
+    // в Manual-режиме → 0 пар, только system prompt + новый вопрос).
+    // Проверка length > 0 здесь ошибочна: пустой массив — валидное значение «ничего не включать».
     let filteredPairs = qaPairs;
-    if (includeQuestionIds && Array.isArray(includeQuestionIds) && includeQuestionIds.length > 0) {
+    if (Array.isArray(includeQuestionIds)) {
         filteredPairs = qaPairs.filter(pair => includeQuestionIds.includes(pair.questionId));
     }
 
