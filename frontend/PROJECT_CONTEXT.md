@@ -316,7 +316,8 @@ Multi-Provider AI Chat — десктопный инструмент для ра
 
 ```
 chat-app/
-├── README.md, docker-compose.yml, .gitignore, .kilocodeignore  # корень — только это (R.4)
+├── README.md, docker-compose.yml, .gitignore, .kilocodeignore  # tracked-файлы корня (R.4);
+│                                                                  # также tracked: .kilo/, .vscode/ — конфиги инструментов (видны только в ls -a)
 ├── docs/
 │   ├── WORKLOG.md, WORKFLOW.md, BACKLOG.md  # регламент/журнал/бэклог (R.4: перенесены из корня)
 │   ├── plans/                     # ТЗ и планы треков, вкл. restructure-server-frontend.md (R.4: из plans/)

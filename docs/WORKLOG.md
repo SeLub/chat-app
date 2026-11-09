@@ -352,3 +352,18 @@
 - [x] README без битых ссылок (run-ollama-docker.sh удалён в R.4); PROJECT_CONTEXT §10 = реальности; §8/§11 актуальны.
 
 **Статус:** ✅ R.5 исполнена, PR открыт (`tz/restructure-r5` → `main`). Трек реструктуризации R.1–R.5 завершён; дальше — BACKLOG #1–#4 отдельным треком (по прямому указанию владельца).
+
+---
+
+## 2026-11-09 — Аудит структуры (запрос владельца) + фикс якорей .gitignore (ветка `tz/fix-gitignore-anchors`)
+
+**Запрос.** «Проверь текущую структуру проекта. Какие файлы нужно удалить? Сверить со схемой в документации.» Контекст: main `87ef519` (merge PR #12 + 3 прямых коммита владельца: `server/data/` и Vite-артефакты в gitignore, чистка plans).
+
+**Сверка с документацией (§10-карта PROJECT_CONTEXT, README Project Structure, чек-лист §6 плана).** Tracked-дерево полностью соответствует §10; чистка владельца в `docs/plans/` (удалены FRONTEND_MIGRATION_PLAN.md и final_solution_proposal.md, «План реализации» и refactoring-session-management.md → DONE/) учтена. Находки аудита:
+
+1. **Корневой `uploads/` (untracked, runtime) — наследие до-R.2, единственное расхождение «структура vs карта».** Содержимое: `images/` — 8 файлов `img_<ts>_<rand>` + `thumbnails/` — 8 миниатюр. После R.2 сервер работает ТОЛЬКО с `server/uploads/images` (app.js/imageService — пути от `__dirname`; раздача `/api/images/:id/full|thumb`; URL в БД). Старые файлы не находятся по своим URL → картинки в старых сообщениях (server/data/chat.db) отдадут 404. **Рекомендация владельцу: перенести** `uploads/images/*` → `server/uploads/images/`, `uploads/images/thumbnails/*` → `server/uploads/images/thumbnails/` (history сохранится — ID совпадают, `generateImageId` = `img_<ts>_<rand>`), затем удалить опустевший корневой `uploads/`. Альтернатива — просто `rm -rf uploads/`, если старые вложения не нужны (ссылки в БД останутся с битыми картинками).
+2. **.gitignore — мёртвые якоря `webq98/.vite/`, `webq98/tsconfig.tsbuildinfo`** (прямые коммиты владельца c4c5d42/87ef519): каталога `webq98/` не существует с R.3. Фактически `frontend/tsconfig.tsbuildinfo` уже игнорируется через `frontend/.gitignore` (`*.tsbuildinfo`; проверено `git check-ignore`), кэш Vite живёт в `node_modules/.vite`. Фикс: якоря → `frontend/…` (намерение сохранено, паттерны снова действуют). Исправлено в этом PR.
+3. **Не удалять:** `server/data/chat.db-shm`/`-wal` (WAL-сайдкары better-sqlite3, runtime), `server/uploads/tmp` (переиспользуется, cleanup в `finally` — TZ-B.3), `node_modules/`/`dist/` (артефакты), `.kilo/`, `.vscode/` (tracked-конфиги инструментов; проверены — устаревших путей нет, добавлены в §10-карту).
+4. **Косметика (не исполнено, на усмотрение):** заголовки describe/it в `server/tests/app/static.test.js` упоминают «webq98/dist» (фикстура давно `frontend/dist`); `docs/plans/restructure-server-frontend.md` и `docs/plans/Выявленные недостатки:.md` можно дослать в `DONE/` (владелец начал эту чистку в eb2abb1).
+
+**Гейты (docs/.gitignore-only; код не менялся):** frontend lint ✓ · test:run 88/88 ✓ · build ✓ · server test:backend 62/62 ✓.
