@@ -281,3 +281,21 @@
 **Гейты (ветка `tz/restructure-r3`):** frontend `pnpm install` ✓ · `pnpm run build` ✓ (29.6s, warning >500 kB — известный, BACKLOG #7) · `pnpm run lint` ✓ (--max-warnings 0) · `pnpm run test:run` ✓ **88/88** · `cd server && pnpm run test:backend` ✓ **59/59**. **Live-smoke :3000:** `GET /` → 200 React index из `frontend/dist` ✓ · `GET /dashboard` → 200 (SPA-fallback) ✓ · `/vad-assets/vad.worklet.bundle.min.js` → 200 + COOP/COEP ✓ · `/api/nonexistent` → 404 JSON ✓ · `/api/providers` → 200 JSON ✓. Красный-первый: поведение не менялось (чистый переезд) — контракты покрыты существующими тестами.
 
 **Статус:** ✅ R.3 исполнена, PR открыт (`tz/restructure-r3` → `main`). Остались R.4 (корень+docs: plans → docs/plans, WORKLOG/WORKFLOW/BACKLOG → docs/, select_dir/ + test-ai-helper-repo.js → legacy-scratch, битая ссылка README run-ollama-docker.sh) и R.5 (финал: полная карта §10, итоговые команды README, приёмка владельца).
+
+---
+
+## 2026-11-09 — Хотфикс (хвост R.2): `.env` перестал находиться после переезда бэкенда — добавлен в PR R.3 до merge
+
+**Отчёт владельца.** После merge PR #9 при старте `pnpm start` (из `server/`): `Provider ollama is not responding, attempting fallback` → `All providers are unavailable`; `/api/models` → 503. llama.cpp при этом работает (`llama-server listening on :8080`). В логе старта: `llama.cpp: … (enabled: false)`.
+
+**Диагноз.** `server.js` грузил env через `import 'dotenv/config'` — dotenv ищет `.env` от `process.cwd()`. До R.2 cwd был корнем репо (там жил `.env` владельца); после переезда cwd=`server/` → корневой `.env` не находился → все переменные откатились на дефолты кода: `DEFAULT_PROVIDER=ollama`, `LLAMA_CPP_ENABLED` → `false` (строгое `=== 'true'` в `config/providers.js`). `providerManager` фильтрует по `enabled` (`providerManager.js:40`), поэтому работающий llama.cpp не участвовал ни в прямом вызове, ни в fallback → 503. Примечание владельцу в записи R.2 упоминало перенос `data/chat.db*` и `uploads/`, но не `.env` — упущение исполнительной стороны.
+
+**Фикс.** Новый `server/src/config/env.js`: путь `.env` резолвится от `__dirname` модуля — cwd не важен; порядок: `server/.env` (основной) → корневой `.env` (legacy-fallback на время миграции; dotenv не переопределяет уже заданные — `server/.env` всегда приоритетен). `server.js`: `import './config/env.js'` ПЕРВЫМ импортом (до `app.js`, чьи модули читают `process.env` при импорте). Тест `server/tests/config/env.test.js` (3): пути поиска, приоритет первого файла, толерантность к отсутствию файла. `.env.example` и README (Configuration) — расположение `.env` задокументировано.
+
+**Проверка.** `test:backend` **62/62** (59 + 3). Live: временный `server/.env` (PORT=3210, LLAMA_CPP_ENABLED=true), старт `node src/server.js` из cwd=`/tmp` (вне репо) → сервер поднялся на **:3210**, `Default provider: llama_cpp`, `llama.cpp enabled: true` — env найден от модуля; фикстура удалена.
+
+**Уточнения по отчёту (не баги).** (1) «Total Time: 37.85s» в футере при недоступных провайдерах — это персист-метрики последнего ответа ассистента, загруженного из БД вместе с сессией (`chat-area.tsx: deriveLastMetrics`; метрики хранятся с Фазы B/TZ-B.2) — историческое значение, к текущей попытке не относится; Size/Ctx — «–», потому что список моделей не получен (503). (2) `[vite] server connection lost` + `ws://localhost:5175/ failed` — HMR-реконнект dev-сервера Vite (транзиент при перезапуске/навигации); API через прокси 5175→3000 в том же логе отвечал 200 — к R.2 не относится.
+
+**Действие владельцу:** перенести `.env` в `server/.env` (`mv .env server/.env`) — фиксирует проблему и на текущем main без кода; после merge PR #10 работает и legacy-вариант (корневой `.env` подхватывается fallback'ом).
+
+**Статус:** ✅ Фикс добавлен в ветку `tz/restructure-r3` (PR #10) до merge. test:backend 62/62.

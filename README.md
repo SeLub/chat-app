@@ -108,7 +108,7 @@ Both use `models/ggml-medium.bin`, language `ru`, 12 threads. Press `Ctrl+C` to 
 
 ## Configuration
 
-The application uses environment variables for provider configuration. Create a `.env` file or pass variables at startup:
+The application uses environment variables for provider configuration. Create a `.env` file in `server/` (copy from `server/.env.example`; it is loaded relative to the backend module — the working directory does not matter. A legacy `.env` in the repo root is also picked up as a fallback, but `server/.env` takes priority) or pass variables at startup:
 
 ```env
 # Default provider (ollama | llama_cpp)
