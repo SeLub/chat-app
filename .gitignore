@@ -4,3 +4,4 @@ uploads/
 data/*.db*
 server/data/*.db*
 dist/
+server/data/
