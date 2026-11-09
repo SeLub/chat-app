@@ -251,3 +251,17 @@
 **Гейты (после изменений, узел `tz/track-closeout`):** build ✓ · lint ✓ (--max-warnings 0) · test:run ✓ 88/88 · test:backend ✓ 59/59. Красный-первый неприменим: 0 строк исполняемого кода (git-гигиена, lockfiles, docs).
 
 **Статус:** ✅ Верды D1–D3 исполнены; PR #8 обновлён (документы + хозработы). Реструктуризация `server/` + `frontend/` — следующий трек (план готов, верды учтены).
+
+---
+
+## 2026-11-09 — Реструктуризация R.1 (префлайт) + R.2 (бэкенд → `server/`): PR открыт
+
+**R.1 — префлайт.** Тег отката `pre-restructure` поставлен на `main` (`874b669`, merge PR #8) и запушен. Инвентаризация ссылок на переезжаемые пути (`rg` по `src/`, `tests/`, конфигам): все относительные импорты — внутренние для `src/`/`tests/` (переезд бесследен); абсолютные пути через `__dirname` — `db/init.js` (`server/data` — следует автоматически), `imageService.js` (`server/uploads/images` — автоматически), `chatRoutes.js` tmpDir (`server/uploads/tmp` — автоматически), `app.js` vad-assets (`server/public/vad-assets` — автоматически). Требовали правки только dist-пути фронта: `app.js` ×2 и `repoRoot` в `static.test.js`.
+
+**R.2 — `git mv` → `server/`.** Переехали: `src/`, `tests/`, `scripts/` (whisper.sh), `public/` (vad-assets — решение #109 соблюдено), `package.json`, `pnpm-lock.yaml`, `pnpm-workspace.yaml`, `.env.example`, `data/` (.gitkeep). Правки: `server/src/app.js` — dist-статика и SPA-fallback → `../../webq98/dist` (до R.3 фронт в корне); `server/tests/app/static.test.js` — `repoRoot` на 3 уровня вверх; README — команды `cd server && …`, структура, пути провайдеров. `.gitignore` — неякорные паттерны (`uploads/`, `dist/`, `data/*.db*`, `node_modules`) совпадают на новой глубине без правок. Попутно (гигиена pnpm): `webq98/pnpm-workspace.yaml` — allowBuilds esbuild/protobufjs (снимает «Ignored build scripts», зеркалит корневой файл).
+
+**Гейты (ветка `tz/restructure-r2`):** `cd server && pnpm install` ✓ (3.3s; better-sqlite3/sharp нативно OK — валидация pnpm-lock после переезда) · `pnpm run test:backend` ✓ **59/59** (22 suites) · webq98 `pnpm install` ✓ + `pnpm run build` ✓ (29.8s, warning >500 kB — известный, BACKLOG #7). **Live-smoke :3000:** `GET /` → 200 React index ✓ · `GET /dashboard` → 200, тот же index (SPA-fallback) ✓ · `/vad-assets/silero_vad_v5.onnx` → 200 + COOP/COEP ✓ · `/api/nonexistent` → 404 JSON ✓ · `/api/providers` → JSON ✓. Красный-первый: поведение не менялось (чистый переезд) — контракты покрыты существующими тестами (59/59 зелёные на новом месте).
+
+**Примечание владельцу:** локальные runtime-файлы надо перенести на новое место: `data/chat.db*` (и `data/ai_helper.db`) → `server/data/`; `uploads/` пересоздаётся автоматически при старте (или перенести `uploads/images` для сохранения картинок). Кратцевременно: пока R.3 не смержен, фронт собирается из `webq98/` как раньше.
+
+**Статус:** ✅ R.1+R.2 исполнены, PR открыт (`tz/restructure-r2` → `main`). Далее R.3 (`webq98` → `frontend`) — после merge.
