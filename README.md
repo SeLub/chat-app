@@ -90,6 +90,15 @@ The UI is a React 18 + Vite + Tailwind 4 SPA located in `frontend/`.
 * **Production:** `pnpm run build` → outputs `frontend/dist`; the backend on :3000 serves this build, with an SPA-fallback that returns `index.html` for unknown GET routes.
 * The legacy static frontend is archived read-only in `docs/reference/public-archive/` (golden master, do not modify).
 
+### Tests & Lint
+```bash
+# Frontend: unit-tests (vitest), lint, production build
+cd frontend && pnpm run test:run && pnpm run lint && pnpm run build
+
+# Backend: node --test
+cd server && pnpm run test:backend
+```
+
 ### Whisper (STT)
 For real-time speech recognition, start both whisper instances at once:
 
