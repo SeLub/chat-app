@@ -6,5 +6,5 @@ server/data/*.db*
 dist/
 server/data/
 # Vite
-webq98/.vite/
-webq98/tsconfig.tsbuildinfo
+frontend/.vite/
+frontend/tsconfig.tsbuildinfo
