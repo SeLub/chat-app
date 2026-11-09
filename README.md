@@ -68,10 +68,9 @@ When using the `llama.cpp` provider, the server caches the KV-state between requ
 ## Setup
 
 ### Option 1: Docker Setup (Recommended for Ollama)
-Run Ollama in Docker:
+Run Ollama in Docker via the tracked `docker-compose.yml` (GPU via NVIDIA runtime, persistent volume, 32k context):
 ```bash
-chmod +x run-ollama-docker.sh
-./run-ollama-docker.sh
+docker compose up -d
 ```
 
 ### Option 2: Local Installation
@@ -176,7 +175,7 @@ chat-app/
  ├── frontend/                       # Frontend: React 18 + Vite + Tailwind 4
  │   ├── src/                        # UI logic, Standard/Manual mode toggling
  │   └── dist/                       # Production build (gitignored), served by the backend
- └── docs/
+ └── docs/                          # WORKLOG/WORKFLOW/BACKLOG + plans/ + reference/ (legacy archives)
 ```
 
 ---
