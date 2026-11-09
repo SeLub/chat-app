@@ -24,7 +24,7 @@ Multi-Provider AI Chat — десктопный инструмент для ра
 |---|---|---|---|
 | Бэкенд (Express + БД) | репозиторий сервера | 3000 | **НЕ ИЗМЕНЯТЬ без прямого указания в ТЗ** |
 | Эталонный фронтенд | `public/` (index.html, script.js, style.css, ...) | 3000 | **ТОЛЬКО ЧИТАТЬ. Golden master для сверки поведения. Не изменять, не удалять** |
-| Новый фронтенд (наш) | `webq98/` | 5175 | `pnpm run dev`, `pnpm run build`, `pnpm run lint` |
+| Новый фронтенд (наш) | `frontend/` | 5175 | `pnpm run dev`, `pnpm run build`, `pnpm run lint` |
 | whisper.cpp (STT) | внешний сервис | 8081 | доступен через бэкенд |
 
 - Прокси из vite: `/api` → :3000, `/ws` → :3000 (ws:true), `/vad-assets` → :3000.
@@ -284,10 +284,11 @@ Multi-Provider AI Chat — десктопный инструмент для ра
 | 113 | pnpm — пакетный менеджер по умолчанию: npm-артефакты (`package-lock.json` в корне и в `webq98/`) удалены; корневой `pnpm-lock.yaml` обновлён (устарел — содержал devDeps, удалённые в TZ-F.6), в `webq98/` добавлен свой `pnpm-lock.yaml`; команды в README/§ — pnpm | вердикт владельца 2026-11-09 (D1 плана реструктуризации) |
 | 114 | `ai_helper.db` выведен из git → `data/ai_helper.db` (untracked; gitignore `data/*.db*`). Файл пуст (0 строк): таблицы ai-helper живут в `data/chat.db` через общий `getDb()`; локальные данные владельца не затронуты | вердикт владельца 2026-11-09 (D2) |
 | 115 | `test-mic.html` → `docs/reference/legacy-scratch/` (архив ad-hoc артефактов); `select_dir/` и `test-ai-helper-repo.js` переедут туда же в R.4 реструктуризации | вердикт владельца 2026-11-09 (D3) |
+| 116 | R.3: `webq98` → `frontend/` (git mv, 58 rename-записей); `app.js` — dist-статика и SPA-fallback → `../../frontend/dist`; фикстура `static.test.js` → `frontend/dist`; README/ARCHITECTURE/§10/§8.1 — пути обновлены. Хвост R.2: `.gitignore` + `server/data/*.db*` (якорный `data/*.db*` не покрывал новую глубину). `@eslint/js` — прямой devDep (импорт `eslint.config.js` не разрешался при чистой pnpm-установке — латентный баг D1; пакет уже был в сторе как транзитив eslint) | план реструктуризации R.3, 2026-11-09 |
 
 ## 8. Запрещено
 
-1. Изменять `docs/reference/public-archive/` (golden master легаси-фронта, read-only) и содержимое `public/vad-assets/` (не копировать в `webq98/public`, не удалять — решение #109).
+1. Изменять `docs/reference/public-archive/` (golden master легаси-фронта, read-only) и содержимое `server/public/vad-assets/` (не копировать в `frontend/public`, не удалять — решение #109).
 2. Предполагать стриминг `/api/chat`.
 3. Вызывать `/qa-pairs`, `/context-config`.
 4. Сырой fetch/WebSocket вне выделенных модулей.
@@ -307,26 +308,32 @@ Multi-Provider AI Chat — десктопный инструмент для ра
 ## 10. Карта репозитория (для агентов)
 
 Корень: `/home/selub/Documents/progs/chat-app/`
-Все пути в ТЗ — относительно `webq98/`, если явно не сказано иное.
+Все пути в ТЗ — относительно `frontend/`, если явно не сказано иное.
 Перед чтением файла сверяй путь с этой картой. Если файл не найден —
-ищи от `webq98/`, НЕ от корня репозитория.
+ищи от `frontend/`, НЕ от корня репозитория.
 
 ```
 chat-app/
+├── README.md, docker-compose.yml, plans/, WORKLOG/WORKFLOW/BACKLOG  # R.4: plans → docs/plans, журналы → docs/
 ├── docs/
-│   ├── AI_HELPER_STT.md         # STT-подсистема: версии, протокол, грабли (читать в ТЗ-3.2/3.3)
-│   └── reference/public-archive/ # GOLDEN MASTER легаси-фронта — только читать (решение #110)
-├── src/                           # БЭКЕНД (Express + better-sqlite3 + WS; порт :3000)
-│   ├── server.js, app.js          # app.js: статика webq98/dist + SPA-fallback (решение #108)
-│   ├── db/ (init.js: setDbPath, repos)
-│   └── controllers, services, providers, routes, ws, middleware
-├── tests/                         # node --test (test:backend): db/, controllers/, services/, app/
-├── public/
-│   └── vad-assets/                # ЕДИНСТВЕННОЕ содержимое: VAD/ORT-ассеты (решение #109, COOP/COEP)
-├── data/                          # runtime SQLite (chat.db; *.db* в gitignore; решение #114)
-└── webq98/                        # НАШ ФРОНТЕНД — вся работа здесь
+│   ├── AI_HELPER_STT.md           # STT-подсистема: версии, протокол, грабли (читать в ТЗ-3.2/3.3)
+│   └── reference/
+│       ├── public-archive/        # GOLDEN MASTER легаси-фронта — только читать (решение #110)
+│       └── legacy-scratch/        # архив ad-hoc артефактов (решение #115)
+├── server/                        # БЭКЕНД (Express 5 + better-sqlite3 + WS; порт :3000)
+│   ├── src/
+│   │   ├── server.js, app.js      # app.js: статика frontend/dist + SPA-fallback (решение #108)
+│   │   ├── db/ (init.js: setDbPath, repos)
+│   │   └── controllers, services, providers, routes, ws, middleware, config, utils
+│   ├── tests/                     # node --test (test:backend): db/, controllers/, services/, app/
+│   ├── scripts/                   # whisper.sh (pnpm run whisper)
+│   ├── public/
+│   │   └── vad-assets/            # ЕДИНСТВЕННОЕ содержимое: VAD/ORT-ассеты (решение #109, COOP/COEP)
+│   ├── data/                      # runtime SQLite (chat.db; *.db* в gitignore — решения #114, R.3)
+│   └── uploads/                   # runtime-загрузки (images/, thumbnails/; gitignore)
+└── frontend/                      # НАШ ФРОНТЕНД — вся работа здесь (бывший webq98 — R.3)
     ├── PROJECT_CONTEXT.md         # эта конституция
-    ├── package.json, vite.config.ts, eslint.config.js, index.html
+    ├── ARCHITECTURE.md, package.json, vite.config.ts, eslint.config.js, index.html
     ├── dist/                      # production-сборка (gitignore) — её отдаёт бэкенд :3000
     └── src/
         ├── main.tsx, index.css

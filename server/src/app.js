@@ -27,13 +27,13 @@ const coepHeaders = (req, res, next) => {
 app.use('/vad-assets', coepHeaders);
 // TZ-F.2: vad-assets обслуживаются ЯВНОЙ статикой из public/vad-assets
 // (раньше их отдавала широкая статика из public/ — после переключения корня
-// на webq98/dist они потеряли бы раздачу; vad-assets остаются на месте).
+// статики на dist фронта они потеряли бы раздачу; vad-assets остаются на месте).
 app.use('/vad-assets', express.static(path.join(__dirname, '..', 'public', 'vad-assets')));
 // =====================================================
 
-// TZ-F.1: production-статика React-приложения (сборка webq98/ → dist/)
-// R.2: бэкенд переехал в server/ — dist фронта (пока webq98/, до R.3) на уровне корня репо
-app.use(express.static(path.join(__dirname, '..', '..', 'webq98', 'dist')));
+// TZ-F.1: production-статика React-приложения (сборка frontend/ → dist/)
+// R.3: фронт переехал в frontend/ (бывший webq98) — dist на уровне корня репо
+app.use(express.static(path.join(__dirname, '..', '..', 'frontend', 'dist')));
 
 // Создание директорий для загрузок
 const uploadsDir = path.join(__dirname, '..', 'uploads', 'images');
@@ -132,13 +132,13 @@ app.get('/api/providers/status', async (req, res) => {
 // TZ-F.1: SPA-fallback — все прочие GET/HEAD отдают index.html React-приложения.
 // NB: сниппет ТЗ с app.get('*') на Express 5 (path-to-regexp v8) кидает TypeError —
 // семантика ТЗ воспроизведена завершающим app.use: /api, /ws, /vad-assets → 404 JSON,
-// всё остальное → webq98/dist/index.html.
+// всё остальное → frontend/dist/index.html.
 app.use((req, res, next) => {
     if (req.method !== 'GET' && req.method !== 'HEAD') return next();
     if (req.path.startsWith('/api') || req.path.startsWith('/ws') || req.path.startsWith('/vad-assets')) {
         return res.status(404).json({ error: 'Not found' });
     }
-    return res.sendFile(path.join(__dirname, '..', '..', 'webq98', 'dist', 'index.html'));
+    return res.sendFile(path.join(__dirname, '..', '..', 'frontend', 'dist', 'index.html'));
 });
 
 export default app;
