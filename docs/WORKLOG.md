@@ -1,7 +1,7 @@
 # WORKLOG — журнал решений и фаз
 
 > Ведёт Исполнитель. Формат: запись на задачу (контекст → решения → фазы/статусы → итог).
-> Регламент см. в `WORKFLOW.md`.
+> Регламент см. в `docs/WORKFLOW.md` (с R.4 — 2026-11-09 — регламент и журналы живут в `docs/`).
 
 ---
 
@@ -299,3 +299,30 @@
 **Действие владельцу:** перенести `.env` в `server/.env` (`mv .env server/.env`) — фиксирует проблему и на текущем main без кода; после merge PR #10 работает и legacy-вариант (корневой `.env` подхватывается fallback'ом).
 
 **Статус:** ✅ Фикс добавлен в ветку `tz/restructure-r3` (PR #10) до merge. test:backend 62/62.
+
+---
+
+## 2026-11-09 — R.4 — Корень и docs (ветка `tz/restructure-r4`)
+
+**Контекст.** Merge PR #10 (R.3 + хотфикс `.env`) подтверждён владельцем (`3cd4662`), ветка `tz/restructure-r3` удалена (локально и на remote). По плану `docs/plans/restructure-server-frontend.md` остались R.4 (корень и docs) и R.5 (финал).
+
+**Переносы (git mv, 23 rename-записи; история читается через `git log --follow`):**
+- `plans/` → `docs/plans/` (целиком, включая `DONE/` и файлы с кириллицей в именах);
+- `WORKLOG.md`, `WORKFLOW.md`, `BACKLOG.md` → `docs/` (D4 плана);
+- `select_dir/` → `docs/reference/legacy-scratch/select_dir/`, `test-ai-helper-repo.js` → `docs/reference/legacy-scratch/` (D3-остаток, решение #115; рядом уже лежит `test-mic.html` из PR #8).
+
+**Правки ссылок (по grep-инвентаризации до переноса):**
+- **README**: «Option 1: Docker Setup» ссылалась на несуществующий `run-ollama-docker.sh` (файл отсутствует в HEAD; в истории — установщик Docker/NVIDIA-toolkit + `compose up`). По плану («удалить или восстановить») выбрано «удалить»: восстановление противоречит чек-листу приёмки («корень — ничего больше»), сценарий покрывает трекаемый `docker-compose.yml` — инструкции заменены на `docker compose up -d`. Дерево Project Structure: `docs/` дополнен реальным содержимым.
+- **`.kilocodeignore`**: `select_dir/` → `docs/reference/legacy-scratch/`, `plans/` → `docs/plans/` (скрытие legacy/планов от инструмента сохранено; заодно закрывает `test-mic.html`, видимый там с PR #8).
+- **`docs/WORKFLOW.md`** §2: карта документов регламента → пути в `docs/` (с пометкой о переносе).
+- **`docs/WORKLOG.md`** шапка: указатель на регламент → `docs/WORKFLOW.md`.
+- **`docs/BACKLOG.md`** шапка: указатель на план → `docs/plans/restructure-server-frontend.md`.
+- **`frontend/PROJECT_CONTEXT.md`** §10: строка корня и ветка `docs/` переписаны под реальность R.4; в `legacy-scratch/` добавлен состав. Исторические записи WORKLOG и документы в `docs/plans/` не переписывались (фиксация истории — практика с R.3).
+
+**Корень после R.4 (трекаемое):** `.gitignore`, `.kilocodeignore`, `README.md`, `docker-compose.yml`, `server/`, `frontend/`, `docs/` — чек-лист приёмки §6 выполнен (`.kilo/`, `.vscode/` — не трекаемые конфиги инструментов).
+
+**На R.5 (замечено при правке §10):** карта называет `docs/AI_HELPER_STT.md`, реальный файл — `docs/STT_SYSTEM.md`; полная карта §10 и итоговые команды README — объём R.5.
+
+**Гейты (ветка `tz/restructure-r4`):** frontend `pnpm run build` ✓ (30.3s, известный warning >500 kB — BACKLOG #7) · `pnpm run lint` ✓ (--max-warnings 0) · `pnpm run test:run` ✓ **88/88** · `cd server && pnpm run test:backend` ✓ **62/62**. Красный-первый: код и тесты не менялись (docs-only фаза) — контракты покрыты существующими тестами.
+
+**Статус:** ✅ R.4 исполнена, PR открыт (`tz/restructure-r4` → `main`). Осталась R.5 (финал: полная карта §10, итоговые команды README, WORKLOG, полные гейты + live-smoke, приёмка владельца).
