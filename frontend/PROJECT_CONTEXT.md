@@ -286,6 +286,7 @@ Multi-Provider AI Chat — десктопный инструмент для ра
 | 115 | `test-mic.html` → `docs/reference/legacy-scratch/` (архив ad-hoc артефактов); `select_dir/` и `test-ai-helper-repo.js` переедут туда же в R.4 реструктуризации | вердикт владельца 2026-11-09 (D3) |
 | 116 | R.3: `webq98` → `frontend/` (git mv, 58 rename-записей); `app.js` — dist-статика и SPA-fallback → `../../frontend/dist`; фикстура `static.test.js` → `frontend/dist`; README/ARCHITECTURE/§10/§8.1 — пути обновлены. Хвост R.2: `.gitignore` + `server/data/*.db*` (якорный `data/*.db*` не покрывал новую глубину). `@eslint/js` — прямой devDep (импорт `eslint.config.js` не разрешался при чистой pnpm-установке — латентный баг D1; пакет уже был в сторе как транзитив eslint) | план реструктуризации R.3, 2026-11-09 |
 | 117 | Хотфикс хвоста R.2: `import 'dotenv/config'` искал `.env` от cwd — после переезда бэкенда cwd=`server/`, корневой `.env` владельца не находился → дефолты кода (`LLAMA_CPP_ENABLED=false` из строгого `=== 'true'`) → работающий llama.cpp игнорировался, `/api/models` → 503. Фикс: `server/src/config/env.js` — пути от `__dirname` (`server/.env` основной, корневой — legacy-fallback без переопределения); `server.js` — `import './config/env.js'` первым. Тест `tests/config/env.test.js` (3). «Total Time» в футере — персист-метрики последнего ответа ассистента из БД (`deriveLastMetrics`), к провайдеру не относится | отчёт владельца, 2026-11-09 |
+| 118 | R.4+R.5 — реструктуризация исполнена полностью: `plans/` → `docs/plans/`, `WORKLOG/WORKFLOW/BACKLOG.md` → `docs/`, D3-остаток (`select_dir/`, `test-ai-helper-repo.js`) → `docs/reference/legacy-scratch/` (все — git mv, R.4); README: битый `run-ollama-docker.sh` → `docker compose up -d`; §10 — финальная карта (исправлено имя `docs/STT_SYSTEM.md`, ранее в карте ошибочно `AI_HELPER_STT.md`); README дополнен командами тестов/lint. Корень: `.gitignore`, `.kilocodeignore`, `README.md`, `docker-compose.yml`, `server/`, `frontend/`, `docs/` | план реструктуризации R.4/R.5, 2026-11-09 |
 
 ## 8. Запрещено
 
@@ -315,20 +316,22 @@ Multi-Provider AI Chat — десктопный инструмент для ра
 
 ```
 chat-app/
-├── README.md, docker-compose.yml, .gitignore, .kilocodeignore  # корень — только это (R.4 исполнен)
+├── README.md, docker-compose.yml, .gitignore, .kilocodeignore  # корень — только это (R.4)
 ├── docs/
 │   ├── WORKLOG.md, WORKFLOW.md, BACKLOG.md  # регламент/журнал/бэклог (R.4: перенесены из корня)
-│   ├── plans/                     # ТЗ и планы треков (R.4: перенесено из plans/)
-│   ├── AI_HELPER_STT.md           # STT-подсистема: версии, протокол, грабли (читать в ТЗ-3.2/3.3)
+│   ├── plans/                     # ТЗ и планы треков, вкл. restructure-server-frontend.md (R.4: из plans/)
+│   ├── STT_SYSTEM.md              # STT-подсистема: версии, протокол, грабли (читать в ТЗ-3.2/3.3)
 │   └── reference/
 │       ├── public-archive/        # GOLDEN MASTER легаси-фронта — только читать (решение #110)
 │       └── legacy-scratch/        # архив ad-hoc артефактов (решение #115): test-mic.html, select_dir/, test-ai-helper-repo.js
 ├── server/                        # БЭКЕНД (Express 5 + better-sqlite3 + WS; порт :3000)
 │   ├── src/
 │   │   ├── server.js, app.js      # app.js: статика frontend/dist + SPA-fallback (решение #108)
-│   │   ├── db/ (init.js: setDbPath, repos)
-│   │   └── controllers, services, providers, routes, ws, middleware, config, utils
-│   ├── tests/                     # node --test (test:backend): db/, controllers/, services/, app/
+│   │   ├── config/                # env.js (.env от __dirname — #117), providers.js
+│   │   ├── db/                    # init.js (setDbPath); sessionRepo, messageRepo, attachmentRepo, aiHelperRepo
+│   │   ├── middleware/            # providerMiddleware (fallback-цепочка), uploadMiddleware, errorHandler
+│   │   └── controllers, services, providers, routes, ws, utils
+│   ├── tests/                     # node --test (test:backend): db/, controllers/, services/, app/, config/, fixtures/
 │   ├── scripts/                   # whisper.sh (pnpm run whisper)
 │   ├── public/
 │   │   └── vad-assets/            # ЕДИНСТВЕННОЕ содержимое: VAD/ORT-ассеты (решение #109, COOP/COEP)
@@ -336,15 +339,20 @@ chat-app/
 │   └── uploads/                   # runtime-загрузки (images/, thumbnails/; gitignore)
 └── frontend/                      # НАШ ФРОНТЕНД — вся работа здесь (бывший webq98 — R.3)
     ├── PROJECT_CONTEXT.md         # эта конституция
-    ├── ARCHITECTURE.md, package.json, vite.config.ts, eslint.config.js, index.html
+    ├── ARCHITECTURE.md, package.json, pnpm-lock.yaml, pnpm-workspace.yaml,
+    │   tsconfig.json, vite.config.ts, eslint.config.js, index.html
     ├── dist/                      # production-сборка (gitignore) — её отдаёт бэкенд :3000
     └── src/
         ├── main.tsx, index.css
         ├── app/                   # App.tsx, ThemeProvider.tsx
-        ├── lib/                   # apiGateway.ts, logger.ts, utils.ts, audio.ts, vadManager.ts, aiHelperSocket.ts
-        ├── stores/                # sessionStore.ts, providerStore.ts, uiStore.ts, aiHelperStore.ts
+        ├── css/themes/            # besafe / leteem / minimal (.theme.css)
+        ├── lib/                   # apiGateway.ts, logger.ts, utils.ts, audio.ts, vadManager.ts,
+        │                          #   aiHelperSocket.ts, chatRender.ts, export.ts (+ *.test.ts рядом)
+        ├── stores/                # sessionStore.ts, providerStore.ts, uiStore.ts, aiHelperStore.ts (+ *.test.ts)
         ├── types/index.ts
-        ├── components/ui/         # button, dialog, select, switch, tooltip, dropdown-menu
+        ├── components/
+        │   ├── ui/                # button, dialog, select, switch, tooltip, dropdown-menu
+        │   └── chat/              # CodeBlock.tsx
         ├── features/
         │   ├── chat/components/chat-area.tsx        # средняя колонка целиком
         │   ├── questions/components/questions-panel.tsx   # левая панель

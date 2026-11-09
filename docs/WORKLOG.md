@@ -326,3 +326,29 @@
 **Гейты (ветка `tz/restructure-r4`):** frontend `pnpm run build` ✓ (30.3s, известный warning >500 kB — BACKLOG #7) · `pnpm run lint` ✓ (--max-warnings 0) · `pnpm run test:run` ✓ **88/88** · `cd server && pnpm run test:backend` ✓ **62/62**. Красный-первый: код и тесты не менялись (docs-only фаза) — контракты покрыты существующими тестами.
 
 **Статус:** ✅ R.4 исполнена, PR открыт (`tz/restructure-r4` → `main`). Осталась R.5 (финал: полная карта §10, итоговые команды README, WORKLOG, полные гейты + live-smoke, приёмка владельца).
+
+---
+
+## 2026-11-09 — R.5 — Финал реструктуризации (ветка `tz/restructure-r5`)
+
+**Контекст.** Merge PR #11 (R.4) подтверждён владельцем (`08088bb`), ветка удалена. Владелец исполнил рекомендацию хотфикса: `.env` перенесён в `server/.env`. R.5 — закрывающая фаза плана.
+
+**PROJECT_CONTEXT §10 — финальная карта.** Сверена с фактическим деревом (ls-инвентаризация server/, frontend/, docs/): исправлено имя `docs/STT_SYSTEM.md` (в карте ошибочно значился `AI_HELPER_STT.md` — замечено ещё в R.4); `server/src` дополнен `config/` (env.js — #117) и расшифровкой `middleware/`/`db/`; `tests/` — `config/`, `fixtures/`; `frontend/src` — `css/themes/` (besafe/leteem/minimal), `components/chat/CodeBlock.tsx`, `lib/chatRender.ts`/`export.ts` (+ пометка о co-located `*.test.ts`), lockfile/workspace/tsconfig в шапке frontend.
+
+**README — итоговые команды.** Добавлена секция «Tests & Lint» (`pnpm run test:run`/`lint`/`build` в frontend; `pnpm run test:backend` в server). Остальные команды (Docker → `docker compose up -d`, Local Install, Frontend dev :5175, Whisper, Configuration с `server/.env`) проверены по тексту — актуальны после R.2–R.4 правок.
+
+**Решение #118** (PROJECT_CONTEXT §7) — фиксирует завершение R.4+R.5.
+
+**Гейты (ветка `tz/restructure-r5`):** frontend `pnpm run build` ✓ (31.9s, известный warning >500 kB — BACKLOG #7) · `pnpm run lint` ✓ (--max-warnings 0) · `pnpm run test:run` ✓ **88/88** · `cd server && pnpm run test:backend` ✓ **62/62**.
+
+**Live-smoke (:3100, env-переменная; `server/.env` в песочнице нет — заодно проверена толерантность env.js):** старт ✓ (`injected env (0) from .env` / `../.env` — оба отсутствуют, дефолты; `Default provider: ollama`, `llama.cpp enabled: false` — ожидаемо без .env) · `GET /` → 200 `text/html` (React index из `frontend/dist`) · `GET /dashboard` → 200 (SPA-fallback) · `/vad-assets/vad.worklet.bundle.min.js` → 200 + `COOP: same-origin` + `COEP: credentialless` · `/api/nonexistent` → 404 JSON `{"error":"Not found"}` · `/api/providers` → 200 JSON.
+
+**Чек-лист приёмки §6 плана — статус к merge:**
+- [x] Корень: `README.md`, `docker-compose.yml`, `.gitignore` (+ `.kilocodeignore`), `server/`, `frontend/`, `docs/` — ничего больше;
+- [x] `cd server && pnpm install && pnpm start` → :3000 SPA (/, /dashboard), API, WS, vad-assets + COOP/COEP (smoke на :3100, тот же код-путь);
+- [x] `cd frontend && pnpm install && pnpm run dev` → :5175 с прокси (README); `pnpm run build` → `frontend/dist` ✓;
+- [x] Гейты: build ✓ · lint ✓ · test:run 88/88 · test:backend 62/62 (59 + 3 env — хотфикс);
+- [x] `ai_helper.db` не в git (D2), история `git mv` читается (`--follow`, R.2–R.4);
+- [x] README без битых ссылок (run-ollama-docker.sh удалён в R.4); PROJECT_CONTEXT §10 = реальности; §8/§11 актуальны.
+
+**Статус:** ✅ R.5 исполнена, PR открыт (`tz/restructure-r5` → `main`). Трек реструктуризации R.1–R.5 завершён; дальше — BACKLOG #1–#4 отдельным треком (по прямому указанию владельца).
