@@ -2,4 +2,5 @@ node_modules
 uploads/
 .env
 data/*.db*
+server/data/*.db*
 dist/

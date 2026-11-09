@@ -77,18 +77,18 @@ chmod +x run-ollama-docker.sh
 ### Option 2: Local Installation
 1. Install [Ollama](https://ollama.com) or run `llama-server`.
 2. Download models: `ollama pull qwen2.5-coder`
-3. Build the frontend (React app in `webq98/`) and start the backend (pnpm is the default package manager — both lockfiles are `pnpm-lock.yaml`):
+3. Build the frontend (React app in `frontend/`) and start the backend (pnpm is the default package manager — both lockfiles are `pnpm-lock.yaml`):
 ```bash
 cd server && pnpm install && cd ..
-cd webq98 && pnpm install && pnpm run build && cd ..
+cd frontend && pnpm install && pnpm run build && cd ..
 cd server && pnpm start
 ```
-Open in browser: [http://localhost:3000](http://localhost:3000) — the backend serves the production build from `webq98/dist` (SPA-fallback for deep routes; API under `/api`, WebSocket under `/ws`, VAD assets under `/vad-assets`).
+Open in browser: [http://localhost:3000](http://localhost:3000) — the backend serves the production build from `frontend/dist` (SPA-fallback for deep routes; API under `/api`, WebSocket under `/ws`, VAD assets under `/vad-assets`).
 
-### Frontend (`webq98/`)
-The UI is a React 18 + Vite + Tailwind 4 SPA located in `webq98/`.
-* **Development:** `cd webq98 && pnpm run dev` — Vite dev server on **:5175**, proxying `/api`, `/ws` and `/vad-assets` to the backend on :3000.
-* **Production:** `pnpm run build` → outputs `webq98/dist`; the backend on :3000 serves this build, with an SPA-fallback that returns `index.html` for unknown GET routes.
+### Frontend (`frontend/`)
+The UI is a React 18 + Vite + Tailwind 4 SPA located in `frontend/`.
+* **Development:** `cd frontend && pnpm run dev` — Vite dev server on **:5175**, proxying `/api`, `/ws` and `/vad-assets` to the backend on :3000.
+* **Production:** `pnpm run build` → outputs `frontend/dist`; the backend on :3000 serves this build, with an SPA-fallback that returns `index.html` for unknown GET routes.
 * The legacy static frontend is archived read-only in `docs/reference/public-archive/` (golden master, do not modify).
 
 ### Whisper (STT)
@@ -108,7 +108,7 @@ Both use `models/ggml-medium.bin`, language `ru`, 12 threads. Press `Ctrl+C` to 
 
 ## Configuration
 
-The application uses environment variables for provider configuration. Create a `.env` file or pass variables at startup:
+The application uses environment variables for provider configuration. Create a `.env` file in `server/` (copy from `server/.env.example`; it is loaded relative to the backend module — the working directory does not matter. A legacy `.env` in the repo root is also picked up as a fallback, but `server/.env` takes priority) or pass variables at startup:
 
 ```env
 # Default provider (ollama | llama_cpp)
@@ -173,7 +173,7 @@ chat-app/
  │   ├── tests/                      # Backend tests (node --test)
  │   ├── public/vad-assets/          # VAD/ORT assets, served with COOP/COEP headers
  │   └── data/                       # Runtime SQLite (chat.db), gitignored
- ├── webq98/                         # Frontend: React 18 + Vite + Tailwind 4
+ ├── frontend/                       # Frontend: React 18 + Vite + Tailwind 4
  │   ├── src/                        # UI logic, Standard/Manual mode toggling
  │   └── dist/                       # Production build (gitignored), served by the backend
  └── docs/
@@ -192,7 +192,7 @@ To add a third provider (e.g., vLLM, LocalAI):
 
 ## Requirements
 * Node.js 18+
-* pnpm 10+ — the default package manager (root and `webq98/` both use `pnpm-lock.yaml`)
+* pnpm 10+ — the default package manager (`server/` and `frontend/` both use `pnpm-lock.yaml`)
 * Ollama installed and running, OR
 * llama.cpp server (`llama-server`) with a loaded GGUF model.
 

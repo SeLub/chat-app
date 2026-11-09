@@ -6,7 +6,7 @@ import { fileURLToPath } from 'url';
 import { setDbPath, getDb, closeDb } from '../../src/db/init.js';
 
 /**
- * Фаза F (TZ-F.1/F.2): статика из webq98/dist + SPA-fallback.
+ * Фаза F (TZ-F.1/F.2): статика из dist фронтенда (frontend/dist) + SPA-fallback.
  * Приложение поднимается на ephemeral-порту; БД — :memory: (setDbPath ДО
  * импорта app.js). dist/ в .gitignore — если сборки нет, создаём минимальную
  * фикстуру index.html (реальная сборка владельца не затрагивается).
@@ -15,7 +15,7 @@ import { setDbPath, getDb, closeDb } from '../../src/db/init.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // R.2: тесты живут в server/tests/app — корень репо на три уровня выше
 const repoRoot = path.join(__dirname, '..', '..', '..');
-const distDir = path.join(repoRoot, 'webq98', 'dist');
+const distDir = path.join(repoRoot, 'frontend', 'dist');
 const distIndex = path.join(distDir, 'index.html');
 
 function ensureDistFixture() {
