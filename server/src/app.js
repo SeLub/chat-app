@@ -32,7 +32,7 @@ app.use('/vad-assets', express.static(path.join(__dirname, '..', 'public', 'vad-
 // =====================================================
 
 // TZ-F.1: production-статика React-приложения (сборка frontend/ → dist/)
-// R.3: фронт переехал в frontend/ (бывший webq98) — dist на уровне корня репо
+// R.3: фронт переехал в frontend/ — статика из frontend/dist
 app.use(express.static(path.join(__dirname, '..', '..', 'frontend', 'dist')));
 
 // Создание директорий для загрузок
