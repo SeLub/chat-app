@@ -32,7 +32,8 @@ app.use('/vad-assets', express.static(path.join(__dirname, '..', 'public', 'vad-
 // =====================================================
 
 // TZ-F.1: production-статика React-приложения (сборка webq98/ → dist/)
-app.use(express.static(path.join(__dirname, '..', 'webq98', 'dist')));
+// R.2: бэкенд переехал в server/ — dist фронта (пока webq98/, до R.3) на уровне корня репо
+app.use(express.static(path.join(__dirname, '..', '..', 'webq98', 'dist')));
 
 // Создание директорий для загрузок
 const uploadsDir = path.join(__dirname, '..', 'uploads', 'images');
@@ -137,7 +138,7 @@ app.use((req, res, next) => {
     if (req.path.startsWith('/api') || req.path.startsWith('/ws') || req.path.startsWith('/vad-assets')) {
         return res.status(404).json({ error: 'Not found' });
     }
-    return res.sendFile(path.join(__dirname, '..', 'webq98', 'dist', 'index.html'));
+    return res.sendFile(path.join(__dirname, '..', '..', 'webq98', 'dist', 'index.html'));
 });
 
 export default app;

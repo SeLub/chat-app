@@ -13,7 +13,8 @@ import { setDbPath, getDb, closeDb } from '../../src/db/init.js';
  */
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const repoRoot = path.join(__dirname, '..', '..');
+// R.2: тесты живут в server/tests/app — корень репо на три уровня выше
+const repoRoot = path.join(__dirname, '..', '..', '..');
 const distDir = path.join(repoRoot, 'webq98', 'dist');
 const distIndex = path.join(distDir, 'index.html');
 
