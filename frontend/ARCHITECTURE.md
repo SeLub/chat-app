@@ -6,7 +6,7 @@ Proxy `/api` and `/ws` to the Express backend at `localhost:3000`.
 
 ## Directory Structure
 ```
-webq98/
+frontend/
 ├── src/
 │   ├── app/
 │   │   └── App.tsx              # Root component with Routes

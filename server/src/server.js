@@ -1,6 +1,8 @@
 // src/server.js
 
-import 'dotenv/config';
+// env.js ДОЛЖЕН быть первым импортом: загружает .env от __dirname (не от cwd —
+// фикс после R.2) до импорта app.js, чьи модули читают process.env при импорте.
+import './config/env.js';
 
 import app from './app.js';
 import { createLogger } from './utils/logger.js';

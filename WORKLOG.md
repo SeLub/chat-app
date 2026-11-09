@@ -265,3 +265,37 @@
 **Примечание владельцу:** локальные runtime-файлы надо перенести на новое место: `data/chat.db*` (и `data/ai_helper.db`) → `server/data/`; `uploads/` пересоздаётся автоматически при старте (или перенести `uploads/images` для сохранения картинок). Кратцевременно: пока R.3 не смержен, фронт собирается из `webq98/` как раньше.
 
 **Статус:** ✅ R.1+R.2 исполнены, PR открыт (`tz/restructure-r2` → `main`). Далее R.3 (`webq98` → `frontend`) — после merge.
+
+---
+
+## 2026-11-09 — Реструктуризация R.3 (`webq98` → `frontend/`) + два латентных фикса: PR открыт
+
+**Merge R.2, пост-merge верификация.** PR #9 смержен владельцем (`ac2b30e`); ветка `tz/restructure-r2` удалена (remote+local), `main = origin/main`. Runtime-файлы БД перенесены владельцем в `server/data/` (примечание из записи R.2 исполнено). Проверка кода: `db/init.js` → `server/data` (пути следуют за переездом автоматически), `app.js` — переходный dist-путь `../../webq98/dist`, структура `server/` соответствует плану.
+
+**Фикс 1 — `.gitignore`: `server/data/*.db*` (хвост R.2).** Паттерн `data/*.db*` — якорный (средний слэш ⇒ относительно корня репо), на новой глубине не действует: `git check-ignore server/data/chat.db` → не игнорируется (exit=1). Примечание плана (§5 R.2: «при необходимости добавить `server/data/*.db*`») оказалось необходимым. После фикса рантайм-артефакты live-smoke (`server/data/chat.db`/-shm/-wal, `server/uploads/`) подтверждённо игнорируются.
+
+**Фикс 2 — `@eslint/js` прямой devDep (латентный баг перехода D1/pnpm).** `eslint.config.js` импортирует `@eslint/js`, но пакет никогда не был прямым devDep (`git log -S` по `package.json` пуст): исторически lint работал на плоском npm-node_modules (до D1), где хоистинг поднимал транзитив. Чистая pnpm-установка (isolated layout, после сброса песочницы битый снапшотный node_modules пересоздан) дала `ERR_MODULE_NOT_FOUND`. Объявлен `"@eslint/js": "^9.39.5"` — пакет уже в сторе как транзитив eslint 9.39.5 (lockfile +3 строки, новых пакетов нет; §8 соблюдён — фикс декларации, не новая зависимость). Гейт lint --max-warnings 0 снова зелёный.
+
+**R.3 — `git mv webq98 frontend`.** Каталог переехал целиком (58 rename-записей; untracked `node_modules/`, `dist/`, `tsconfig.tsbuildinfo` — вместе с ним). Правки: `server/src/app.js` — dist-статика и SPA-fallback → `../../frontend/dist` (+комментарии); `server/tests/app/static.test.js` — фикстура `frontend/dist`; README — `cd frontend`, структура, Requirements (`server/` и `frontend/`); PROJECT_CONTEXT — §7 (frontend/), §8.1 (`server/public/vad-assets/`, `frontend/public`), §10-карта переписана под реальность R.2+R.3 (server/, server/data/, uploads/, frontend/; R.4-планы отмечены), решение #116; ARCHITECTURE.md — корень дерева; `docs/reference/public-archive/README.md` — текущее состояние раздачи (`server/src/app.js`, `frontend/dist`). Исторические документы (plans/*, BACKLOG #1, находки решений #87/#113) не переписывались — фиксация истории.
+
+**Гейты (ветка `tz/restructure-r3`):** frontend `pnpm install` ✓ · `pnpm run build` ✓ (29.6s, warning >500 kB — известный, BACKLOG #7) · `pnpm run lint` ✓ (--max-warnings 0) · `pnpm run test:run` ✓ **88/88** · `cd server && pnpm run test:backend` ✓ **59/59**. **Live-smoke :3000:** `GET /` → 200 React index из `frontend/dist` ✓ · `GET /dashboard` → 200 (SPA-fallback) ✓ · `/vad-assets/vad.worklet.bundle.min.js` → 200 + COOP/COEP ✓ · `/api/nonexistent` → 404 JSON ✓ · `/api/providers` → 200 JSON ✓. Красный-первый: поведение не менялось (чистый переезд) — контракты покрыты существующими тестами.
+
+**Статус:** ✅ R.3 исполнена, PR открыт (`tz/restructure-r3` → `main`). Остались R.4 (корень+docs: plans → docs/plans, WORKLOG/WORKFLOW/BACKLOG → docs/, select_dir/ + test-ai-helper-repo.js → legacy-scratch, битая ссылка README run-ollama-docker.sh) и R.5 (финал: полная карта §10, итоговые команды README, приёмка владельца).
+
+---
+
+## 2026-11-09 — Хотфикс (хвост R.2): `.env` перестал находиться после переезда бэкенда — добавлен в PR R.3 до merge
+
+**Отчёт владельца.** После merge PR #9 при старте `pnpm start` (из `server/`): `Provider ollama is not responding, attempting fallback` → `All providers are unavailable`; `/api/models` → 503. llama.cpp при этом работает (`llama-server listening on :8080`). В логе старта: `llama.cpp: … (enabled: false)`.
+
+**Диагноз.** `server.js` грузил env через `import 'dotenv/config'` — dotenv ищет `.env` от `process.cwd()`. До R.2 cwd был корнем репо (там жил `.env` владельца); после переезда cwd=`server/` → корневой `.env` не находился → все переменные откатились на дефолты кода: `DEFAULT_PROVIDER=ollama`, `LLAMA_CPP_ENABLED` → `false` (строгое `=== 'true'` в `config/providers.js`). `providerManager` фильтрует по `enabled` (`providerManager.js:40`), поэтому работающий llama.cpp не участвовал ни в прямом вызове, ни в fallback → 503. Примечание владельцу в записи R.2 упоминало перенос `data/chat.db*` и `uploads/`, но не `.env` — упущение исполнительной стороны.
+
+**Фикс.** Новый `server/src/config/env.js`: путь `.env` резолвится от `__dirname` модуля — cwd не важен; порядок: `server/.env` (основной) → корневой `.env` (legacy-fallback на время миграции; dotenv не переопределяет уже заданные — `server/.env` всегда приоритетен). `server.js`: `import './config/env.js'` ПЕРВЫМ импортом (до `app.js`, чьи модули читают `process.env` при импорте). Тест `server/tests/config/env.test.js` (3): пути поиска, приоритет первого файла, толерантность к отсутствию файла. `.env.example` и README (Configuration) — расположение `.env` задокументировано.
+
+**Проверка.** `test:backend` **62/62** (59 + 3). Live: временный `server/.env` (PORT=3210, LLAMA_CPP_ENABLED=true), старт `node src/server.js` из cwd=`/tmp` (вне репо) → сервер поднялся на **:3210**, `Default provider: llama_cpp`, `llama.cpp enabled: true` — env найден от модуля; фикстура удалена.
+
+**Уточнения по отчёту (не баги).** (1) «Total Time: 37.85s» в футере при недоступных провайдерах — это персист-метрики последнего ответа ассистента, загруженного из БД вместе с сессией (`chat-area.tsx: deriveLastMetrics`; метрики хранятся с Фазы B/TZ-B.2) — историческое значение, к текущей попытке не относится; Size/Ctx — «–», потому что список моделей не получен (503). (2) `[vite] server connection lost` + `ws://localhost:5175/ failed` — HMR-реконнект dev-сервера Vite (транзиент при перезапуске/навигации); API через прокси 5175→3000 в том же логе отвечал 200 — к R.2 не относится.
+
+**Действие владельцу:** перенести `.env` в `server/.env` (`mv .env server/.env`) — фиксирует проблему и на текущем main без кода; после merge PR #10 работает и legacy-вариант (корневой `.env` подхватывается fallback'ом).
+
+**Статус:** ✅ Фикс добавлен в ветку `tz/restructure-r3` (PR #10) до merge. test:backend 62/62.
