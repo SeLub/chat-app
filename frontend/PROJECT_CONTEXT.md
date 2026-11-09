@@ -315,12 +315,14 @@ Multi-Provider AI Chat — десктопный инструмент для ра
 
 ```
 chat-app/
-├── README.md, docker-compose.yml, plans/, WORKLOG/WORKFLOW/BACKLOG  # R.4: plans → docs/plans, журналы → docs/
+├── README.md, docker-compose.yml, .gitignore, .kilocodeignore  # корень — только это (R.4 исполнен)
 ├── docs/
+│   ├── WORKLOG.md, WORKFLOW.md, BACKLOG.md  # регламент/журнал/бэклог (R.4: перенесены из корня)
+│   ├── plans/                     # ТЗ и планы треков (R.4: перенесено из plans/)
 │   ├── AI_HELPER_STT.md           # STT-подсистема: версии, протокол, грабли (читать в ТЗ-3.2/3.3)
 │   └── reference/
 │       ├── public-archive/        # GOLDEN MASTER легаси-фронта — только читать (решение #110)
-│       └── legacy-scratch/        # архив ad-hoc артефактов (решение #115)
+│       └── legacy-scratch/        # архив ad-hoc артефактов (решение #115): test-mic.html, select_dir/, test-ai-helper-repo.js
 ├── server/                        # БЭКЕНД (Express 5 + better-sqlite3 + WS; порт :3000)
 │   ├── src/
 │   │   ├── server.js, app.js      # app.js: статика frontend/dist + SPA-fallback (решение #108)

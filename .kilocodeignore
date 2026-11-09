@@ -1,7 +1,7 @@
 # chat-app/.kilocodeignore
 node_modules/
-select_dir/
-plans/
+docs/reference/legacy-scratch/
+docs/plans/
 dist/
 build/
 .git/
