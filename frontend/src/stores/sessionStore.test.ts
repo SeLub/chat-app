@@ -250,9 +250,13 @@ describe('sessionStore — normalization and init', () => {
   });
 
   it('4. init with ?session= URL → switchToViewing, URL cleared', async () => {
+    // Подмена location с восстановлением (configurable:true + restore в конце) —
+    // иначе подмена протекает в последующие init-тесты (ТЗ Project mode A).
+    const originalLocation = window.location;
     Object.defineProperty(window, 'location', {
       value: { search: '?session=hist1', pathname: '/' },
       writable: false,
+      configurable: true,
     });
 
     const sessionData = { id: 'hist1', title: 'H', category: '', sysprompt: '', message_count: 0, created_at: '', updated_at: '' };
@@ -267,6 +271,12 @@ describe('sessionStore — normalization and init', () => {
     expect(state.viewingSessionId).toBe('hist1');
     expect(state.activeSessionId).toBe('activeX');
     expect(window.history.replaceState).toHaveBeenCalled();
+
+    Object.defineProperty(window, 'location', {
+      value: originalLocation,
+      writable: false,
+      configurable: true,
+    });
   });
 
   it('5. switchToViewing does not touch active', async () => {
@@ -593,5 +603,55 @@ describe('sessionStore — sendMessage lifecycle', () => {
     expect(lastMsg.content).toContain('❌ **Error 400**');
     expect(lastMsg.content).toContain('Images require vision models');
     expect(lastMsg.content).not.toContain('Network error');
+  });
+});
+
+// ============================================================
+// ТЗ Project mode A (§4): mode сессии + setMode (PATCH)
+// ============================================================
+describe('sessionStore.mode (ТЗ Project mode A)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    useSessionStore.setState({ ...initialSessionState, activeSessionId: 'sess-1' });
+  });
+
+  it('default mode research', () => {
+    expect(useSessionStore.getState().mode).toBe('research');
+  });
+
+  it('setMode("project"): оптимистично ставит mode и PATCHает сессию', async () => {
+    mocked.apiGateway.sessions.update.mockResolvedValue({ id: 'sess-1' });
+
+    await useSessionStore.getState().setMode('project');
+
+    expect(mocked.apiGateway.sessions.update).toHaveBeenCalledWith('sess-1', { mode: 'project' });
+    expect(useSessionStore.getState().mode).toBe('project');
+  });
+
+  it('setMode: ошибка PATCH → mode откатывается', async () => {
+    mocked.apiGateway.sessions.update.mockRejectedValue(new mocked.ApiError(400, 'bad mode'));
+
+    await expect(useSessionStore.getState().setMode('project')).rejects.toThrow('bad mode');
+    expect(useSessionStore.getState().mode).toBe('research');
+  });
+
+  it('init(): mode читается из session.mode (legacy chat → research)', async () => {
+    mocked.apiGateway.sessions.get.mockResolvedValue({
+      id: 'sess-1',
+      title: 't',
+      category: 'General',
+      sysprompt: '',
+      message_count: 0,
+      created_at: '',
+      updated_at: '',
+      mode: 'project',
+    });
+    mocked.apiGateway.sessions.getMessages.mockResolvedValue([]);
+    localStorage.setItem('activeSessionId', 'sess-1');
+    // jsdom: location.search === '' и history.replaceState доступны — URL-ветка init() не сработает
+
+    await useSessionStore.getState().init();
+
+    expect(useSessionStore.getState().mode).toBe('project');
   });
 });

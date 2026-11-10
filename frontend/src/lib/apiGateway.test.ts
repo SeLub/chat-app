@@ -151,3 +151,90 @@ describe('chatApi.send — FormData contract (§3.1)', () => {
     expect(url).toMatch(/search=foo.*limit=5|limit=5.*search=foo/);
   });
 });
+
+// ============================================================
+// ТЗ Project mode A (§4): configApi / projectsApi / attachmentsApi
+// ============================================================
+describe('configApi.get — GET /api/config (ТЗ Project mode A §3.1)', () => {
+  it('возвращает contextBaseDir-статус', async () => {
+    mockFetchResponse({ contextBaseDir: { ok: true, path: '/base', error: null } });
+    const res = await apiGateway.config.get();
+    expect(mockFetch).toHaveBeenCalledWith('/api/config', expect.objectContaining({ method: 'GET' }));
+    expect(res!.contextBaseDir.ok).toBe(true);
+  });
+});
+
+describe('projectsApi (ТЗ Project mode A §3.3-3.5)', () => {
+  it('create → POST /api/projects { sessionId, relativePath }', async () => {
+    mockFetchResponse({ id: 'p1', name: 'repo', path: 'repo', totalFiles: 42, created: true });
+    const res = await apiGateway.projects.create('sess-1', 'repo');
+    expect(mockFetch).toHaveBeenCalledWith('/api/projects', expect.objectContaining({ method: 'POST' }));
+    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+    expect(body).toEqual({ sessionId: 'sess-1', relativePath: 'repo' });
+    expect(res!.created).toBe(true);
+    expect(res!.totalFiles).toBe(42);
+  });
+
+  it('get → GET /api/projects/:id', async () => {
+    mockFetchResponse({ id: 'p1', name: 'repo', path: 'repo' });
+    await apiGateway.projects.get('p1');
+    expect(mockFetch).toHaveBeenCalledWith('/api/projects/p1', expect.objectContaining({ method: 'GET' }));
+  });
+
+  it('listFiles → GET /api/projects/:id/files с filter (encodeURIComponent)', async () => {
+    mockFetchResponse({ files: [], total: 0, truncated: false });
+    await apiGateway.projects.listFiles('p1', 'src/ch.ts');
+    expect(mockFetch).toHaveBeenCalledWith(
+      `/api/projects/p1/files?filter=${encodeURIComponent('src/ch.ts')}`,
+      expect.objectContaining({ method: 'GET' }),
+    );
+  });
+
+  it('listFiles без filter → путь без ?filter', async () => {
+    mockFetchResponse({ files: [], total: 0 });
+    await apiGateway.projects.listFiles('p1');
+    expect(mockFetch).toHaveBeenCalledWith('/api/projects/p1/files', expect.anything());
+  });
+
+  it('attach → POST /api/projects/:id/attach { sessionId, relativePaths }', async () => {
+    mockFetchResponse({ attached: [], errors: [] });
+    await apiGateway.projects.attach('p1', 'sess-1', ['a.ts', 'b.md']);
+    const call = mockFetch.mock.calls[0];
+    expect(call[0]).toBe('/api/projects/p1/attach');
+    expect(JSON.parse(call[1].body)).toEqual({ sessionId: 'sess-1', relativePaths: ['a.ts', 'b.md'] });
+  });
+
+  it('unlink → DELETE /api/sessions/:id/project', async () => {
+    mockFetchResponse({ ok: true });
+    await apiGateway.projects.unlink('sess-1');
+    expect(mockFetch).toHaveBeenCalledWith('/api/sessions/sess-1/project', expect.objectContaining({ method: 'DELETE' }));
+  });
+});
+
+describe('attachmentsApi (ТЗ Project mode A §3.6-3.7)', () => {
+  it('listBySession → GET /api/sessions/:id/attachments?kind=reference', async () => {
+    mockFetchResponse({ attachments: [] });
+    await apiGateway.attachments.listBySession('sess-1');
+    expect(mockFetch).toHaveBeenCalledWith(
+      '/api/sessions/sess-1/attachments?kind=reference',
+      expect.objectContaining({ method: 'GET' }),
+    );
+  });
+
+  it('detach → DELETE /api/attachments/:fileId', async () => {
+    mockFetchResponse({ ok: true, deletedId: 'f1' });
+    await apiGateway.attachments.detach('f1');
+    expect(mockFetch).toHaveBeenCalledWith('/api/attachments/f1', expect.objectContaining({ method: 'DELETE' }));
+  });
+});
+
+describe('sessionsApi.update с mode (ТЗ Project mode A §3.2)', () => {
+  it('PATCH /api/sessions/:id с { mode } в body', async () => {
+    mockFetchResponse({ id: 'sess-1' });
+    await apiGateway.sessions.update('sess-1', { mode: 'project' });
+    const call = mockFetch.mock.calls[0];
+    expect(call[0]).toBe('/api/sessions/sess-1');
+    expect(call[1].method).toBe('PATCH');
+    expect(JSON.parse(call[1].body)).toEqual({ mode: 'project' });
+  });
+});
