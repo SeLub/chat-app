@@ -5,7 +5,8 @@ import * as attachmentRepo from '../db/attachmentRepo.js';
 import { buildLLMContext, getQAPairs, updateContextConfig, getContextConfig, removeQAPairs } from './contextBuilder.js';
 
 // === Sessions ===
-export function createNewSession(title = null, mode = 'chat', projectId = null) {
+export function createNewSession(title = null, mode = 'research', projectId = null) {
+    // ТЗ Project mode A (§2.3): default 'research' (legacy 'chat' трактуется как research в коде).
     return sessionRepo.createSession(title, mode, projectId);
 }
 
@@ -56,10 +57,12 @@ export function deleteMessagesByQuestionId(questionId) {
  * @param {number} contextSize        - контекст модели в токенах (по умолчанию 65536)
  * @param {number} retainPercent      - % доступного бюджета для истории (0-100, по умолчанию 80)
  * @param {string[]|null} includeQuestionIds - массив ID вопросов, включенных в контекст (null = все)
+ * @param {'research'|'project'} mode - режим сессии (ТЗ Project mode A §3.10; legacy 'chat' → 'research'
+ *                                      нормализуется в chatController до вызова)
  * @returns {Promise<{ conversation: Array, contextSize: number, retainPercent: number, info: Object }>}
  */
-export async function buildContext(sessionId, currentAttachments = [], contextSize = 65536, retainPercent = 80, includeQuestionIds = null) {
-    return await buildLLMContext(sessionId, currentAttachments, contextSize, retainPercent, includeQuestionIds);
+export async function buildContext(sessionId, currentAttachments = [], contextSize = 65536, retainPercent = 80, includeQuestionIds = null, mode = 'research') {
+    return await buildLLMContext(sessionId, currentAttachments, contextSize, retainPercent, includeQuestionIds, mode);
 }
 
 export function getQAPairsForSession(sessionId) {
@@ -85,4 +88,14 @@ export async function extractFiles(paths, sessionId) {
 
 export function getAttachment(fileId) {
     return attachmentRepo.getAttachment(fileId);
+}
+
+// ТЗ Project mode A: список вложений сессии по kind (reference — пул PROJECT).
+export function listSessionAttachments(sessionId, kind = 'reference') {
+    return attachmentRepo.listBySessionAndKind(sessionId, kind);
+}
+
+// ТЗ Project mode A (§3.6): detach — только строка реестра, файл на диске не трогаем.
+export function deleteAttachment(fileId) {
+    return attachmentRepo.deleteAttachment(fileId);
 }
