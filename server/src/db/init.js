@@ -63,7 +63,9 @@ export function initializeSchema(database) {
         );
 
         /* S.2: реестр вложений с kind (document|code|image|reference) и path_base
-           (context = относительно CONTEXT_BASE_DIR; data = относительно server/data/). */
+           (context = относительно CONTEXT_BASE_DIR; data = относительно server/data/).
+           ТЗ Project mode A: extracted_mtime — mtime-кэш чтения reference-файла с диска
+           (NULL = ещё не читался; при сборке контекста сверяется с fs.stat.mtimeMs). */
         CREATE TABLE IF NOT EXISTS attachments (
             id              TEXT PRIMARY KEY,
             session_id      TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
@@ -75,6 +77,7 @@ export function initializeSchema(database) {
             language        TEXT,
             kind            TEXT DEFAULT 'document',
             path_base       TEXT DEFAULT 'context',
+            extracted_mtime INTEGER DEFAULT NULL,
             created_at      TEXT DEFAULT (datetime('now'))
         );
 
@@ -141,6 +144,10 @@ function ensureColumns(database) {
     }
     if (attachmentCols.length > 0 && !attachmentCols.includes('path_base')) {
         database.exec("ALTER TABLE attachments ADD COLUMN path_base TEXT DEFAULT 'context'");
+    }
+    // ТЗ Project mode A: mtime-кэш чтения reference-файлов (legacy-БД без колонки).
+    if (attachmentCols.length > 0 && !attachmentCols.includes('extracted_mtime')) {
+        database.exec('ALTER TABLE attachments ADD COLUMN extracted_mtime INTEGER DEFAULT NULL');
     }
 
     // image_data демонтирован (финальное ТЗ): на существующей БД колонка удаляется.
