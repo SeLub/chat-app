@@ -140,6 +140,37 @@ export function deleteAttachment(fileId) {
 }
 
 /**
+ * ТЗ attachment-cascade (2026-11-11): привязать строки реестра к сообщению
+ * (message_id FK ON DELETE CASCADE — удаление сообщения чистит строки на уровне БД).
+ * Гвард `message_id IS NULL`: строка клеймится один раз, чужие (уже заклеймлённые и
+ * reference) не перехватываются. FK гарантирует существование сообщения.
+ * @param {string[]} fileIds
+ * @param {string} messageId
+ */
+export function claimAttachments(fileIds, messageId) {
+    if (!Array.isArray(fileIds) || fileIds.length === 0) return;
+    const placeholders = fileIds.map(() => '?').join(',');
+    getDb().prepare(
+        `UPDATE attachments SET message_id = ? WHERE id IN (${placeholders}) AND message_id IS NULL`
+    ).run(messageId, ...fileIds);
+}
+
+/**
+ * ТЗ attachment-cascade: cleanup незаклеймлённых строк провалившейся отправки
+ * (LLM-ошибка и т.п.) — реестр не копит балласт. Файлы на диске не трогаются
+ * (orphan-политика, будущий File Manager).
+ * @param {string[]} fileIds
+ * @returns {number} число удалённых строк
+ */
+export function deleteUnclaimedAttachments(fileIds) {
+    if (!Array.isArray(fileIds) || fileIds.length === 0) return 0;
+    const placeholders = fileIds.map(() => '?').join(',');
+    return getDb().prepare(
+        `DELETE FROM attachments WHERE id IN (${placeholders}) AND message_id IS NULL`
+    ).run(...fileIds).changes;
+}
+
+/**
  * ТЗ Project mode A (§3.7/§3.8): список вложений сессии по kind
  * (reference — текущий пул PROJECT-файлов).
  */

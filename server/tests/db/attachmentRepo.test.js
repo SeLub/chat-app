@@ -6,6 +6,7 @@ import path from 'path';
 import os from 'os';
 import { getDb, setDbPath, closeDb } from '../../src/db/init.js';
 import * as sessionRepo from '../../src/db/sessionRepo.js';
+import * as messageRepo from '../../src/db/messageRepo.js';
 import * as attachmentRepo from '../../src/db/attachmentRepo.js';
 import { buildMinimalPdf } from '../helpers/pdf-fixture.js';
 
@@ -333,6 +334,83 @@ export class UserService {
         it('getAttachmentPath: нет file_path (RESEARCH-документ) → null', async () => {
             const { results } = await attachmentRepo.extractFromPaths([testFilePath], sessionId);
             assert.equal(attachmentRepo.getAttachmentPath(results[0].fileId), null);
+        });
+    });
+
+    describe('ТЗ attachment-cascade: claimAttachments / deleteUnclaimedAttachments', () => {
+        // FK-гвардия: клеймить можно только на СУЩЕСТВУЮЩЕЕ сообщение
+        const makeMsg = (q) => messageRepo.addMessage(sessionId, {
+            questionId: q, role: 'user', content: 'Q', attachmentsMeta: [],
+        });
+
+        it('claim проставляет message_id, повторный claim и чужие строки не перехватываются', () => {
+            const a1 = crypto.randomUUID();
+            const a2 = crypto.randomUUID();
+            attachmentRepo.insertAttachment({
+                id: a1, sessionId, filename: 'one.csv', filePath: null, mimeType: 'text/csv',
+                fileSize: 4, extractedText: '1', language: 'text', kind: 'document', pathBase: 'context',
+            });
+            attachmentRepo.insertAttachment({
+                id: a2, sessionId, filename: 'two.csv', filePath: null, mimeType: 'text/csv',
+                fileSize: 4, extractedText: '2', language: 'text', kind: 'document', pathBase: 'context',
+            });
+            const msg1 = makeMsg('q_claim_1');
+            const msg2 = makeMsg('q_claim_2');
+
+            attachmentRepo.claimAttachments([a1, a2], msg1);
+            assert.equal(
+                getDb().prepare('SELECT message_id FROM attachments WHERE id = ?').get(a1).message_id,
+                msg1,
+            );
+
+            // Повторный claim другим сообщением игнорируется (гвард message_id IS NULL)
+            attachmentRepo.claimAttachments([a1], msg2);
+            assert.equal(
+                getDb().prepare('SELECT message_id FROM attachments WHERE id = ?').get(a1).message_id,
+                msg1,
+                'строка не переклеймляется',
+            );
+
+            // Пустой вход — no-op без ошибок
+            attachmentRepo.claimAttachments([], msg1);
+        });
+
+        it('claim несуществующего сообщения отклоняется FK (гвардия целостности)', () => {
+            const id = crypto.randomUUID();
+            attachmentRepo.insertAttachment({
+                id, sessionId, filename: 'x.csv', filePath: null, mimeType: 'text/csv',
+                fileSize: 4, extractedText: 'x', language: 'text', kind: 'document', pathBase: 'context',
+            });
+
+            assert.throws(
+                () => attachmentRepo.claimAttachments([id], 'msg-ghost'),
+                /FOREIGN KEY/,
+                'FK не даёт клеймить строку на несуществующее сообщение',
+            );
+        });
+
+        it('deleteUnclaimedAttachments удаляет ТОЛЬКО незаклеймлённые строки', () => {
+            const claimed = crypto.randomUUID();
+            const unclaimed = crypto.randomUUID();
+            attachmentRepo.insertAttachment({
+                id: claimed, sessionId, filename: 'claimed.csv', filePath: null, mimeType: 'text/csv',
+                fileSize: 4, extractedText: 'c', language: 'text', kind: 'document', pathBase: 'context',
+            });
+            attachmentRepo.insertAttachment({
+                id: unclaimed, sessionId, filename: 'unclaimed.csv', filePath: null, mimeType: 'text/csv',
+                fileSize: 4, extractedText: 'u', language: 'text', kind: 'document', pathBase: 'context',
+            });
+            attachmentRepo.claimAttachments([claimed], makeMsg('q_claim_3'));
+
+            const deleted = attachmentRepo.deleteUnclaimedAttachments([claimed, unclaimed]);
+
+            assert.equal(deleted, 1, 'удалена только незаклеймлённая строка');
+            assert.ok(getDb().prepare('SELECT 1 FROM attachments WHERE id = ?').get(claimed),
+                'заклеймлённая строка уцелела');
+            assert.ok(!getDb().prepare('SELECT 1 FROM attachments WHERE id = ?').get(unclaimed));
+
+            // Пустой вход → 0
+            assert.equal(attachmentRepo.deleteUnclaimedAttachments([]), 0);
         });
     });
 });
