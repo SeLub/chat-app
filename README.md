@@ -181,11 +181,11 @@ chat-app/
  ├── server/                         # Backend (Express 5 + better-sqlite3 + WS), port :3000
  │   ├── src/
  │   │   ├── controllers/
- │   │   │   └── chatController.js   # Handles context building, LLM calls, and KV-cache bypass
+ │   │   │   └── chatController.js   # [Вопрос] (vision — + images), registry, response contract
  │   │   ├── services/
- │   │   │   ├── contextBuilder.js   # Pure math for LIFO trimming and Q&A filtering
+ │   │   │   ├── contextBuilder.js   # Prompt assembly: one system + [Материалы]/[Ранее]; LIFO trimming
  │   │   │   ├── sessionService.js   # Session and message management
- │   │   │   ├── fileService.js      # PDF/DOC/XLS/code processing
+ │   │   │   ├── attachmentService.js # Attachments registry: file storage + text extraction
  │   │   │   └── webService.js       # URL content extraction
  │   │   ├── providers/
  │   │   │   ├── OllamaProvider.js
