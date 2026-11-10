@@ -132,8 +132,10 @@ export async function buildLLMContext(sessionId, currentAttachments = [], contex
     let filesContext = '';
     if (allFileIds.size > 0) {
         const placeholders = [...allFileIds].map(() => '?').join(',');
+        // Финальное ТЗ: изображения (kind='image', extracted_text='') НЕ инлайнсятся в LLM-контекст —
+        // они идут в vision-модель отдельно. Пустые extracted_text тоже пропускаем.
         const rows = db.prepare(
-            `SELECT id, filename, extracted_text FROM attachments WHERE id IN (${placeholders})`
+            `SELECT id, filename, extracted_text FROM attachments WHERE id IN (${placeholders}) AND kind != 'image' AND extracted_text != ''`
         ).all(...[...allFileIds]);
         
         filesContext = 'The user has shared the following files:\n\n';
@@ -184,16 +186,14 @@ export async function buildLLMContext(sessionId, currentAttachments = [], contex
 /**
  * Получить Q&A пары сессии для отображения в UI
  * @param {string} sessionId
- * @returns {Array} массив { questionId, questionText, answerText, questionChars, answerChars, totalChars, sortOrder, model, attachments_meta, metrics, image_data }
+ * @returns {Array} массив { questionId, questionText, answerText, questionChars, answerChars, totalChars, sortOrder, model, attachments_meta, metrics }
  */
 export function getQAPairs(sessionId) {
     const db = getDb();
-    // === ИЗМЕНЕНО: добавлено поле model в SELECT ===
-    // TZ-B.2b: контракт ответа (ТЗ §API, конституция §3.3) требует attachments_meta,
-    // metrics и image_data в Q&A-парах — без них после F5/Load не рендерятся
-    // бейджи вложений и превью (фронт ждёт их через parseLoose)
+    // Финальное ТЗ: image_data демонтирован — единственный источник вложений это
+    // attachments_meta (реестр attachments). Фронт строит imageData из kind='image' в meta.
     const messages = db.prepare(
-        'SELECT role, content, question_id, sort_order, model, attachments_meta, metrics, image_data FROM messages WHERE session_id = ? ORDER BY sort_order ASC'
+        'SELECT role, content, question_id, sort_order, model, attachments_meta, metrics FROM messages WHERE session_id = ? ORDER BY sort_order ASC'
     ).all(sessionId);
 
     const qaPairs = [];
@@ -210,18 +210,15 @@ export function getQAPairs(sessionId) {
                 totalChars: msg.content.length,
                 sortOrder: msg.sort_order,
                 model: msg.model || 'unknown', // === ИЗМЕНЕНО: сохраняем модель вопроса ===
-                attachments_meta: msg.attachments_meta || '[]',
-                image_data: msg.image_data || '{}'
+                attachments_meta: msg.attachments_meta || '[]'
             };
         } else if (msg.role === 'assistant' && currentQuestion) {
             currentQuestion.answerText = msg.content;
             currentQuestion.answerChars = msg.content.length;
             currentQuestion.totalChars = currentQuestion.questionChars + msg.content.length;
             // Если у ассистента есть модель, обновляем (на случай, если она отличается, но обычно она та же)
-            if (msg.model) currentQuestion.model = msg.model; 
+            if (msg.model) currentQuestion.model = msg.model;
             currentQuestion.metrics = msg.metrics || '{}';
-            // image_data ассистента приоритетнее (превью в ответе), если у него есть реальное содержимое
-            if (msg.image_data && msg.image_data !== '{}') currentQuestion.image_data = msg.image_data;
 
             qaPairs.push(currentQuestion);
             currentQuestion = null;

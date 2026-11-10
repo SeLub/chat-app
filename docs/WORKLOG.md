@@ -362,6 +362,7 @@
 **План:** `docs/plans/context-data-storage.md` (статус ПРОЕКТ). Ключевые предложения: режимы **RESEARCH/PROJECT** (хранение в `sessions.mode` — колонка уже в схеме, default `'chat'` → backfill); `CONTEXT_BASE_DIR`; расширение `attachments` без rebuild (`kind`, `path_base` — guarded ALTER; `extracted_text=''` для изображений); раздача `/api/attachments/:id/raw|thumb`; unlink data-файлов при удалении Q&A; совместимость — legacy `image_data` только чтение + onerror-скрытие; security — canonicalize + запрет traversal. Фазы S.1–S.6 (≈4–6 ч, один PR — рекомендация) + S.7 (режимы, отдельный PR). Шесть точек решения D-A…D-F ждут вердикта. Отмечено соответствие §3.3 PROJECT_CONTEXT («Project-режим получит свой контракт отдельно» — этот план и есть его проект контракта).
 
 **Статус:** ⏳ план на утверждении владельца; исполнение не начато (WORKFLOW фаза 2).
+
 ## 2026-11-09 — Аудит структуры (запрос владельца) + фикс якорей .gitignore (ветка `tz/fix-gitignore-anchors`)
 
 **Запрос.** «Проверь текущую структуру проекта. Какие файлы нужно удалить? Сверить со схемой в документации.» Контекст: main `87ef519` (merge PR #12 + 3 прямых коммита владельца: `server/data/` и Vite-артефакты в gitignore, чистка plans).
@@ -374,3 +375,27 @@
 4. **Косметика (не исполнено, на усмотрение):** заголовки describe/it в `server/tests/app/static.test.js` упоминают «webq98/dist» (фикстура давно `frontend/dist`); `docs/plans/restructure-server-frontend.md` и `docs/plans/Выявленные недостатки:.md` можно дослать в `DONE/` (владелец начал эту чистку в eb2abb1).
 
 **Гейты (docs/.gitignore-only; код не менялся):** frontend lint ✓ · test:run 88/88 ✓ · build ✓ · server test:backend 62/62 ✓.
+
+---
+
+## 2026-11-10 — ТЗ «vision-картинки в истории» исполнено (ветка `tz/vision-attachments`)
+
+**Вердикт владельца по плану context-data-storage.** Финальное ТЗ с ключевыми решениями: без обратной совместимости и миграции; legacy `image_data` и поток `imageService`/`/api/images` демонтируются в том же PR (ранее — фаза S.6); файлы не удаляются ни при удалении Q&A, ни при удалении сессии (orphan-файлы — предмет будущего File Manager); закрыт пропуск 2.0.1 — ветки `file` (картинка/документ) и `codeFiles` больше не взаимоисключающие.
+
+**S.1–S.2 (конфиг + БД).** Новый `server/src/config/paths.js`: `DATA_DIR/UPLOADS_DIR/THUMBS_DIR` (от `__dirname` — паттерн #117), `getContextBaseDir()` (`CONTEXT_BASE_DIR`, D-B), `resolveAttachmentPath(row)` (path_base `data`→`server/data`, `context`→`CONTEXT_BASE_DIR`; canonicalize + запрет traversal). `init.js`: `attachments` += `kind`/`path_base` (CREATE для свежих БД + guarded `ALTER TABLE ADD COLUMN` по `PRAGMA table_info`); `messages.image_data` демонтирован (guarded `DROP COLUMN`, try/catch для SQLite < 3.35). `attachmentRepo`: `insertAttachment` (полный набор колонок), `getAttachmentPath`, `extractFromPaths(..., kind)` — для RESEARCH-документов/кода `file_path=NULL` (tmp удаляется, путь мёртв).
+
+**S.3–S.4 (приём + раздача).** `attachmentService.addImageAttachment`: sharp → `server/data/uploads/<sid>_<qid>.<ext>` + `thumbs/<...>_thumb.jpg` (150×150, как раньше), строка реестра (`kind='image'`, `path_base='data'`, `extracted_text=''`), meta с `fullUrl/thumbnailUrl` = `/api/attachments/<uuid>/raw|thumb`. `attachmentRoutes` += `GET /:fileId/raw` (поток с `mime_type` + Cache-Control; traversal → 400) и `GET /:fileId/thumb` (только kind=image). `chatController` переписан: валидация до файлов; все три ветки независимы; порядок сборки — **документ → код → текст**; vision-ветка сохраняет док/код в реестр тоже; `imageData` в ответе — legacy-shape из meta (фронт-контракт §3.1 сохранён); PROJECT-режим (`sessions.mode`) резервирует ветку без инлайна (S.7). `contextBuilder`: файлы-фильтр `kind != 'image' AND extracted_text != ''`; `getQAPairs` без image_data. `messageRepo`: INSERT без image_data; `deleteMessagesByQuestionId` — строки реестра и файлы НЕ удаляются, `deletedAttachments` всегда 0.
+
+**S.5 (фронт).** `mapQAPairsToMessages` строит `imageData` из `attachments_meta` (первый `kind='image'` с `thumbnailUrl`); поле `image_data` не парсится. `types`: `AttachmentMeta` += `fileId?/kind?/fullUrl?/thumbnailUrl?` (optimistic-мета `{name,size,type}` не ломается). `chat-area` не менялся (shape сохранён).
+
+**S.6 (демонтаж).** Удалены: `imageService.js`, `imageController.js`, `imageRoutes.js`, `imageUtils.js`, `generateImageId` (fileUtils), создание `uploads/images`+`thumbnails` в `app.js`, монтаж `/api/images`; `server/uploads/` снята с диска. `unlink` в коде остался только для tmp-файлов (multer tmp + ai-helper audio — вне ТЗ).
+
+**Доки.** README (CONTEXT_BASE_DIR, endpoints Attachments, структура data/uploads), `server/.env.example` (+CONTEXT_BASE_DIR), PROJECT_CONTEXT §3.3 (контракт Q&A без image_data), решения **#119**/**#120**, §10 (data/uploads, tests/routes, paths.js); план context-data-storage — статус ПРИНЯТ, §8 — колонка вердиктов D-A…D-F.
+
+**Тесты (red-first в фазах).** Бэкенд 89/89 (было 62; +27: guarded-ALTER на legacy-схеме, paths/traversal, insertAttachment, addImageAttachment (sharp, файл+миниатюра+строка), routes raw/thumb (express+fetch: 200/404/400-traversal), chatHandler 2.0.1a (картинка+2 кода: 3 записи, meta с kind, images+код в vision-вызове, imageData из meta) и 2.0.1b (док+2 кода+текст: порядок документ→код→текст), 400 не-vision, orphan-политика messageRepo, фильтр изображений в filesContext, getQAPairs без image_data). Фронт 89/89 (+1: 1c — imageData из meta). Найдено тестом и исправлено: prepend-цепочка давала «код → документ» вместо заданного порядка.
+
+**Гейты:** `pnpm run build` ✓ (30.4s, известный warning >500 kB — BACKLOG #7) · `pnpm run lint` ✓ (--max-warnings 0) · `test:run` ✓ 89/89 · `test:backend` ✓ 89/89 · live-smoke :3100 ✓ (`GET /` 200 html; `/api/attachments/xxx/raw|thumb` → 404 JSON; `/api/images/*` → 404 — демонтаж подтверждён).
+
+**Наблюдение для следующего ТЗ (не входит в это):** `addBotMessage` не подставляет `result.imageData` в свежий ответ — превью после отправки появляется только после перезагрузки истории (поведение существовало и до ТЗ; теперь данные для фикса в ответе есть).
+
+**Статус:** ✅ S.1–S.6 исполнены одним PR (`tz/vision-attachments` → `main`); S.7 (режимы) — следующий PR.

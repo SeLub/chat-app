@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { getDb, setDbPath, closeDb } from '../../src/db/init.js';
 import * as sessionRepo from '../../src/db/sessionRepo.js';
 import * as messageRepo from '../../src/db/messageRepo.js';
+import * as attachmentRepo from '../../src/db/attachmentRepo.js';
 
 describe('messageRepo', () => {
     let sessionId;
@@ -186,6 +187,34 @@ describe('messageRepo', () => {
 
             const messages = messageRepo.getMessagesBySession(sessionId);
             assert.equal(messages.length, 1);
+        });
+
+        it('финальное ТЗ: строки attachments НЕ удаляются, deletedAttachments всегда 0', () => {
+            const fileId = 'file-orphan-1';
+            attachmentRepo.insertAttachment({
+                id: fileId,
+                sessionId,
+                filename: 'photo.png',
+                filePath: 'uploads/test_orphan.png',
+                mimeType: 'image/png',
+                fileSize: 10,
+                extractedText: '',
+                language: 'image',
+                kind: 'image',
+                pathBase: 'data',
+            });
+            messageRepo.addMessage(sessionId, {
+                questionId: 'q_9_1', role: 'user', content: 'Q',
+                attachmentsMeta: [{ fileId, name: 'photo.png', kind: 'image' }],
+            });
+
+            const result = messageRepo.deleteMessagesByQuestionId('q_9_1');
+
+            assert.equal(result.deletedMessages, 1);
+            assert.equal(result.deletedAttachments, 0, 'реестр не чистится (orphan-политика)');
+            // Строка вложения уцелела
+            const row = getDb().prepare('SELECT * FROM attachments WHERE id = ?').get(fileId);
+            assert.ok(row, 'строка attachments переживает удаление Q&A');
         });
     });
 });

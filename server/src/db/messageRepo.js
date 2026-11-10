@@ -11,14 +11,13 @@ export function addMessage(sessionId, message) {
     ).get(sessionId);
 
     db.prepare(`
-        INSERT INTO messages (id, session_id, question_id, role, content, model, attachments_meta, metrics, image_data, sort_order)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO messages (id, session_id, question_id, role, content, model, attachments_meta, metrics, sort_order)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
         id, sessionId, message.questionId, message.role, message.content,
         message.model,
         JSON.stringify(message.attachmentsMeta || []),
         JSON.stringify(message.metrics || {}),
-        JSON.stringify(message.imageData || {}),
         max.max_order + 1
     );
 
@@ -37,7 +36,12 @@ export function getMessagesBySession(sessionId) {
 }
 
 /**
- * Удалить Q&A pair из БД + связанные attachments
+ * Удалить Q&A pair из БД.
+ *
+ * Финальное ТЗ (решение владельца): файлы и строки attachments НЕ удаляются —
+ * ни с диска, ни из реестра. Orphan-файлы — предмет будущего File Manager.
+ * Поле deletedAttachments оставлено в контракте ответа, всегда 0.
+ *
  * @param {string} questionId - ID вопроса (q_1_1234567890)
  * @returns {{ deletedMessages: number, deletedAttachments: number }}
  */
@@ -46,7 +50,7 @@ export function deleteMessagesByQuestionId(questionId) {
 
     // 1. Найти все сообщения с этим questionId
     const msgs = db.prepare(
-        'SELECT id, session_id, attachments_meta FROM messages WHERE question_id = ?'
+        'SELECT id, session_id FROM messages WHERE question_id = ?'
     ).all(questionId);
 
     if (msgs.length === 0) {
@@ -55,35 +59,12 @@ export function deleteMessagesByQuestionId(questionId) {
 
     const sessionId = msgs[0].session_id;
 
-    // 2. Собрать все fileId из attachments_meta
-    const fileIds = new Set();
-    for (const msg of msgs) {
-        try {
-            const meta = JSON.parse(msg.attachments_meta || '[]');
-            for (const item of meta) {
-                if (item.fileId) fileIds.add(item.fileId);
-            }
-        } catch (error) {
-            // Игнорируем невалидный JSON
-        }
-    }
-
-    // 3. Удалить attachments (если есть)
-    let deletedAttachments = 0;
-    if (fileIds.size > 0) {
-        const placeholders = [...fileIds].map(() => '?').join(',');
-        const result = db.prepare(
-            `DELETE FROM attachments WHERE id IN (${placeholders})`
-        ).run(...fileIds);
-        deletedAttachments = result.changes;
-    }
-
-    // 4. Удалить сообщения
+    // 2. Удалить сообщения (строки attachments и физические файлы остаются)
     const msgResult = db.prepare(
         'DELETE FROM messages WHERE question_id = ?'
     ).run(questionId);
 
-    // 5. Пересчитать message_count
+    // 3. Пересчитать message_count
     db.prepare(`
         UPDATE sessions 
         SET message_count = (
@@ -94,6 +75,6 @@ export function deleteMessagesByQuestionId(questionId) {
 
     return {
         deletedMessages: msgResult.changes,
-        deletedAttachments
+        deletedAttachments: 0
     };
 }
