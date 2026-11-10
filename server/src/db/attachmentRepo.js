@@ -4,6 +4,7 @@ import crypto from 'crypto';
 import fs from 'fs/promises';
 import path from 'path';
 import { resolveAttachmentPath } from '../config/paths.js';
+import { extractText } from '../utils/docExtract.js';
 
 const languageMap = {
     '.js': 'javascript', '.jsx': 'javascript',
@@ -60,7 +61,12 @@ export async function extractFromPaths(paths, sessionId, kind = 'document') {
 
     for (const filePath of paths) {
         try {
-            const content = await fs.readFile(filePath, 'utf-8');
+            // BACKLOG #6: Buffer без encoding — extractText решает парсер по расширению
+            // (.pdf → pdfjs, .doc/.docx → word-extractor, .xls/.xlsx/.csv → xlsx, прочее → utf-8).
+            // Раньше (до демонтажа fileService в PR #16) здесь был utf-8: PDF в
+            // extracted_text превращался в сырой байтовый поток и уходил в [Материалы].
+            const buffer = await fs.readFile(filePath);
+            const extracted = await extractText(buffer, path.basename(filePath));
             const fileId = crypto.randomUUID();
             const filename = path.basename(filePath);
             const ext = path.extname(filePath).toLowerCase();
@@ -74,7 +80,7 @@ export async function extractFromPaths(paths, sessionId, kind = 'document') {
                 filePath: null, // RESEARCH: файл временный, удаляется после extract — путь не храним
                 mimeType: getMimeType(ext),
                 fileSize: stats.size,
-                extractedText: content,
+                extractedText: extracted,
                 language,
                 kind,
                 pathBase: 'context',

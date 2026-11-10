@@ -373,6 +373,44 @@ describe('buildLLMContext mode=project (ТЗ Project mode A)', () => {
         }
     });
 
+    it('BACKLOG #6: reference .pdf → [Материалы] с ИЗВЛЕЧЁННЫМ текстом (pdfjs), не сырым utf-8; кэш обновлён', async () => {
+        const fsProm = (await import('fs/promises')).default;
+        const fsSync = (await import('fs')).default;
+        const path = (await import('path')).default;
+        const { buildMinimalPdf } = await import('../helpers/pdf-fixture.js');
+        await fsProm.writeFile(path.join(projDir, 'src', 'doc.pdf'), buildMinimalPdf('Hello PDF extract'));
+
+        const fileId = insertRef('p/src/doc.pdf', 'doc.pdf');
+        const { conversation, info } = await sessionService.buildContext(sessionId, [{ fileId }], 65536, 80, null, 'project');
+
+        const materials = conversation.find((m) => m.content.startsWith('[Материалы]'));
+        assert.ok(materials.content.includes('--- FILE: doc.pdf (актуальная версия) ---'), 'суффикс как у остальных reference');
+        assert.ok(materials.content.includes('Hello PDF extract'), 'извлечённый текст текстового слоя');
+        assert.ok(!materials.content.includes('%PDF-1.4'), 'сырой контейнер не попадает в [Материалы]');
+
+        const row = getDb().prepare('SELECT * FROM attachments WHERE id = ?').get(fileId);
+        const stat = fsSync.statSync(path.join(baseDir, 'p/src/doc.pdf'));
+        assert.equal(row.extracted_mtime, stat.mtimeMs, 'mtime-кэш установлен');
+        assert.ok(row.extracted_text.includes('Hello PDF extract'), 'extracted_text = извлечённый текст');
+        assert.deepEqual(info.filesMissing, []);
+        assert.deepEqual(info.filesTooLarge, []);
+    });
+
+    it('BACKLOG #6: reference .pdf с БИТЫМ содержимым → блок (MISSING), мусор не инлайнится', async () => {
+        const fsProm = (await import('fs/promises')).default;
+        const path = (await import('path')).default;
+        await fsProm.writeFile(path.join(projDir, 'src', 'broken.pdf'), 'not a pdf at all');
+
+        const fileId = insertRef('p/src/broken.pdf', 'broken.pdf');
+        // сеем кэш со старым mtime, чтобы buildLLMContext пошел перечитывать с диска
+        getDb().prepare("UPDATE attachments SET extracted_text = 'OLD', extracted_mtime = 1000 WHERE id = ?").run(fileId);
+
+        const { conversation } = await sessionService.buildContext(sessionId, [{ fileId }], 65536, 80, null, 'project');
+        const materials = conversation.find((m) => m.content.startsWith('[Материалы]'));
+        assert.ok(materials.content.includes('--- FILE: broken.pdf (MISSING) ---'), 'ошибка парсинга = файл недоступен');
+        assert.ok(!materials.content.includes('not a pdf'), 'сырое содержимое не инлайнится');
+    });
+
     it('§5.7: PROJECT НЕ включает kind=document из attachments_meta прошлых Q&A', async () => {
         const fsProm = (await import('fs/promises')).default;
         const path = (await import('path')).default;
