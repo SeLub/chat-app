@@ -103,8 +103,74 @@ export interface Session {
   message_count: number;
   created_at: string;
   updated_at: string;
-  mode?: 'chat' | 'project';
+  mode?: SessionMode;
   project_id?: string;
+}
+
+// ============================================================
+// ТЗ Project mode A (вариант A: plain fs.readFile + [Материалы])
+// ============================================================
+
+/** Режим сессии: legacy 'chat' трактуется бэком как 'research' */
+export type SessionMode = 'research' | 'project';
+
+/** GET /api/config → contextBaseDir (§3.1) */
+export interface ContextBaseDirStatus {
+  ok: boolean;
+  path: string | null;
+  error: string | null;
+}
+
+/** Проект: projects.path относительно CONTEXT_BASE_DIR (§1.3) */
+export interface ProjectInfo {
+  id: string;
+  name: string;
+  path: string;
+}
+
+/** GET /api/projects/:id/files (§3.4) */
+export interface ProjectFile {
+  path: string;
+  size: number;
+  language: string;
+}
+
+export interface ProjectFilesResponse {
+  files: ProjectFile[];
+  total: number;
+  truncated?: boolean;
+}
+
+/** POST /api/projects/:id/attach (§3.5) */
+export interface AttachedFile {
+  fileId: string;
+  name: string;
+  size: number;
+  kind: 'reference';
+  language: string;
+  /** идемпотентный повторный attach: существующая строка реестра */
+  skipped?: boolean;
+}
+
+export interface AttachError {
+  path?: string;
+  error: string;
+}
+
+export interface AttachResponse {
+  attached: AttachedFile[];
+  errors: AttachError[];
+}
+
+/** GET /api/sessions/:id/attachments (§3.7) */
+export interface SessionReferenceAttachment extends AttachedFile {
+  filePath: string;
+  missing?: boolean;
+  mtimeStale?: boolean;
+}
+
+export interface SessionAttachmentsResponse {
+  attachments: SessionReferenceAttachment[];
 }
 
 

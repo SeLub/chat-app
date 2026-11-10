@@ -1,5 +1,18 @@
 import { logger } from './logger';
-import type { ChatRequestData, ChatResponse, ModelListResponse, ModelShowResponse, ProviderName, ProviderStatusResponse } from '@/types';
+import type {
+  ChatRequestData,
+  ChatResponse,
+  ModelListResponse,
+  ModelShowResponse,
+  ProviderName,
+  ProviderStatusResponse,
+  ContextBaseDirStatus,
+  ProjectInfo,
+  ProjectFilesResponse,
+  AttachResponse,
+  SessionAttachmentsResponse,
+  SessionMode,
+} from '@/types';
 
 export class ApiError extends Error {
   constructor(
@@ -68,13 +81,13 @@ export const sessionsApi = {
     if (options?.offset) params.append('offset', String(options.offset));
     if (options?.search) params.append('search', options.search);
     const qs = params.toString();
-    return request<Array<{ id: string; title: string; category: string; message_count: number; model?: string; provider?: string; sysprompt: string; created_at: string; updated_at: string }>>(
+    return request<Array<{ id: string; title: string; category: string; message_count: number; model?: string; provider?: string; sysprompt: string; created_at: string; updated_at: string; mode?: SessionMode; project_id?: string }>>(
       'GET',
       `/api/sessions${qs ? '?' + qs : ''}`,
     );
   },
   get(id: string) {
-    return request<{ id: string; title: string; category: string; model?: string; provider?: string; sysprompt: string; message_count: number; created_at: string; updated_at: string }>(
+    return request<{ id: string; title: string; category: string; model?: string; provider?: string; sysprompt: string; message_count: number; created_at: string; updated_at: string; mode?: SessionMode; project_id?: string }>(
       'GET',
       `/api/sessions/${id}`,
     );
@@ -93,7 +106,7 @@ export const sessionsApi = {
       `/api/sessions/${id}/messages`,
     );
   },
-  create(title?: string, mode?: 'chat' | 'project', projectId?: string) {
+  create(title?: string, mode?: SessionMode, projectId?: string) {
     const body: Record<string, string | undefined> = {};
     if (title) body.title = title;
     if (mode) body.mode = mode;
@@ -194,11 +207,65 @@ export const sttApi = {
   },
 };
 
+// === Config API (ТЗ Project mode A §3.1) ===
+export const configApi = {
+  get() {
+    return request<{ contextBaseDir: ContextBaseDirStatus }>('GET', '/api/config');
+  },
+};
+
+// === Projects API (ТЗ Project mode A §3.3–3.5) ===
+export const projectsApi = {
+  /** Регистрация/поиск проекта + привязка к сессии (идемпотентно по path) */
+  create(sessionId: string, relativePath: string) {
+    return request<ProjectInfo & { totalFiles: number; created: boolean }>('POST', '/api/projects', {
+      body: { sessionId, relativePath },
+    });
+  },
+  /** Информация о проекте (восстановление CurrentProject после перезагрузки) */
+  get(projectId: string) {
+    return request<ProjectInfo>('GET', `/api/projects/${projectId}`);
+  },
+  /** Browse-список файлов проекта (filter — подстрока, лимит 500) */
+  listFiles(projectId: string, filter = '') {
+    const qs = filter ? `?filter=${encodeURIComponent(filter)}` : '';
+    return request<ProjectFilesResponse>('GET', `/api/projects/${projectId}/files${qs}`);
+  },
+  /** Attach reference-файлов (идемпотентно по session_id + file_path) */
+  attach(projectId: string, sessionId: string, relativePaths: string[]) {
+    return request<AttachResponse>('POST', `/api/projects/${projectId}/attach`, {
+      body: { sessionId, relativePaths },
+    });
+  },
+  /** Remove project (§10.8: project_id=NULL, mode=research, авто-detach reference) */
+  unlink(sessionId: string) {
+    return request<{ ok: boolean }>('DELETE', `/api/sessions/${sessionId}/project`);
+  },
+};
+
+// === Attachments API (ТЗ Project mode A §3.6–3.7) ===
+export const attachmentsApi = {
+  /** Список reference-файлов сессии с бейджами missing/mtimeStale */
+  listBySession(sessionId: string) {
+    return request<SessionAttachmentsResponse>(
+      'GET',
+      `/api/sessions/${sessionId}/attachments?kind=reference`,
+    );
+  },
+  /** Detach: удаляется ТОЛЬКО строка реестра, файл на диске не трогается */
+  detach(fileId: string) {
+    return request<{ ok: boolean; deletedId: string }>('DELETE', `/api/attachments/${fileId}`);
+  },
+};
+
 export const apiGateway = {
   sessions: sessionsApi,
   chat: chatApi,
   models: modelsApi,
   providers: providersApi,
   stt: sttApi,
+  config: configApi,
+  projects: projectsApi,
+  attachments: attachmentsApi,
   ApiError,
 };
