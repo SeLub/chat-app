@@ -146,16 +146,16 @@ describe('sessionStore — normalization and init', () => {
     const sessionData = { id: 's1b', title: 'T', category: '', sysprompt: '', message_count: 2, created_at: '', updated_at: '' };
     s().get.mockResolvedValue(sessionData);
 
-    // Форма ответа после TZ-B.2/B.2b: meta содержит fileId; image_data/metrics — JSON-строки
+    // Форма ответа после финального ТЗ: meta содержит fileId/kind; metrics — JSON-строка;
+    // image_data демонтирован и больше не приходит
     s().getMessages.mockResolvedValue([
       {
         questionId: 'q_1_10',
         questionText: 'Q1',
         answerText: 'A1',
         model: 'm',
-        attachments_meta: '[{"fileId":"file-abc","name":"doc.csv","size":42,"type":"text"}]',
+        attachments_meta: '[{"fileId":"file-abc","name":"doc.csv","size":42,"type":"text","kind":"document"}]',
         metrics: '{"tps":7}',
-        image_data: '{}',
       },
     ]);
 
@@ -164,8 +164,60 @@ describe('sessionStore — normalization and init', () => {
     const state = useSessionStore.getState();
     expect(state.messages.length).toBe(2);
 
-    const meta = state.messages[0].attachmentsMeta as unknown as { fileId?: string; name: string; size: number; type?: string }[];
-    expect(meta).toEqual([{ fileId: 'file-abc', name: 'doc.csv', size: 42, type: 'text' }]);
+    const meta = state.messages[0].attachmentsMeta as unknown as { fileId?: string; name: string; size: number; type?: string; kind?: string }[];
+    expect(meta).toEqual([{ fileId: 'file-abc', name: 'doc.csv', size: 42, type: 'text', kind: 'document' }]);
+  });
+
+  it('1c. Финальное ТЗ: imageData строится из attachments_meta (kind=image), image_data не нужен', async () => {
+    localStorage.setItem('activeSessionId', 's1c');
+    localStorage.setItem('viewingSessionId', 's1c');
+
+    const sessionData = { id: 's1c', title: 'T', category: '', sysprompt: '', message_count: 2, created_at: '', updated_at: '' };
+    s().get.mockResolvedValue(sessionData);
+
+    s().getMessages.mockResolvedValue([
+      {
+        questionId: 'q_1_20',
+        questionText: 'Что на картинке?',
+        answerText: 'Кот',
+        model: 'm',
+        attachments_meta: JSON.stringify([
+          { fileId: 'img-1', name: 'shot.png', size: 9, type: 'image', kind: 'image', fullUrl: '/api/attachments/img-1/raw', thumbnailUrl: '/api/attachments/img-1/thumb' },
+          { fileId: 'file-2', name: 'util.ts', size: 5, type: 'typescript', kind: 'code' },
+        ]),
+        metrics: '{}',
+      },
+      {
+        questionId: 'q_2_30',
+        questionText: 'Без картинок',
+        answerText: 'Ок',
+        model: 'm',
+        attachments_meta: '[{"fileId":"file-3","name":"doc.pdf","size":7,"type":"pdf","kind":"document"}]',
+      },
+    ]);
+
+    await useSessionStore.getState().init();
+
+    const state = useSessionStore.getState();
+
+    // Пара 1: imageData выведен из meta
+    expect(state.messages[0].imageData).toEqual({
+      thumbnailUrl: '/api/attachments/img-1/thumb',
+      fullUrl: '/api/attachments/img-1/raw',
+      filename: 'shot.png',
+    });
+    expect(state.messages[1].imageData).toEqual({
+      thumbnailUrl: '/api/attachments/img-1/thumb',
+      fullUrl: '/api/attachments/img-1/raw',
+      filename: 'shot.png',
+    });
+
+    // Пара 2: изображения нет → imageData undefined
+    expect(state.messages[2].imageData).toBeUndefined();
+    expect(state.messages[3].imageData).toBeUndefined();
+
+    // Пустая/битая meta не роняет маппер
+    expect(state.messages[2].attachmentsMeta).toEqual([{ fileId: 'file-3', name: 'doc.pdf', size: 7, type: 'pdf', kind: 'document' }]);
   });
 
   it('2. init without saved active (localStorage empty) → creates new session', async () => {
