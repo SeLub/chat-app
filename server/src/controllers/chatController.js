@@ -52,6 +52,10 @@ export async function chatHandler(req, res) {
     // Это единственное разрешённое удаление — пользовательские файлы реестра не удаляются никогда.
     const tmpFilePaths = [file?.path, ...codeFiles.map((cf) => cf?.path)].filter(Boolean);
 
+    // ТЗ attachment-cascade: fileIds строк реестра, созданных ЭТОЙ отправкой (RESEARCH).
+    // PROJECT-ветка строки не создаёт (reference — пул сессии): claim/cleanup к ней неприменимы.
+    let sentFileIds = [];
+
     try {
         // TZ-B.1: при diskStorage у файлов нет буфера — восстанавливаем из файла на диске.
         if (file?.path) file.buffer = await fs.promises.readFile(file.path);
@@ -138,6 +142,10 @@ export async function chatHandler(req, res) {
                 log.error('Attachment save error', { error: error.message });
                 return res.status(500).json({ error: 'Failed to save attachments' });
             }
+
+            // ТЗ attachment-cascade: claim/cleanup касаются только строк, созданных этой
+            // отправкой; PROJECT-reference — пул сессии (message_id всегда NULL).
+            sentFileIds = currentAttachments.map((a) => a.fileId).filter(Boolean);
         }
 
         // === Шаг 2. Контекст-конфиг — общий для chat и vision веток ===
@@ -204,13 +212,16 @@ export async function chatHandler(req, res) {
                     stream: false,
                 });
 
-                sessionService.addMessage(sessionId, {
+                const userMsgId = sessionService.addMessage(sessionId, {
                     role: 'user',
                     content: message || 'What is in this image?',
                     model,
                     questionId: visionQuestionId,
                     attachmentsMeta: currentAttachments
                 });
+                // ТЗ attachment-cascade: строки реестра принадлежат сообщению —
+                // удаление Q&A чистит их каскадом БД (файлы на диске остаются — File Manager).
+                attachmentService.claimAttachments(sentFileIds, userMsgId);
                 sessionService.addMessage(sessionId, {
                     role: 'assistant',
                     content: result.response,
@@ -233,6 +244,8 @@ export async function chatHandler(req, res) {
                 });
             } catch (error) {
                 log.error('Vision model error', { error: error.message });
+                // ТЗ attachment-cascade: проваленная отправка не оставляет строк в реестре
+                attachmentService.deleteUnclaimedAttachments(sentFileIds);
                 return res.status(500).json({ error: error.message || 'Vision model connection failed' });
             }
         }
@@ -275,13 +288,15 @@ export async function chatHandler(req, res) {
             });
 
             const finalQuestionId = questionId || `q_${Date.now()}`;
-            sessionService.addMessage(sessionId, {
+            const userMsgId = sessionService.addMessage(sessionId, {
                 role: 'user',
                 content: message,
                 model,
                 questionId: finalQuestionId,
                 attachmentsMeta: currentAttachments
             });
+            // ТЗ attachment-cascade: строки реестра принадлежат сообщению (см. vision-ветку)
+            attachmentService.claimAttachments(sentFileIds, userMsgId);
             sessionService.addMessage(sessionId, {
                 role: 'assistant',
                 content: result.response,
@@ -314,10 +329,15 @@ export async function chatHandler(req, res) {
             });
         } catch (error) {
             log.error('Chat error', { error: error.message, code: error.code });
+            // ТЗ attachment-cascade: проваленная отправка не оставляет строк в реестре
+            attachmentService.deleteUnclaimedAttachments(sentFileIds);
             res.status(500).json({ error: error.message || 'Connection failed' });
         }
     } catch (error) {
         log.error('Error processing URLs', { error: error.message });
+        // ТЗ attachment-cascade: реестр не переживает проваленную отправку
+        // (ветка context-config вне inner-try — строки уже вставлены)
+        attachmentService.deleteUnclaimedAttachments(sentFileIds);
         res.status(500).json({ error: 'Failed to process message' });
     } finally {
         // TZ-B.3: cleanup временных файлов — сама директория uploads/tmp сохраняется

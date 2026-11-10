@@ -32,6 +32,18 @@ export function listSessionAttachments(sessionId, kind = 'reference') {
     return attachmentRepo.listBySessionAndKind(sessionId, kind);
 }
 
+// ТЗ attachment-cascade (2026-11-11): claim строк реестра сообщением (FK message_id,
+// ON DELETE CASCADE — удаление сообщения чистит строки на уровне БД).
+export function claimAttachments(fileIds, messageId) {
+    return attachmentRepo.claimAttachments(fileIds, messageId);
+}
+
+// ТЗ attachment-cascade: cleanup незаклеймлённых строк провалившейся отправки —
+// реестр не копит балласт; файлы на диске не трогаются (orphan-политика).
+export function deleteUnclaimedAttachments(fileIds) {
+    return attachmentRepo.deleteUnclaimedAttachments(fileIds);
+}
+
 /**
  * S.3: сохранить clipboard/загруженное изображение в единый реестр.
  *

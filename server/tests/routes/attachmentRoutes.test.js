@@ -161,4 +161,15 @@ describe('attachmentRoutes: /raw и /thumb (S.4)', () => {
         const body = await res.json();
         assert.match(body.error, /CONTEXT_BASE_DIR/);
     });
+
+    it('ТЗ attachment-cascade: мёртвый POST /extract демонтирован → 404 (строки-сироты больше не создаются)', async () => {
+        const res = await fetch(`${baseUrl}/api/attachments/extract`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ paths: ['/tmp/x.csv'], sessionId }),
+        });
+        assert.equal(res.status, 404);
+        const count = getDb().prepare('SELECT COUNT(*) AS c FROM attachments WHERE session_id = ?').get(sessionId);
+        assert.equal(count.c, 0);
+    });
 });
