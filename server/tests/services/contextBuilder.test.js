@@ -6,10 +6,10 @@ import * as messageRepo from '../../src/db/messageRepo.js';
 import * as sessionService from '../../src/services/sessionService.js';
 
 /**
- * TZ-B.2b: контракт GET /api/sessions/:id/messages (Q&A-пары) должен включать
- * attachments_meta, metrics и image_data (ТЗ §API, конституция §3.3).
- * Формат — сырые JSON-строки из БД (паритет с эталоном public/script.js:156,
- * фронтовый parseLoose понимает и строку, и объект).
+ * TZ-B.2b (в редакции финального ТЗ): контракт GET /api/sessions/:id/messages (Q&A-пары)
+ * включает attachments_meta и metrics. image_data ДЕМОНТИРОВАН — единственный источник
+ * вложений это реестр attachments через attachments_meta (фронт строит превью из kind='image').
+ * Формат — сырые JSON-строки из БД (фронтовый parseLoose понимает и строку, и объект).
  */
 describe('getQAPairs (via sessionService.getGroupedMessages): TZ-B.2b contract', () => {
     let sessionId;
@@ -39,11 +39,10 @@ describe('getQAPairs (via sessionService.getGroupedMessages): TZ-B.2b contract',
             model: 'test-model',
             questionId: 'q_1_100',
             metrics: { tps: 12.5, total_tokens: 77 },
-            imageData: { preview: '/uploads/images/x.png' },
         });
     });
 
-    it('returns attachments_meta, metrics, image_data in QA pairs', () => {
+    it('returns attachments_meta, metrics in QA pairs (image_data демонтирован)', () => {
         const pairs = sessionService.getGroupedMessages(sessionId);
 
         assert.equal(pairs.length, 1);
@@ -59,8 +58,9 @@ describe('getQAPairs (via sessionService.getGroupedMessages): TZ-B.2b contract',
         const metrics = typeof pair.metrics === 'string' ? JSON.parse(pair.metrics) : pair.metrics;
         assert.equal(metrics.tps, 12.5);
 
-        const imageData = typeof pair.image_data === 'string' ? JSON.parse(pair.image_data) : pair.image_data;
-        assert.equal(imageData.preview, '/uploads/images/x.png');
+        // Финальное ТЗ: image_data больше не возвращается
+        assert.equal(pair.image_data, undefined);
+        assert.equal(pair.imageData, undefined);
     });
 
     it('keeps base contract fields (questionId, questionText, answerText, model)', () => {
@@ -69,5 +69,47 @@ describe('getQAPairs (via sessionService.getGroupedMessages): TZ-B.2b contract',
         assert.equal(pair.questionText, 'Вопрос по файлу');
         assert.equal(pair.answerText, 'Ответ');
         assert.equal(pair.model, 'test-model');
+    });
+});
+
+describe('buildLLMContext: фильтр изображений из filesContext (финальное ТЗ)', () => {
+    let sessionId;
+
+    before(() => {
+        setDbPath(':memory:');
+        getDb();
+    });
+
+    after(() => closeDb());
+
+    beforeEach(() => {
+        getDb().exec('DELETE FROM attachments');
+        getDb().exec('DELETE FROM messages');
+        getDb().exec('DELETE FROM sessions');
+        sessionId = sessionRepo.createSession('Image filter').id;
+    });
+
+    it('kind=image и пустой extracted_text не попадают в filesContext, документы — попадают', async () => {
+        const db = getDb();
+        db.prepare(`
+            INSERT INTO attachments (id, session_id, filename, extracted_text, kind, path_base)
+            VALUES ('img-1', ?, 'photo.png', '', 'image', 'data')
+        `).run(sessionId);
+        db.prepare(`
+            INSERT INTO attachments (id, session_id, filename, extracted_text, kind, path_base)
+            VALUES ('doc-1', ?, 'report.csv', 'apple;3', 'document', 'context')
+        `).run(sessionId);
+
+        messageRepo.addMessage(sessionId, {
+            role: 'user', content: 'Q', model: 'm', questionId: 'q_1_1',
+            attachmentsMeta: [{ fileId: 'img-1', name: 'photo.png' }, { fileId: 'doc-1', name: 'report.csv' }],
+        });
+
+        const { conversation } = await sessionService.buildContext(sessionId, [], 65536, 80, null);
+        const filesMsg = conversation.find((m) => m.role === 'system' && m.content.includes('FILE:'));
+
+        assert.ok(filesMsg, 'filesContext должен существовать (документ найден)');
+        assert.ok(filesMsg.content.includes('report.csv'), 'документ инлайнится');
+        assert.ok(!filesMsg.content.includes('photo.png'), 'изображение НЕ инлайнится в контекст');
     });
 });

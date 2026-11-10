@@ -65,10 +65,16 @@ export interface ModelDetail {
   };
 }
 
+// Финальное ТЗ: meta приходит из реестра attachments (бэкенд); optimistic-мета
+// (до ответа сервера) содержит только name/size/type — остальные поля опциональны.
 export interface AttachmentMeta {
   name: string;
   size: number;
   type: string;
+  fileId?: string;
+  kind?: 'document' | 'code' | 'image' | 'reference';
+  fullUrl?: string;
+  thumbnailUrl?: string;
 }
 
 export interface ImageData {
