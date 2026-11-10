@@ -1,6 +1,5 @@
 // src/app.js
 import express from 'express';
-import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import sttRoutes from './routes/sttRoutes.js'; 
@@ -35,18 +34,9 @@ app.use('/vad-assets', express.static(path.join(__dirname, '..', 'public', 'vad-
 // R.3: фронт переехал в frontend/ (бывший webq98) — dist на уровне корня репо
 app.use(express.static(path.join(__dirname, '..', '..', 'frontend', 'dist')));
 
-// Создание директорий для загрузок
-const uploadsDir = path.join(__dirname, '..', 'uploads', 'images');
-const thumbnailsDir = path.join(uploadsDir, 'thumbnails');
-if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
-if (!fs.existsSync(thumbnailsDir)) fs.mkdirSync(thumbnailsDir, { recursive: true });
-
-export { uploadsDir, thumbnailsDir };
-
 // Роуты
 import modelRoutes from './routes/modelRoutes.js';
 import chatRoutes from './routes/chatRoutes.js';
-import imageRoutes from './routes/imageRoutes.js';
 import sessionRoutes from './routes/sessionRoutes.js';
 import attachmentRoutes from './routes/attachmentRoutes.js';
 
@@ -57,7 +47,6 @@ import { getProvider, listProviders, getDefaultProviderName } from './providers/
 
 app.use('/api/models', modelRoutes);
 app.use('/api/chat', chatRoutes);
-app.use('/api/images', imageRoutes);
 app.use('/api/sessions', sessionRoutes);
 app.use('/api/attachments', attachmentRoutes);
 app.use('/api/stt', sttRoutes);
