@@ -1,9 +1,8 @@
 // src/utils/fileUtils.js
 // Утилиты для работы с файлами
 
-export function generateImageId() {
-  return `img_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-}
+// NB: generateImageId удалён вместе с legacy image-потоком (финальное ТЗ) —
+// вложения идентифицируются UUID в реестре attachments.
 
 export function getSupportedCodeExtensions() {
   return [
