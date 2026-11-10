@@ -357,14 +357,15 @@ describe('chatHandler: Phase B (attachments)', () => {
             assert.equal(rows.length, 3);
             assert.deepEqual(rows.map((r) => r.kind).sort(), ['code', 'code', 'document']);
 
-            // 2. ТЗ one-system: message без инлайна — [Материалы] содержит документ и код,
-            // [Вопрос] — ровно текст пользователя (дублей больше нет)
+            // 2. ТЗ one-system: message без инлайна — [Материалы] содержит документ и код
+            // (сырой extracted_text из реестра), [Вопрос] — ровно текст пользователя
             const cm = provider.calls[0].messages;
             const materials = cm.find((m) => m.role === 'user' && m.content.startsWith('[Материалы]'));
             assert.ok(materials, '[Материалы] присутствует');
-            const matDoc = materials.content.indexOf('Document: report_tz.csv');
-            const matCode = materials.content.indexOf('Code Analysis Request - 2 files');
-            assert.ok(matDoc !== -1 && matCode !== -1, 'документ и код в [Материалы]');
+            const matDoc = materials.content.indexOf('--- FILE: report_tz.csv ---');
+            const matCode = materials.content.indexOf('--- FILE: a_tz.ts ---');
+            assert.ok(matDoc !== -1, 'документ в [Материалы] (сырой extracted_text)');
+            assert.ok(matCode !== -1, 'код в [Материалы]');
             const lastMsg = cm.at(-1);
             assert.equal(lastMsg.content, '[Вопрос]\nСУПЕРТЕКСТ', '[Вопрос] — только текст пользователя, без инлайна файлов');
 

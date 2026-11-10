@@ -8,6 +8,26 @@ import { createLogger } from '../utils/logger.js';
 
 const log = createLogger('LlamaCppProvider');
 
+/**
+ * ТЗ «один system, [Материалы] / [Ранее] / [Вопрос]», п.6 — СТРАХОВКА.
+ * В норме buildLLMContext гарантирует РОВНО один system — функция no-op
+ * (возвращает ту же ссылку). Если в будущем кто-то вернёт второй system,
+ * шаблон Qwen3.8 отвергнет запрос («System message must be at the beginning»)
+ * — здесь мы склеиваем все system в один в начале списка.
+ * @param {Array} messages - [{ role, content, images? }]
+ * @returns {Array} те же messages (no-op) либо новая версия со склеенным system
+ */
+export function mergeSystemMessages(messages) {
+    const systems = messages.filter((m) => m?.role === 'system');
+    if (systems.length <= 1) return messages;
+
+    const merged = {
+        role: 'system',
+        content: systems.map((m) => m.content).filter(Boolean).join('\n\n'),
+    };
+    return [merged, ...messages.filter((m) => m?.role !== 'system')];
+}
+
 export class LlamaCppProvider extends BaseProvider {
     constructor(name, config) {
         super(name, config);
@@ -237,6 +257,11 @@ export class LlamaCppProvider extends BaseProvider {
 
     /**
      * Отправляет чат-сообщение через /v1/chat/completions (OpenAI-совместимый API)
+     *
+     * TODO(vision): поле images на message (base64) — формат Ollama /api/chat.
+     * /v1/chat/completions его не стандартизует (там — content-части image_url);
+     * конкретный сервер llama.cpp может игнорировать неизвестные поля → vision
+     * через llama.cpp не гарантирован. По ТЗ — не блокер, оставлено как есть.
      */
     async chat({ model, messages, stream = false }) {
         try {
@@ -250,7 +275,7 @@ export class LlamaCppProvider extends BaseProvider {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     model: model,
-                    messages: messages,
+                    messages: mergeSystemMessages(messages),
                     stream: stream,
                     temperature: 0.7,
                     max_tokens: -1

@@ -1,14 +1,21 @@
 // src/controllers/chatController.js
 //
-// Финальное ТЗ «vision-картинки в истории»: единый реестр вложений (attachments)
-// + attachments_meta. Три ветки обработки (картинка / документ / код) НЕ взаимоисключающие:
-// file (картинка или документ) и codeFiles обрабатываются независимо, все вложения
-// попадают в реестр и в историю. Порядок сборки сообщения: документ → код → текст.
-// Legacy-поток imageService//api/images демонтирован; imageData в ответе — legacy-shape,
-// заполняется из первого kind='image' в attachments_meta (фронт не меняется).
+// ТЗ «один system, [Материалы] / [Ранее] / [Вопрос]»: промпт строит
+// buildLLMContext (contextBuilder.js) — РОВНО один system (sysprompt) +
+// user-разделители [Материалы] (filesContext из реестра attachments) и
+// [Ранее в этой сессии] (+ обрезанная история). chatController добавляет
+// последнее user-сообщение [Вопрос] (в vision-ветке — с images).
+// - message = только текст пользователя (после URL-extract); файлы НЕ инлайнятся
+//   в message — они в реестре attachments и входят в промпт через [Материалы].
+//   processDocument/processCodeFiles (fileService) демонтированы; невалидный
+//   документ — warn + строка реестра без extracted_text (не 400).
+// - Vision-ветка (isImageFile) использует ту же архитектуру buildLLMContext
+//   (до ТЗ — регрессия: без system, без истории). base64-картинка крепится
+//   к [Вопрос]: m.images — Ollama native; llama.cpp /v1/chat/completions поле
+//   images не стандартизовано (см. TODO в LlamaCppProvider) — не блокер.
+// - info.* (excludedIndices, includedQAPairs, …) — контракт с фронтом не изменён.
 
 import fs from 'fs';
-import { processDocument, processCodeFiles } from '../services/fileService.js';
 import { processUrlsFromText } from '../services/webService.js';
 import { createLogger } from '../utils/logger.js';
 import * as sessionService from '../services/sessionService.js';
@@ -47,8 +54,7 @@ export async function chatHandler(req, res) {
 
         // === Обработка URL ===
         const { processedText } = await processUrlsFromText(message);
-        const originalMessage = processedText;
-        message = originalMessage;
+        message = processedText;
 
         // === Валидация ===
         if (!model) {
@@ -103,32 +109,36 @@ export async function chatHandler(req, res) {
             return res.status(500).json({ error: 'Failed to save attachments' });
         }
 
-        // === Шаг 2. Извлечение текста (RESEARCH): документ → код → текст пользователя ===
-        // PROJECT-режим пропускает инлайн (S.7 — отдельный PR); mode='chat' трактуется как research.
-        const mode = session.mode === 'project' ? 'project' : 'research';
-        if (mode === 'research') {
-            let docPart = '';
-            let codePart = '';
-            if (file && !isImage) {
-                try {
-                    docPart = (await processDocument(file)).formattedMessage;
-                } catch (error) {
-                    log.error('Document processing error', { error: error.message });
-                    return res.status(400).json({ error: 'Failed to process document file' });
-                }
+        // === Шаг 2. Контекст-конфиг — общий для chat и vision веток ===
+        contextLength = parseInt(contextLength, 10) || 65536;
+
+        const config = getContextConfig(sessionId);
+        let rp = parseInt(retainPercent, 10);
+        retainPercent = (isNaN(rp) ? (config.retainPercent ?? 80) : rp);
+
+        // Дополнительная защита от некорректных значений
+        retainPercent = Math.min(Math.max(retainPercent, 10), 100);
+
+        let parsedIncludeIds = null;
+        if (includeQuestionIds) {
+            try {
+                parsedIncludeIds = typeof includeQuestionIds === 'string'
+                    ? JSON.parse(includeQuestionIds)
+                    : includeQuestionIds;
+            } catch (e) {
+                log.warn('Failed to parse includeQuestionIds', e);
             }
-            if (codeFiles.length > 0) {
-                try {
-                    codePart = (await processCodeFiles(codeFiles)).formattedMessage;
-                } catch (error) {
-                    log.error('Code file processing error', { error: error.message });
-                    return res.status(400).json({ error: 'Failed to process code files' });
-                }
-            }
-            message = docPart + codePart + originalMessage;
         }
 
-        // === Vision-ветка (есть картинка) ===
+        log.info('📤 IncludeQuestionIds parsed', {
+            hasIds: !!parsedIncludeIds,
+            count: parsedIncludeIds?.length || 0,
+            ids: parsedIncludeIds
+        });
+
+        // === Vision-ветка (есть картинка) — единая архитектура buildLLMContext ===
+        // До ТЗ one-system: [{ role:'user', content, images }] — без system и истории
+        // (регрессия: sysprompt не применялся, файлы/история терялись).
         if (isImage) {
             const imageMeta = currentAttachments.find((a) => a.kind === 'image');
             const base64Image = file.buffer.toString('base64');
@@ -136,14 +146,30 @@ export async function chatHandler(req, res) {
 
             try {
                 log.info('Sending image to vision model', { model });
+
+                const contextResult = await sessionService.buildContext(
+                    sessionId,
+                    currentAttachments,
+                    contextLength,
+                    retainPercent,
+                    parsedIncludeIds
+                );
+
+                // system + [Материалы]? + [Ранее]? + history + user[Вопрос] с images;
+                // картинка НЕ попадает в [Материалы] (фильтр kind != 'image' в contextBuilder).
+                const contextMessages = [
+                    ...contextResult.conversation,
+                    {
+                        role: 'user',
+                        content: `[Вопрос]\n${message || 'What is in this image?'}`,
+                        images: [base64Image],
+                    },
+                ];
+
                 const result = await req.provider.chat({
                     model,
-                    messages: [{
-                        role: 'user',
-                        content: message || 'What is in this image?',
-                        images: [base64Image]
-                    }],
-                    stream: false
+                    messages: contextMessages,
+                    stream: false,
                 });
 
                 sessionService.addMessage(sessionId, {
@@ -180,33 +206,7 @@ export async function chatHandler(req, res) {
         }
 
         // === Обычный chat (без картинки) ===
-        contextLength = parseInt(contextLength, 10) || 65536;
-
-        const config = getContextConfig(sessionId);
-        let rp = parseInt(retainPercent, 10);
-        retainPercent = (isNaN(rp) ? (config.retainPercent ?? 80) : rp);
-
-        // Дополнительная защита от некорректных значений
-        retainPercent = Math.min(Math.max(retainPercent, 10), 100);
-
         try {
-            // === Строим контекст из истории сессии с обрезкой ===
-            let parsedIncludeIds = null;
-            if (includeQuestionIds) {
-                try {
-                    parsedIncludeIds = typeof includeQuestionIds === 'string'
-                        ? JSON.parse(includeQuestionIds)
-                        : includeQuestionIds;
-                } catch (e) {
-                    log.warn('Failed to parse includeQuestionIds', e);
-                }
-            }
-
-            log.info('📤 IncludeQuestionIds parsed', {
-                hasIds: !!parsedIncludeIds,
-                count: parsedIncludeIds?.length || 0,
-                ids: parsedIncludeIds
-            });
 
             const contextResult = await sessionService.buildContext(
                 sessionId,
@@ -216,7 +216,9 @@ export async function chatHandler(req, res) {
                 parsedIncludeIds
             );
 
-            const contextMessages = [...contextResult.conversation, { role: 'user', content: message }];
+            // ТЗ one-system: последнее user-сообщение — [Вопрос] с чистым текстом
+            // (файлы не инлайнятся — они в [Материалы] через реестр)
+            const contextMessages = [...contextResult.conversation, { role: 'user', content: `[Вопрос]\n${message}` }];
 
             log.info('Context built', {
                 contextSize: contextResult.contextSize,
