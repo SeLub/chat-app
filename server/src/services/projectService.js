@@ -288,15 +288,26 @@ export function getProjectInfo(projectId) {
 }
 
 /**
- * §3.7: список reference-файлов сессии с бейджами missing / mtimeStale.
+ * §3.7: список reference-файлов сессии с бейджами missing / mtimeStale / tooLarge.
  * Стат файла — на лету; обновление extracted_text здесь НЕ делается
  * (обновление — при сборке контекста, buildLLMContext).
+ *
+ * Бейджи:
+ * - missing   — файла нет на диске (или traversal / CONTEXT_BASE_DIR не настроен);
+ * - mtimeStale — «кэш был прочитан и устарел». extracted_mtime=NULL — это НЕ stale,
+ *   а «кэш ещё не инициализирован» (свежий attach): файл будет прочитан при первой
+ *   сборке контекста (приёмка PR #17, 3.1 — ложный «stale» сразу после attach);
+ * - tooLarge  — файл разросся сверх MAX_REFERENCE_FILE_SIZE ПОСЛЕ attach
+ *   (attach такое отклоняет; разрастание после — ловится здесь и при сборке
+ *   контекста TOO LARGE-блоком; приёмка PR #17, 3.4 — наблюдаемость в панели).
  */
 export function getSessionReferenceAttachments(sessionId) {
     const rows = attachmentRepo.listBySessionAndKind(sessionId, 'reference');
+    const maxSize = getMaxReferenceFileSize();
     return rows.map((r) => {
         let missing = false;
         let mtimeStale = false;
+        let tooLarge = false;
         let abs = null;
         try {
             abs = resolveAttachmentPath(r);
@@ -308,7 +319,8 @@ export function getSessionReferenceAttachments(sessionId) {
         } else {
             try {
                 const stat = fs.statSync(abs);
-                mtimeStale = r.extracted_mtime !== stat.mtimeMs;
+                mtimeStale = r.extracted_mtime !== null && r.extracted_mtime !== stat.mtimeMs;
+                tooLarge = stat.size > maxSize;
             } catch {
                 missing = true;
             }
@@ -321,6 +333,7 @@ export function getSessionReferenceAttachments(sessionId) {
             language: r.language,
             filePath: r.file_path,
             missing,
+            tooLarge: missing ? false : tooLarge,
             mtimeStale: missing ? false : mtimeStale,
         };
     });
