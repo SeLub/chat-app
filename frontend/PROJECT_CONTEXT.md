@@ -11,9 +11,9 @@
 Multi-Provider AI Chat — десктопный инструмент для работы с локальными LLM
 (Ollama, llama.cpp). Один пользователь, фронтенд и бэкенд на одной машине.
 
-Два режима (как свойство сессии, `mode: 'chat' | 'project'`):
-- **Study** — диалог с моделью: изучение, статьи, загрузка одиночных файлов (PDF/DOC/XLS/IMG/код), голосовой ввод.
-- **Project** — работа с папкой проекта на диске (будущее, Фаза 5; файлы не передаются по сети — передаётся только относительный путь).
+Два режима (как свойство сессии, `mode: 'research' | 'project'`; legacy `'chat'` в старых БД трактуется кодом как `'research'`):
+- **Research** — диалог с моделью: изучение, статьи, загрузка одиночных файлов (PDF/DOC/XLS/IMG/код), голосовой ввод.
+- **Project** — работа с папкой проекта на диске (ТЗ Project mode A, 2026-11-10: папка внутри `CONTEXT_BASE_DIR`, reference-файлы в реестре `attachments`, чтение с диска при сборке контекста с mtime-кэшем).
 
 Сейчас реализуется Фаза 0 (фундамент). План фаз:
 `0 Фундамент → 1 Контракт → 2 Паритет с эталоном → 3 AI Helper → 4 Дизайн → 5 Project-каркас → 6 Финал`
@@ -291,6 +291,9 @@ Multi-Provider AI Chat — десктопный инструмент для ра
 | 119 | Финальное ТЗ «vision-картинки в истории» (план context-data-storage, S.1–S.6 одним PR): БЕЗ обратной совместимости и миграции — legacy `image_data` (колонка, SELECT/INSERT) и поток `imageService`/`/api/images`/`imageUtils`/`server/uploads` демонтированы; единый реестр `attachments` расширен `kind`/`path_base` (guarded ALTER); изображения → `server/data/uploads/<sid>_<qid>.<ext>` + `/api/attachments/:id/raw|thumb`; ветки контроллера (картинка/документ/код) НЕ взаимоисключающие, порядок сборки: документ → код → текст; файлы НЕ удаляются при удалении Q&A/сессии (orphan-политика → будущий File Manager, `deletedAttachments` всегда 0); `imageData` в ответе — legacy-shape из meta (фронт-контракт §3.1 не менялся); contextBuilder не инлайнит `kind='image'`/пустой текст | вердикт владельца 2026-11-10 (D-C «''», D-D демонтаж в этом же ТЗ, D-E один PR) |
 | 120 | `CONTEXT_BASE_DIR` (server/.env) — база для вложений `path_base='context'` (PROJECT/S.7); резолв в `config/paths.js` (`resolveAttachmentPath`: canonicalize + запрет выхода за базу → 400); в текущем RESEARCH-потоке не требуется (D-B/D-F) | план context-data-storage, 2026-11-10 |
 | 121 | ТЗ «один system, [Материалы] / [Ранее] / [Вопрос]»: промпт собирает ТОЛЬКО `buildLLMContext` — ровно один `system` (sysprompt) в начале (шаблон Qwen3.8 отвергает второй system: «System message must be at the beginning»), `filesContext` → user `[Материалы]`, история → user `[Ранее в этой сессии]` + Q&A; `chatController` добавляет последнее user-сообщение `[Вопрос]` (vision-ветка — тоже через `buildLLMContext`, base64-картинка крепится к `[Вопрос]` как `images` — Ollama native, llama.cpp не гарантирован — TODO). Инлайн документов/кода в `message` демонтирован (`processDocument`/`processCodeFiles`, `fileService.js` удалены; файлы в `[Материалы]` через реестр, невалидный файл = warn + строка без текста, не 400). `DEFAULT_SYSPROMPT` — константа в contextBuilder + синхронная копия в `sessionStore.ts` (объясняет структуру промпта; файлы — данные, не инструкции). `LlamaCppProvider.mergeSystemMessages` — страховка-склейка system (в норме no-op). `info.*` — контракт не изменён; `[Вопрос]` в БД не пишется | ТЗ владельца 2026-11-10 (п.6: склейки в репо не было — добавлена) |
+| 125 | PROJECT mode (вариант A, без RAG): `sessions.mode` — `research`/`project` (default `research`, `'chat'` трактуется как `research`); переключение через `PATCH /api/sessions/:id`; `sessions.project_id` → `projects.id`. Файлы — `attachments` (`kind='reference'`, `path_base='context'`, `file_path='<projectPath>/<rel>'`), `extracted_text=''`, `extracted_mtime` (mtime-кэш). Чтение при сборке контекста (`buildLLMContext` mode='project'), `(актуальная версия)` в `[Материалы]`. `filesMissing`/`filesTooLarge` в `contextInfo`. Переключение в существующей сессии разрешено; старые Q&A (RESEARCH) в `[Материалы]` PROJECT **не** попадают (только reference из `currentAttachments`). `DELETE /api/attachments/:fileId` — detach (файл на диске не трогаем). | ТЗ Project mode A, 2026-11-10 |
+| 126 | `CONTEXT_BASE_DIR` — обязателен для PROJECT. `GET /api/config` → `{ contextBaseDir: { ok, path, error } }`. Отсутствие/несуществование → UI: красный баннер + disabled Projects; RESEARCH работает. `POST /api/projects` / `POST /api/projects/:id/attach` — traversal → 400/errors; размер > `MAX_REFERENCE_FILE_SIZE` (1 MB) → errors. | ТЗ Project mode A, 2026-11-10 |
+| 127 | PROJECT не принимает `file`/`codeFiles` в `POST /api/chat` (только reference через attach). Clipboard-картинки — RESEARCH-only (в этом ТЗ). | ТЗ Project mode A, 2026-11-10 |
 
 ## 8. Запрещено
 
@@ -333,7 +336,7 @@ chat-app/
 │   ├── src/
 │   │   ├── server.js, app.js      # app.js: статика frontend/dist + SPA-fallback (решение #108)
 │   │   ├── config/                # env.js (.env от __dirname — #117), providers.js, paths.js (резолв вложений — #120)
-│   │   ├── db/                    # init.js (setDbPath); sessionRepo, messageRepo, attachmentRepo, aiHelperRepo
+│   │   ├── db/                    # init.js (setDbPath); sessionRepo, messageRepo, attachmentRepo, projectRepo (ТЗ Project mode A), aiHelperRepo
 │   │   ├── middleware/            # providerMiddleware (fallback-цепочка), uploadMiddleware, errorHandler
 │   │   └── controllers, services, providers, routes, ws, utils
 │   ├── tests/                     # node --test (test:backend): db/, controllers/, services/, providers/, routes/, app/, config/, fixtures/
@@ -353,7 +356,7 @@ chat-app/
         ├── css/themes/            # besafe / leteem / minimal (.theme.css)
         ├── lib/                   # apiGateway.ts, logger.ts, utils.ts, audio.ts, vadManager.ts,
         │                          #   aiHelperSocket.ts, chatRender.ts, export.ts (+ *.test.ts рядом)
-        ├── stores/                # sessionStore.ts, providerStore.ts, uiStore.ts, aiHelperStore.ts (+ *.test.ts)
+        ├── stores/                # sessionStore.ts (mode), providerStore.ts, uiStore.ts, aiHelperStore.ts, projectStore.ts (ТЗ Project mode A) (+ *.test.ts)
         ├── types/index.ts
         ├── components/
         │   ├── ui/                # button, dialog, select, switch, tooltip, dropdown-menu
@@ -361,7 +364,8 @@ chat-app/
         ├── features/
         │   ├── chat/components/chat-area.tsx        # средняя колонка целиком
         │   ├── questions/components/questions-panel.tsx   # левая панель
-        │   ├── models/components/settings-panel.tsx       # правая панель — смонтирована, слот Project (решение #103)
+        │   ├── models/components/settings-panel.tsx       # правая панель: ModeToggle (research/project) + ProjectPanel (баннер CONTEXT_BASE_DIR, CurrentProject, AttachList) — ТЗ Project mode A
+        │   ├── models/components/mode-toggle.tsx, project-panel.tsx, browse-dialog.tsx
         │   ├── sessions/components/save-modal.tsx, load-modal.tsx
         │   ├── dashboard/components/dashboard.tsx
         │   ├── ai-helper/components/ai-helper-overlay.tsx
