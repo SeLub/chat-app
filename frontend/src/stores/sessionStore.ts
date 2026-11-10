@@ -22,6 +22,10 @@ function parseLoose<T>(value: unknown, fallback: T): T {
 }
 
 // ── Map Q&A pairs from GET /sessions/:id/messages → ChatMessage[] ──
+// Финальное ТЗ: image_data демонтирован — превью строится из attachments_meta
+// (первый kind='image' с thumbnailUrl), которую возвращает реестр attachments.
+type QAPairImageMeta = { kind?: string; thumbnailUrl?: string; fullUrl?: string; name?: string };
+
 function mapQAPairsToMessages(
   pairs: Array<{
     questionId: string;
@@ -31,8 +35,6 @@ function mapQAPairsToMessages(
     attachments_meta?: unknown;
     attachmentsMeta?: unknown;
     metrics?: unknown;
-    image_data?: unknown;
-    imageData?: unknown;
   }>,
 ): ChatMessage[] {
   const messages: ChatMessage[] = [];
@@ -42,10 +44,16 @@ function mapQAPairsToMessages(
       [],
     ) as unknown as ChatMessage['attachmentsMeta'];
     const metrics = parseLoose(m.metrics, undefined);
-    const imageData = parseLoose(
-      m.image_data ?? m.imageData,
-      undefined,
-    ) as unknown as ChatMessage['imageData'];
+
+    const metaList = Array.isArray(attachmentsMeta) ? (attachmentsMeta as QAPairImageMeta[]) : [];
+    const imageMeta = metaList.find((a) => a?.kind === 'image' && a?.thumbnailUrl);
+    const imageData = imageMeta
+      ? {
+          thumbnailUrl: imageMeta.thumbnailUrl!,
+          fullUrl: imageMeta.fullUrl!,
+          filename: imageMeta.name!,
+        }
+      : undefined;
 
     // user message from every pair
     messages.push({
