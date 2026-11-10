@@ -203,6 +203,8 @@ chat-app/
  │   │   │   ├── sessionService.js   # Session and message management
  │   │   │   ├── attachmentService.js # Attachments registry: file storage + text extraction
  │   │   │   └── webService.js       # URL content extraction
+ │   │   ├── utils/
+ │   │   │   └── docExtract.js       # BACKLOG #6: per-extension text extraction (pdfjs/word-extractor/xlsx; utf-8 otherwise) — RESEARCH documents & PROJECT reference
  │   │   ├── providers/
  │   │   │   ├── OllamaProvider.js
  │   │   │   └── LlamaCppProvider.js # Handles llama.cpp specific cache parameters

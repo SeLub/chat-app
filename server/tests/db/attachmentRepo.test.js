@@ -7,6 +7,7 @@ import os from 'os';
 import { getDb, setDbPath, closeDb } from '../../src/db/init.js';
 import * as sessionRepo from '../../src/db/sessionRepo.js';
 import * as attachmentRepo from '../../src/db/attachmentRepo.js';
+import { buildMinimalPdf } from '../helpers/pdf-fixture.js';
 
 describe('attachmentRepo', () => {
     let sessionId;
@@ -129,6 +130,39 @@ export class UserService {
                 assert.equal(result.type, expectedLang, 
                     `Expected ${expectedLang} for ${result.name}`);
             }
+        });
+
+        it('BACKLOG #6: pdf → extracted_text = извлечённый текст, а не сырой utf-8', async () => {
+            const pdfPath = path.join(tempDir, 'sample.pdf');
+            await fs.writeFile(pdfPath, buildMinimalPdf('Hello PDF extract'));
+
+            const { results, errors } = await attachmentRepo.extractFromPaths([pdfPath], sessionId);
+            assert.equal(errors.length, 0, errors[0]?.error);
+
+            const row = attachmentRepo.getAttachment(results[0].fileId);
+            assert.ok(row.extracted_text.includes('Hello PDF extract'), `got: ${JSON.stringify(row.extracted_text?.slice(0, 80))}`);
+            assert.ok(!row.extracted_text.includes('%PDF'), 'в БД нет сырых байтов контейнера');
+        });
+
+        it('BACKLOG #6: csv → extracted_text = Sheet + данные (xlsx-путь)', async () => {
+            const csvPath = path.join(tempDir, 'sample.csv');
+            await fs.writeFile(csvPath, 'name,qty\nalpha,1\n', 'utf-8');
+
+            const { results, errors } = await attachmentRepo.extractFromPaths([csvPath], sessionId);
+            assert.equal(errors.length, 0, errors[0]?.error);
+
+            const row = attachmentRepo.getAttachment(results[0].fileId);
+            assert.ok(row.extracted_text.includes('alpha'), `got: ${JSON.stringify(row.extracted_text)}`);
+        });
+
+        it('BACKLOG #6: битый pdf → errors[], файл НЕ попадает в реестр с мусором', async () => {
+            const badPath = path.join(tempDir, 'broken.pdf');
+            await fs.writeFile(badPath, 'not a pdf at all');
+
+            const { results, errors } = await attachmentRepo.extractFromPaths([badPath], sessionId);
+            assert.equal(results.length, 0);
+            assert.equal(errors.length, 1);
+            assert.match(errors[0].error, /pdf|Invalid|structure/i);
         });
     });
 
