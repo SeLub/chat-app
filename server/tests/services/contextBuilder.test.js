@@ -233,3 +233,214 @@ describe('buildLLMContext: единый system + [Материалы]/[Ране�
         assert.ok(DEFAULT_SYSPROMPT.includes('ИСТОЧНИК'), 'файлы — данные, а не инструкции');
     });
 });
+
+// ============================================================
+// ТЗ Project mode A (§3.9, §6.1): buildLLMContext mode='project'
+// ============================================================
+describe('buildLLMContext mode=project (ТЗ Project mode A)', () => {
+    let sessionId;
+    let baseDir;
+    let projDir;
+
+    before(async () => {
+        const fsProm = (await import('fs/promises')).default;
+        const os = (await import('os')).default;
+        const path = (await import('path')).default;
+        baseDir = await fsProm.mkdtemp(path.join(os.tmpdir(), 'ctx-project-'));
+        process.env.CONTEXT_BASE_DIR = baseDir;
+        projDir = path.join(baseDir, 'p');
+        await fsProm.mkdir(path.join(projDir, 'src'), { recursive: true });
+        await fsProm.writeFile(path.join(projDir, 'src', 'chat.ts'), 'export const v1 = 1;\n', 'utf-8');
+        await fsProm.writeFile(path.join(projDir, 'src', 'store.ts'), 'export const s = 2;\n', 'utf-8');
+    });
+
+    after(async () => {
+        const fsProm = (await import('fs/promises')).default;
+        await fsProm.rm(baseDir, { recursive: true, force: true });
+        delete process.env.CONTEXT_BASE_DIR;
+    });
+
+    before(() => {
+        setDbPath(':memory:');
+        getDb();
+    });
+
+    after(() => closeDb());
+
+    beforeEach(() => {
+        getDb().exec('DELETE FROM attachments');
+        getDb().exec('DELETE FROM messages');
+        getDb().exec('DELETE FROM sessions');
+        sessionId = sessionRepo.createSession('Project ctx').id;
+    });
+
+    /** reference-строка реестра (как после POST /api/projects/:id/attach) */
+    function insertRef(filePath, filename) {
+        const db = getDb();
+        const id = `ref-${filename}`;
+        db.prepare(`
+            INSERT INTO attachments (id, session_id, filename, file_path, mime_type, file_size, extracted_text, language, kind, path_base, extracted_mtime)
+            VALUES (?, ?, ?, ?, 'text/plain', 20, '', 'typescript', 'reference', 'context', NULL)
+        `).run(id, sessionId, filename, filePath);
+        return id;
+    }
+
+    it('читает с диска (extracted_text пуст): content в [Материалы], extracted_text + extracted_mtime обновлены', async () => {
+        const fsSync = (await import('fs')).default;
+        const path = (await import('path')).default;
+        const fileId = insertRef('p/src/chat.ts', 'chat.ts');
+        const { conversation, info } = await sessionService.buildContext(sessionId, [{ fileId }], 65536, 80, null, 'project');
+
+        const materials = conversation.find((m) => m.role === 'user' && m.content.startsWith('[Материалы]'));
+        assert.ok(materials, '[Материалы] присутствует');
+        assert.ok(materials.content.includes('--- FILE: chat.ts (актуальная версия) ---'), 'суффикс (актуальная версия)');
+        assert.ok(materials.content.includes('export const v1 = 1;'), 'содержимое с диска');
+
+        const row = getDb().prepare('SELECT * FROM attachments WHERE id = ?').get(fileId);
+        const stat = fsSync.statSync(path.join(baseDir, 'p/src/chat.ts'));
+        assert.equal(row.extracted_text, 'export const v1 = 1;\n', 'extracted_text закэширован');
+        assert.equal(row.extracted_mtime, stat.mtimeMs, 'extracted_mtime = stat.mtimeMs');
+        assert.deepEqual(info.mode, 'project');
+        assert.deepEqual(info.filesMissing, []);
+        assert.deepEqual(info.filesTooLarge, []);
+    });
+
+    it('mtime-кэш: второй вызов не перечитывает (контент БД отдаётся как есть)', async () => {
+        const path = (await import('path')).default;
+        const fsSync = (await import('fs')).default;
+        const fileId = insertRef('p/src/store.ts', 'store.ts');
+
+        const first = await sessionService.buildContext(sessionId, [{ fileId }], 65536, 80, null, 'project');
+        const cached = getDb().prepare('SELECT extracted_text, extracted_mtime FROM attachments WHERE id = ?').get(fileId);
+        const stat = fsSync.statSync(path.join(baseDir, 'p/src/store.ts'));
+        assert.equal(cached.extracted_mtime, stat.mtimeMs);
+
+        // «подменяем» содержимое БД без изменения mtime — второй вызов ДОЛЖЕН взять кэш
+        getDb().prepare("UPDATE attachments SET extracted_text = 'CACHED-CONTENT' WHERE id = ?").run(fileId);
+        const second = await sessionService.buildContext(sessionId, [{ fileId }], 65536, 80, null, 'project');
+        const materials2 = second.conversation.find((m) => m.content.startsWith('[Материалы]'));
+        assert.ok(materials2.content.includes('CACHED-CONTENT'), 'второй вызов использует кэш (fs не перечитан)');
+
+        // первый вызов тоже вернул дисковый контент
+        const materials1 = first.conversation.find((m) => m.content.startsWith('[Материалы]'));
+        assert.ok(materials1.content.includes('export const s = 2;'));
+        assert.ok(path);
+    });
+
+    it('mtime изменился → перечитывает и обновляет кэш (§5.3)', async () => {
+        const fsProm = (await import('fs/promises')).default;
+        const path = (await import('path')).default;
+        const fsSync = (await import('fs')).default;
+        await fsProm.writeFile(path.join(projDir, 'src', 'chat.ts'), 'export const v2 = CHANGED;\n', 'utf-8');
+
+        const fileId = insertRef('p/src/chat.ts', 'chat.ts');
+        // сеем устаревший кэш
+        getDb().prepare("UPDATE attachments SET extracted_text = 'OLD', extracted_mtime = 1000 WHERE id = ?").run(fileId);
+
+        const { conversation } = await sessionService.buildContext(sessionId, [{ fileId }], 65536, 80, null, 'project');
+        const materials = conversation.find((m) => m.content.startsWith('[Материалы]'));
+        assert.ok(materials.content.includes('export const v2 = CHANGED;'), 'актуальное содержимое с диска');
+
+        const row = getDb().prepare('SELECT * FROM attachments WHERE id = ?').get(fileId);
+        const stat = fsSync.statSync(path.join(baseDir, 'p/src/chat.ts'));
+        assert.equal(row.extracted_mtime, stat.mtimeMs, 'extracted_mtime обновлён');
+        assert.ok(row.extracted_text.includes('CHANGED'));
+    });
+
+    it('файл удалён с диска → filesMissing + блок (MISSING) в [Материалы] (§5.4)', async () => {
+        const fileId = insertRef('p/src/gone.ts', 'gone.ts');
+        const { conversation, info } = await sessionService.buildContext(sessionId, [{ fileId }], 65536, 80, null, 'project');
+
+        const materials = conversation.find((m) => m.content.startsWith('[Материалы]'));
+        assert.ok(materials, '[Материалы] есть (MISSING-блок считается блоком)');
+        assert.ok(materials.content.includes('--- FILE: gone.ts (MISSING) ---'), 'MISSING-маркер');
+        assert.ok(materials.content.includes('[file not found on disk]'));
+        assert.deepEqual(info.filesMissing, ['gone.ts']);
+    });
+
+    it('файл больше лимита → filesTooLarge + блок (TOO LARGE), не читается (§5.5/§3.9)', async () => {
+        process.env.MAX_REFERENCE_FILE_SIZE = '10'; // chat.ts (22 байта) станет «слишком большим»
+        try {
+            const fileId = insertRef('p/src/chat.ts', 'chat.ts');
+            const { conversation, info } = await sessionService.buildContext(sessionId, [{ fileId }], 65536, 80, null, 'project');
+            const materials = conversation.find((m) => m.content.startsWith('[Материалы]'));
+            assert.ok(materials.content.includes('--- FILE: chat.ts (TOO LARGE) ---'));
+            assert.deepEqual(info.filesTooLarge, ['chat.ts']);
+            const row = getDb().prepare('SELECT extracted_text FROM attachments WHERE id = ?').get(fileId);
+            assert.equal(row.extracted_text, '', 'содержимое не читалось и не кэшировалось');
+        } finally {
+            delete process.env.MAX_REFERENCE_FILE_SIZE;
+        }
+    });
+
+    it('§5.7: PROJECT НЕ включает kind=document из attachments_meta прошлых Q&A', async () => {
+        const fsProm = (await import('fs/promises')).default;
+        const path = (await import('path')).default;
+        await fsProm.writeFile(path.join(projDir, 'src', 'chat.ts'), 'export const v3 = 3;\n', 'utf-8');
+
+        // старый RESEARCH Q&A с документом в meta (документ в реестре тоже есть)
+        const db = getDb();
+        db.prepare(`
+            INSERT INTO attachments (id, session_id, filename, file_path, extracted_text, kind, path_base)
+            VALUES ('old-doc', ?, 'old.csv', NULL, 'old,inline,content', 'document', 'context')
+        `).run(sessionId);
+        messageRepo.addMessage(sessionId, {
+            role: 'user', content: 'старый вопрос', model: 'm', questionId: 'q_old',
+            attachmentsMeta: [{ fileId: 'old-doc', name: 'old.csv' }],
+        });
+        messageRepo.addMessage(sessionId, {
+            role: 'assistant', content: 'старый ответ', model: 'm', questionId: 'q_old',
+        });
+
+        const refId = insertRef('p/src/chat.ts', 'chat.ts');
+        const { conversation } = await sessionService.buildContext(sessionId, [{ fileId: refId }], 65536, 80, null, 'project');
+        const materials = conversation.find((m) => m.content.startsWith('[Материалы]'));
+        assert.ok(materials, '[Материалы] есть (reference)');
+        assert.ok(materials.content.includes('chat.ts'), 'reference включён');
+        assert.ok(!materials.content.includes('old.csv'), 'старый RESEARCH-документ НЕ включён в [Материалы]');
+    });
+
+    it('RESEARCH-режим: старые document из meta по-прежнему включаются (регрессия §5.7)', async () => {
+        const db = getDb();
+        db.prepare(`
+            INSERT INTO attachments (id, session_id, filename, file_path, extracted_text, kind, path_base)
+            VALUES ('old-doc2', ?, 'old.csv', NULL, 'old,inline,content', 'document', 'context')
+        `).run(sessionId);
+        messageRepo.addMessage(sessionId, {
+            role: 'user', content: 'вопрос', model: 'm', questionId: 'q_old2',
+            attachmentsMeta: [{ fileId: 'old-doc2', name: 'old.csv' }],
+        });
+        messageRepo.addMessage(sessionId, {
+            role: 'assistant', content: 'ответ', model: 'm', questionId: 'q_old2',
+        });
+
+        const { conversation } = await sessionService.buildContext(sessionId, [], 65536, 80, null, 'research');
+        const materials = conversation.find((m) => m.content.startsWith('[Материалы]'));
+        assert.ok(materials, '[Материалы] в research');
+        assert.ok(materials.content.includes('old,inline,content'), 'document из meta инлайнится (как раньше)');
+        assert.ok(!materials.content.includes('актуальная версия'), 'без project-суффикса');
+    });
+
+    it('RESEARCH: пустой extracted_text документа не порождает пустой [Материалы] (регрессия SQL-фильтра в JS)', async () => {
+        const db = getDb();
+        db.prepare(`
+            INSERT INTO attachments (id, session_id, filename, extracted_text, kind, path_base)
+            VALUES ('empty-doc', ?, 'empty.csv', '', 'document', 'context')
+        `).run(sessionId);
+        messageRepo.addMessage(sessionId, {
+            role: 'user', content: 'в', model: 'm', questionId: 'q_e',
+            attachmentsMeta: [{ fileId: 'empty-doc', name: 'empty.csv' }],
+        });
+
+        const { conversation } = await sessionService.buildContext(sessionId, [], 65536, 80, null, 'research');
+        const materials = conversation.find((m) => m.content.startsWith('[Материалы]'));
+        assert.equal(materials, undefined, 'пустой файл → [Материалы] не отправляется вовсе');
+    });
+
+    it('info.mode по умолчанию research (регрессия сигнатуры)', async () => {
+        const { info } = await sessionService.buildContext(sessionId, [], 65536, 80, null);
+        assert.equal(info.mode, 'research');
+        assert.deepEqual(info.filesMissing, []);
+        assert.deepEqual(info.filesTooLarge, []);
+    });
+});

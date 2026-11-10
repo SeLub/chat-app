@@ -1,5 +1,7 @@
 // src/services/contextBuilder.js
 import { getDb } from '../db/init.js';
+import fs from 'fs';
+import { resolveAttachmentPath, getMaxReferenceFileSize } from '../config/paths.js';
 
 // ============================================================
 // === DEFAULT_SYSPROMPT — дефолтный системный промпт (ТЗ one-system) ===
@@ -122,12 +124,14 @@ export function cutContext(qaHistory, targetChars, includeQuestionIds = null) {
  * @param {Array}  currentAttachments - файлы, прикреплённые к текущему сообщению
  * @param {number} contextSize        - контекст модели в токенах (например, 65536)
  * @param {number} retainPercent      - % доступного бюджета для истории (0-100)
+ * @param {string[]|null} includeQuestionIds - ID вопросов для Manual режима (null = все)
+ * @param {'research'|'project'} mode - режим сессии (ТЗ Project mode A; legacy 'chat' нормализуется в chatController)
  * @returns {{ conversation: Array, contextSize: number, retainPercent: number, info: Object }}
  */
 // ============================================================
 // === Build LLM Context (основная функция) ===
 // ============================================================
-export async function buildLLMContext(sessionId, currentAttachments = [], contextSize = 65536, retainPercent = 80, includeQuestionIds = null) {
+export async function buildLLMContext(sessionId, currentAttachments = [], contextSize = 65536, retainPercent = 80, includeQuestionIds = null, mode = 'research') {
     const db = getDb();
     
     // 1. Получаем системный промпт
@@ -142,29 +146,78 @@ export async function buildLLMContext(sessionId, currentAttachments = [], contex
     ).all(sessionId);
 
     // 3. Собираем файлы
+    // ТЗ Project mode A (§5.7): в PROJECT [Материалы] собирается из ТОЛЬКО текущего
+    // пула reference (currentAttachments) — kind='document' из attachments_meta
+    // прошлых RESEARCH Q&A НЕ включаются (иначе промпт смешает режимы).
+    // RESEARCH — как раньше: все attachments_meta всех сообщений + текущие вложения.
     const allFileIds = new Set();
-    for (const msg of messages) {
-        const meta = JSON.parse(msg.attachments_meta || '[]');
-        meta.forEach(m => { if (m.fileId) allFileIds.add(m.fileId); });
+    if (mode === 'project') {
+        currentAttachments.forEach(a => { if (a.fileId) allFileIds.add(a.fileId); });
+    } else {
+        for (const msg of messages) {
+            const meta = JSON.parse(msg.attachments_meta || '[]');
+            meta.forEach(m => { if (m.fileId) allFileIds.add(m.fileId); });
+        }
+        currentAttachments.forEach(a => { if (a.fileId) allFileIds.add(a.fileId); });
     }
-    currentAttachments.forEach(a => { if (a.fileId) allFileIds.add(a.fileId); });
 
     let filesContext = '';
+    const filesMissing = [];
+    const filesTooLarge = [];
+
     if (allFileIds.size > 0) {
         const placeholders = [...allFileIds].map(() => '?').join(',');
-        // Финальное ТЗ: изображения (kind='image', extracted_text='') НЕ инлайнсятся в LLM-контекст —
-        // они идут в vision-модель отдельно. Пустые extracted_text тоже пропускаем.
+        // ТЗ Project mode A (§3.9): SQL БЕЗ фильтра extracted_text != '' — reference может
+        // быть пуст до первого чтения с диска. Изображения не инлайнсятся. Пустые
+        // не-reference отфильтровываются в JS (ниже) — поведение RESEARCH не меняется.
+        // (Буквальный SQL из ТЗ с '... OR kind = \'reference\'' не применён: OR без
+        // скобок вырывает reference из-под фильтра id — утечка чужих сессий.)
         const rows = db.prepare(
-            `SELECT id, filename, extracted_text FROM attachments WHERE id IN (${placeholders}) AND kind != 'image' AND extracted_text != ''`
+            `SELECT * FROM attachments WHERE id IN (${placeholders}) AND kind != 'image'`
         ).all(...[...allFileIds]);
 
-        // Найден хотя бы один файл — иначе [Материалы] не отправляется вовсе
-        // (тест one-system: удалённые из реестра файлы не порождают пустой блок).
-        if (rows.length > 0) {
-            filesContext = 'The user has shared the following files:\n\n';
-            for (const r of rows) {
-                filesContext += `--- FILE: ${r.filename} ---\n${r.extracted_text}\n\n`;
+        // Блоки файлов: [Материалы] отправляется только если нашёлся ХОТЯ БЫ ОДИН блок
+        // (в т.ч. MISSING/TOO LARGE — модель должна знать, что файл был, но недоступен).
+        const blocks = [];
+        for (const r of rows) {
+            if (mode === 'project' && r.kind === 'reference') {
+                // PROJECT: чтение с диска + mtime-кэш (§3.9)
+                let content = r.extracted_text;
+                try {
+                    const abs = resolveAttachmentPath(r);
+                    if (!abs || !fs.existsSync(abs)) {
+                        filesMissing.push(r.filename);
+                        blocks.push(`--- FILE: ${r.filename} (MISSING) ---\n[file not found on disk]\n\n`);
+                        continue;
+                    }
+                    const stat = fs.statSync(abs);
+                    if (stat.size > getMaxReferenceFileSize()) {
+                        filesTooLarge.push(r.filename);
+                        blocks.push(`--- FILE: ${r.filename} (TOO LARGE) ---\n[file exceeds MAX_REFERENCE_FILE_SIZE]\n\n`);
+                        continue;
+                    }
+                    if (r.extracted_mtime !== stat.mtimeMs || !content) {
+                        // Кэш протух (mtime изменился) или пуст — перечитываем и обновляем
+                        content = fs.readFileSync(abs, 'utf-8');
+                        db.prepare('UPDATE attachments SET extracted_text = ?, extracted_mtime = ? WHERE id = ?')
+                            .run(content, stat.mtimeMs, r.id);
+                    }
+                } catch {
+                    filesMissing.push(r.filename);
+                    blocks.push(`--- FILE: ${r.filename} (MISSING) ---\n[file not found on disk]\n\n`);
+                    continue;
+                }
+                blocks.push(`--- FILE: ${r.filename} (актуальная версия) ---\n${content}\n\n`);
+            } else {
+                // RESEARCH (и reference в research-режиме): снапшот extracted_text как есть;
+                // пустые не инлайнсятся (раньше это делал SQL-фильтр extracted_text != '').
+                if (!r.extracted_text) continue;
+                blocks.push(`--- FILE: ${r.filename} ---\n${r.extracted_text}\n\n`);
             }
+        }
+
+        if (blocks.length > 0) {
+            filesContext = 'The user has shared the following files:\n\n' + blocks.join('');
         }
     }
 
@@ -203,7 +256,10 @@ export async function buildLLMContext(sessionId, currentAttachments = [], contex
             ...info,
             fixedChars,
             availableChars,
-            targetChars
+            targetChars,
+            mode,
+            filesMissing,
+            filesTooLarge
         }
     };
 }
