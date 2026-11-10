@@ -14,6 +14,13 @@
 //   к [Вопрос]: m.images — Ollama native; llama.cpp /v1/chat/completions поле
 //   images не стандартизовано (см. TODO в LlamaCppProvider) — не блокер.
 // - info.* (excludedIndices, includedQAPairs, …) — контракт с фронтом не изменён.
+//
+// ТЗ Project mode A (§3.8): ветка по session.mode ('chat' legacy → research).
+// PROJECT: multipart-вложения (file/codeFiles, включая картинки) НЕ принимаются —
+// только reference через attach; currentAttachments — текущий пул reference
+// из реестра; buildLLMContext(mode='project') читает файлы с диска (mtime-кэш);
+// contextInfo += mode/filesAttached/filesMissing/filesTooLarge.
+// RESEARCH-ветка не изменена.
 
 import fs from 'fs';
 import { processUrlsFromText } from '../services/webService.js';
@@ -75,6 +82,15 @@ export async function chatHandler(req, res) {
             return res.status(404).json({ error: 'Session not found' });
         }
 
+        // === Режим сессии (ТЗ Project mode A §3.8): legacy 'chat' трактуется как research ===
+        const mode = session.mode === 'project' ? 'project' : 'research';
+
+        // PROJECT: multipart-файлы не поддерживаются — только reference через attach
+        // (§10.1: явная ошибка лучше тихого игнора; картинки — RESEARCH-only в этом ТЗ)
+        if (mode === 'project' && (file || codeFiles.length > 0)) {
+            return res.status(400).json({ error: 'Use /api/projects/:id/attach for files in Project mode' });
+        }
+
         // === Классификация вложений ===
         const isImage = file && isImageFile(file.mimetype);
         if (isImage && modelType !== 'vision') {
@@ -82,31 +98,46 @@ export async function chatHandler(req, res) {
         }
 
         // === Шаг 1. Все вложения — в единый реестр attachments ===
+        // PROJECT: currentAttachments — текущий пул reference сессии (attach);
+        // attachments_meta сообщения — снимок на момент отправки (§3.8.4).
         const currentAttachments = [];
-        try {
-            if (isImage) {
-                const meta = await attachmentService.addImageAttachment({
-                    sessionId,
-                    questionId: questionId || `q_${Date.now()}`,
-                    buffer: file.buffer,
-                    originalName: file.originalname,
-                    mimetype: file.mimetype,
+        if (mode === 'project') {
+            const refs = attachmentService.listSessionAttachments(sessionId, 'reference');
+            for (const r of refs) {
+                currentAttachments.push({
+                    fileId: r.id,
+                    name: r.filename,
+                    size: r.file_size,
+                    kind: 'reference',
+                    language: r.language
                 });
-                currentAttachments.push(meta);
-            } else if (file) {
-                const { results, errors } = await attachmentService.extractFiles([file.path], sessionId, 'document');
-                if (errors.length > 0) log.warn('Document extraction errors', { errors });
-                for (const r of results) currentAttachments.push({ fileId: r.fileId, name: r.name, size: r.size, type: r.type, kind: r.kind });
             }
-            for (const cf of codeFiles) {
-                if (!cf?.path) continue;
-                const { results, errors } = await attachmentService.extractFiles([cf.path], sessionId, 'code');
-                if (errors.length > 0) log.warn('Code extraction errors', { errors });
-                for (const r of results) currentAttachments.push({ fileId: r.fileId, name: r.name, size: r.size, type: r.type, kind: r.kind });
+        } else {
+            try {
+                if (isImage) {
+                    const meta = await attachmentService.addImageAttachment({
+                        sessionId,
+                        questionId: questionId || `q_${Date.now()}`,
+                        buffer: file.buffer,
+                        originalName: file.originalname,
+                        mimetype: file.mimetype,
+                    });
+                    currentAttachments.push(meta);
+                } else if (file) {
+                    const { results, errors } = await attachmentService.extractFiles([file.path], sessionId, 'document');
+                    if (errors.length > 0) log.warn('Document extraction errors', { errors });
+                    for (const r of results) currentAttachments.push({ fileId: r.fileId, name: r.name, size: r.size, type: r.type, kind: r.kind });
+                }
+                for (const cf of codeFiles) {
+                    if (!cf?.path) continue;
+                    const { results, errors } = await attachmentService.extractFiles([cf.path], sessionId, 'code');
+                    if (errors.length > 0) log.warn('Code extraction errors', { errors });
+                    for (const r of results) currentAttachments.push({ fileId: r.fileId, name: r.name, size: r.size, type: r.type, kind: r.kind });
+                }
+            } catch (error) {
+                log.error('Attachment save error', { error: error.message });
+                return res.status(500).json({ error: 'Failed to save attachments' });
             }
-        } catch (error) {
-            log.error('Attachment save error', { error: error.message });
-            return res.status(500).json({ error: 'Failed to save attachments' });
         }
 
         // === Шаг 2. Контекст-конфиг — общий для chat и vision веток ===
@@ -152,7 +183,8 @@ export async function chatHandler(req, res) {
                     currentAttachments,
                     contextLength,
                     retainPercent,
-                    parsedIncludeIds
+                    parsedIncludeIds,
+                    mode
                 );
 
                 // system + [Материалы]? + [Ранее]? + history + user[Вопрос] с images;
@@ -213,7 +245,8 @@ export async function chatHandler(req, res) {
                 currentAttachments,
                 contextLength,
                 retainPercent,
-                parsedIncludeIds
+                parsedIncludeIds,
+                mode
             );
 
             // ТЗ one-system: последнее user-сообщение — [Вопрос] с чистым текстом
@@ -271,7 +304,12 @@ export async function chatHandler(req, res) {
                     totalChars: contextResult.info.fixedChars + contextResult.info.actualHistoryChars,
                     targetChars: contextResult.info.targetChars,
                     includedQAPairs: contextResult.info.includedQAPairs,
-                    totalQAPairs: contextResult.info.totalQAPairs
+                    totalQAPairs: contextResult.info.totalQAPairs,
+                    // ТЗ Project mode A (§3.8.6): новые поля — опциональны для фронта
+                    mode: contextResult.info.mode,
+                    filesAttached: currentAttachments.length,
+                    filesMissing: contextResult.info.filesMissing || [],
+                    filesTooLarge: contextResult.info.filesTooLarge || []
                 }
             });
         } catch (error) {
