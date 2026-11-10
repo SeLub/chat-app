@@ -300,12 +300,19 @@ describe('chatHandler: Phase B (attachments)', () => {
             assert.deepEqual(meta.map((m) => m.kind).sort(), ['code', 'code', 'image']);
             assert.ok(meta.every((m) => m.fileId));
 
-            // 3. Vision-модель получила и картинку, и текст из code
+            // 3. Vision-ветка использует buildLLMContext: один system + [Материалы] с кодом + [Вопрос] с images
             assert.equal(provider.calls.length, 1);
             const visionPayload = provider.calls[0];
-            assert.ok(Array.isArray(visionPayload.messages[0].images), 'images переданы в модель');
-            assert.ok(visionPayload.messages[0].content.includes('console.log("two")'), 'текст кода вошёл в сообщение');
-            assert.ok(visionPayload.messages[0].content.includes('Что на картинке и в коде?'));
+            const vm = visionPayload.messages;
+            assert.equal(vm.filter((m) => m.role === 'system').length, 1, 'ровно один system (sysprompt применён)');
+            const vMaterials = vm.find((m) => m.role === 'user' && m.content.startsWith('[Материалы]'));
+            assert.ok(vMaterials, '[Материалы] присутствует в vision-контексте');
+            assert.ok(vMaterials.content.includes('console.log("two")'), 'текст кода вошёл в [Материалы]');
+            const vLast = vm.at(-1);
+            assert.equal(vLast.role, 'user');
+            assert.ok(vLast.content.startsWith('[Вопрос]'), 'последнее сообщение — [Вопрос]');
+            assert.ok(vLast.content.includes('Что на картинке и в коде?'), 'текст вопроса внутри [Вопрос]');
+            assert.ok(Array.isArray(vLast.images) && vLast.images.length === 1, 'images крепятся к [Вопрос], а не к system');
 
             // 4. Ответ: imageData из meta (legacy-shape для фронта)
             assert.ok(res.body.imageData);
@@ -350,15 +357,17 @@ describe('chatHandler: Phase B (attachments)', () => {
             assert.equal(rows.length, 3);
             assert.deepEqual(rows.map((r) => r.kind).sort(), ['code', 'code', 'document']);
 
-            // 2. Порядок сборки сообщения: документ → код → текст пользователя
-            const userContent = provider.calls[0].messages.at(-1).content;
-            const docPos = userContent.indexOf('Document: report_tz.csv');
-            const codePos = userContent.indexOf('Code Analysis Request - 2 files');
-            const textPos = userContent.indexOf('СУПЕРТЕКСТ');
-            assert.ok(docPos !== -1, 'документ в сообщении');
-            assert.ok(codePos !== -1, 'код в сообщении');
-            assert.ok(textPos !== -1, 'текст пользователя в сообщении');
-            assert.ok(docPos < codePos && codePos < textPos, `порядок документ(${docPos}) → код(${codePos}) → текст(${textPos})`);
+            // 2. ТЗ one-system: message без инлайна — [Материалы] содержит документ и код
+            // (сырой extracted_text из реестра), [Вопрос] — ровно текст пользователя
+            const cm = provider.calls[0].messages;
+            const materials = cm.find((m) => m.role === 'user' && m.content.startsWith('[Материалы]'));
+            assert.ok(materials, '[Материалы] присутствует');
+            const matDoc = materials.content.indexOf('--- FILE: report_tz.csv ---');
+            const matCode = materials.content.indexOf('--- FILE: a_tz.ts ---');
+            assert.ok(matDoc !== -1, 'документ в [Материалы] (сырой extracted_text)');
+            assert.ok(matCode !== -1, 'код в [Материалы]');
+            const lastMsg = cm.at(-1);
+            assert.equal(lastMsg.content, '[Вопрос]\nСУПЕРТЕКСТ', '[Вопрос] — только текст пользователя, без инлайна файлов');
 
             // 3. meta — 3 записи
             const userMsg = getDb()
@@ -398,6 +407,34 @@ describe('chatHandler: Phase B (attachments)', () => {
 
             assert.equal(res.statusCode, 200);
             assert.equal(res.body.imageData, undefined);
+        });
+
+        it('2.0.3: chat-ветка — system + [Ранее] с историей + [Вопрос] с текстом', async () => {
+            // сеем историю: одна Q&A пара
+            const provider = makeCapturingProvider('chat');
+            const firstReq = {
+                body: { message: 'Первый вопрос сессии', model: 'chat-model', sessionId, questionId: 'q_5_5a' },
+                files: {},
+                provider,
+                providerName: 'mock',
+            };
+            await chatHandler(firstReq, makeRes());
+
+            const secondReq = {
+                body: { message: 'Второй вопрос сессии', model: 'chat-model', sessionId, questionId: 'q_5_5b' },
+                files: {},
+                provider,
+                providerName: 'mock',
+            };
+            const res = makeRes();
+            await chatHandler(secondReq, res);
+
+            assert.equal(res.statusCode, 200, `handler failed: ${JSON.stringify(res.body)}`);
+            const cm = provider.calls.at(-1).messages;
+            assert.equal(cm.filter((m) => m.role === 'system').length, 1, 'ровно один system');
+            assert.ok(cm.some((m) => m.role === 'user' && m.content === '[Ранее в этой сессии]'), 'маркер [Ранее] присутствует');
+            assert.ok(cm.some((m) => m.role === 'user' && m.content === 'Первый вопрос сессии'), 'история предыдущих Q&A в контексте');
+            assert.equal(cm.at(-1).content, '[Вопрос]\nВторой вопрос сессии', 'последнее сообщение — [Вопрос] с текстом');
         });
     });
 });
