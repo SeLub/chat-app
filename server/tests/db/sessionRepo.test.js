@@ -28,7 +28,8 @@ describe('sessionRepo', () => {
             
             const session = sessionRepo.getSession(result.id);
             assert.ok(session);
-            assert.equal(session.mode, 'chat');
+            // ТЗ Project mode A (§2.3): default mode 'research' (legacy 'chat' БД трактуется как research в коде)
+            assert.equal(session.mode, 'research');
             assert.equal(session.message_count, 0);
             assert.equal(session.is_archived, 0);
         });

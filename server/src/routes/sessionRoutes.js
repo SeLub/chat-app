@@ -2,6 +2,7 @@
 import { Router } from 'express';
 import * as sessionService from '../services/sessionService.js';
 import { getContextConfig, updateContextConfig } from '../services/contextBuilder.js';
+import { sessionAttachmentsHandler, unlinkProjectHandler } from '../controllers/projectController.js';
 
 const router = Router();
 
@@ -145,6 +146,15 @@ router.patch('/:id', (req, res) => {
         if (req.body.provider !== undefined) updates.provider = req.body.provider;
         // === НОВОЕ: Разрешаем обновление sysprompt ===
         if (req.body.sysprompt !== undefined) updates.sysprompt = req.body.sysprompt;
+        // ТЗ Project mode A (§3.2): переключение режима сессии.
+        // project_id НЕ сбрасывается ни в одну из сторон (пользователь может
+        // вернуться в research и обратно — правило §3.2).
+        if (req.body.mode !== undefined) {
+            if (!['research', 'project'].includes(req.body.mode)) {
+                return res.status(400).json({ error: 'mode must be "research" or "project"' });
+            }
+            updates.mode = req.body.mode;
+        }
 
         const session = sessionService.getSession(req.params.id);
         if (!session) {
@@ -157,6 +167,14 @@ router.patch('/:id', (req, res) => {
         res.status(500).json({ error: error.message });
     }
 });
+
+// ТЗ Project mode A (§3.7): GET /api/sessions/:id/attachments?kind=reference —
+// список reference-файлов сессии с бейджами missing / mtimeStale (для правой панели).
+router.get('/:id/attachments', sessionAttachmentsHandler);
+
+// ТЗ Project mode A (§10.8): DELETE /api/sessions/:id/project — Remove project:
+// project_id = NULL, mode = 'research', авто-detach reference (файлы на диске не трогаем).
+router.delete('/:id/project', unlinkProjectHandler);
 
 // DELETE /api/sessions/:id - Delete session + cascade
 router.delete('/:id', (req, res) => {

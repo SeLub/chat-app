@@ -133,10 +133,13 @@ LLAMA_CPP_ENABLED=false
 # Server configuration
 PORT=3000
 
-# Base directory for user files referenced by relative path (PROJECT mode, future).
-# Attachments with path_base='context' resolve against it; traversal outside is rejected.
-# Not required for the current (research-style) workflow.
+# Base directory for user files referenced by relative path (REQUIRED for Project mode).
+# Projects and reference files (attachments with path_base='context') resolve against it;
+# traversal outside is rejected. RESEARCH mode works without it.
 # CONTEXT_BASE_DIR=/home/selub/Documents/progs
+
+# Max size of a single reference file attached in Project mode (bytes, default 1048576 = 1 MB)
+# MAX_REFERENCE_FILE_SIZE=1048576
 ```
 
 ---
@@ -152,22 +155,35 @@ PORT=3000
 * `POST /api/show` — Get detailed model information including context window size.
 
 ### Sessions & Context
-* `POST /api/sessions` — Create a new conversation session.
-* `GET /api/sessions/:id` — Get session metadata (including `sysprompt`).
-* `PATCH /api/sessions/:id` — Update session metadata (e.g., save `sysprompt`).
+* `POST /api/sessions` — Create a new conversation session (default `mode='research'`).
+* `GET /api/sessions/:id` — Get session metadata (including `sysprompt`, `mode`, `project_id`).
+* `PATCH /api/sessions/:id` — Update session metadata (e.g., save `sysprompt`, switch `mode` between `research`/`project`; invalid values → 400).
 * `GET /api/sessions/:id/messages` — Get full message history (grouped as Q&A pairs).
 * `GET /api/sessions/:id/context-config` — Get context configuration (mode, retainPercent).
 * `PATCH /api/sessions/:id/context-config` — Update context configuration.
+* `GET /api/sessions/:id/attachments?kind=reference` — List Project-mode reference files of the session with `missing` / `mtimeStale` badges.
+* `DELETE /api/sessions/:id/project` — Remove project from session (`project_id=NULL`, `mode='research'`, auto-detach of reference rows; files on disk are kept).
 * `DELETE /api/sessions/:id/messages/:questionId` — Delete a specific Q&A pair.
+
+### Config
+* `GET /api/config` — `CONTEXT_BASE_DIR` status: `{ contextBaseDir: { ok, path, error } }` (checked per request; frontend shows a red banner and disables Project features when `ok=false`).
+
+### Projects (Project mode)
+* `POST /api/projects` — Register (or find, idempotent by `path`) a project `{ sessionId, relativePath }` relative to `CONTEXT_BASE_DIR`; binds `sessions.project_id`, sets `mode='project'`, counts files (ignores `node_modules/.git/dist/build/.next/__pycache__/*.min.*/*.map/.DS_Store/Thumbs.db`). Traversal / missing dir / unset base → 400.
+* `GET /api/projects/:id` — Project info (`id`, `name`, `path`).
+* `GET /api/projects/:id/files?filter=<substring>` — Recursive file list for the browse dialog (case-insensitive filter, first 500 files, `truncated` flag; sizes only — no content is read).
+* `POST /api/projects/:id/attach` — Attach reference files `{ sessionId, relativePaths }`: rows in `attachments` (`kind='reference'`, `path_base='context'`, `extracted_text=''`); files are **not** copied. Idempotent per `session_id+file_path`; too large (> `MAX_REFERENCE_FILE_SIZE`) / traversal / missing → `errors` per path. Max 100 reference files per session.
 
 ### Chat
 * `POST /api/chat` — Send message to selected model (multipart/form-data, requires `X-Provider` header). 
-  *Accepts:* `sessionId`, `message`, `model`, `contextLength`, `retainPercent`, `includeQuestionIds` (for Manual mode), `file` (single document **or** image), `codeFiles` (up to 50) — all three can be combined; the composed message order is document → code → user text.
+  *Accepts:* `sessionId`, `message`, `model`, `contextLength`, `retainPercent`, `includeQuestionIds` (for Manual mode), `file` (single document **or** image), `codeFiles` (up to 50) — all three can be combined.
+  *Research mode* composes materials document → code → user text via the unified registry; *Project mode* ignores multipart files (files must be attached via `POST /api/projects/:id/attach` — passing `file`/`codeFiles`/images → 400) and reads the current reference pool from disk with mtime caching (`(актуальная версия)` in `[Материалы]`, `contextInfo.mode/filesAttached/filesMissing/filesTooLarge`).
 
 ### Attachments
 * `GET /api/attachments/:fileId` — Attachment metadata (registry row).
 * `GET /api/attachments/:fileId/raw` — Serve the original file (path_base=`data` → `server/data/uploads`, path_base=`context` → `CONTEXT_BASE_DIR`; traversal → 400).
 * `GET /api/attachments/:fileId/thumb` — Serve the 150×150 thumbnail (images only).
+* `DELETE /api/attachments/:fileId` — Detach: deletes **only** the registry row; the file on disk is never touched (`attachments_meta` of past messages stays as an immutable snapshot).
 * `POST /api/attachments/extract` — Extract text from server-side paths (auxiliary).
 
 Images live in the unified `attachments` registry (`kind='image'`, `path_base='data'`, file under `server/data/uploads/`); history previews are built from `attachments_meta`. Files are **never** deleted when Q&A pairs or sessions are removed (orphans are subject to the future File Manager).

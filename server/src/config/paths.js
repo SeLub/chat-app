@@ -5,6 +5,7 @@
 // расположения модуля — cwd не важен (паттерн решения #117 для env.js).
 
 import path from 'path';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -20,6 +21,36 @@ export const THUMBS_DIR = path.join(UPLOADS_DIR, 'thumbs');
  */
 export function getContextBaseDir() {
     return process.env.CONTEXT_BASE_DIR || '';
+}
+
+/**
+ * Статус CONTEXT_BASE_DIR для GET /api/config (ТЗ Project mode A, §3.1).
+ * Проверяется при каждом запросе (fs.existsSync дешёвый; .env меняется только
+ * рестартом, но проверка существования на лету даёт честный статус).
+ * @returns {{ ok: boolean, path: string|null, error: string|null }}
+ */
+export function getContextBaseDirStatus() {
+    const raw = process.env.CONTEXT_BASE_DIR;
+    if (!raw || raw.trim() === '') {
+        return { ok: false, path: null, error: 'CONTEXT_BASE_DIR is not configured' };
+    }
+    const abs = path.resolve(raw);
+    if (!fs.existsSync(abs)) {
+        return { ok: false, path: abs, error: 'CONTEXT_BASE_DIR does not exist' };
+    }
+    if (!fs.statSync(abs).isDirectory()) {
+        return { ok: false, path: abs, error: 'CONTEXT_BASE_DIR is not a directory' };
+    }
+    return { ok: true, path: abs, error: null };
+}
+
+/**
+ * Лимит размера reference-файла (ТЗ Project mode A, §10.2): 1 MB по умолчанию.
+ * Читается из env при каждом вызове (attach и buildLLMContext — одинаково).
+ */
+export function getMaxReferenceFileSize() {
+    const v = parseInt(process.env.MAX_REFERENCE_FILE_SIZE, 10);
+    return Number.isFinite(v) && v > 0 ? v : 1048576;
 }
 
 /**

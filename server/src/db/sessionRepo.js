@@ -2,7 +2,8 @@
 import { getDb } from './init.js';
 import crypto from 'crypto';
 
-export function createSession(title = null, mode = 'chat', projectId = null) {
+export function createSession(title = null, mode = 'research', projectId = null) {
+    // ТЗ Project mode A (§2.3): default 'research' ('chat' legacy-БД трактуется как research в коде).
     const id = crypto.randomUUID();
     const db = getDb();
 

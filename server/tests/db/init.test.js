@@ -163,6 +163,9 @@ describe('Database Initialization', () => {
             const attachCols = db.pragma('table_info(attachments)').map((c) => c.name);
             assert.ok(attachCols.includes('kind'), 'kind добавлен guarded ALTER-ом');
             assert.ok(attachCols.includes('path_base'), 'path_base добавлен guarded ALTER-ом');
+            assert.ok(attachCols.includes('extracted_mtime'), 'ТЗ Project mode A: extracted_mtime добавлен guarded ALTER-ом');
+            const legacyRef = db.prepare("SELECT extracted_mtime FROM attachments WHERE id = 'a-legacy'").get();
+            assert.equal(legacyRef.extracted_mtime, null, 'default NULL');
 
             const msgCols = db.pragma('table_info(messages)').map((c) => c.name);
             assert.ok(!msgCols.includes('image_data'), 'image_data демонтирован');
@@ -180,13 +183,14 @@ describe('Database Initialization', () => {
         }
     });
 
-    it('fresh schema: attachments имеет kind/path_base, messages без image_data', () => {
+    it('fresh schema: attachments имеет kind/path_base/extracted_mtime, messages без image_data', () => {
         setDbPath(':memory:');
         const db = getDb();
 
         const attachCols = db.pragma('table_info(attachments)').map((c) => c.name);
         assert.ok(attachCols.includes('kind'));
         assert.ok(attachCols.includes('path_base'));
+        assert.ok(attachCols.includes('extracted_mtime'), 'ТЗ Project mode A: extracted_mtime в CREATE');
 
         const msgCols = db.pragma('table_info(messages)').map((c) => c.name);
         assert.ok(!msgCols.includes('image_data'));
