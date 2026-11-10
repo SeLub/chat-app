@@ -53,8 +53,11 @@ export interface ModelInfo {
 
 export interface ModelDetail {
   name: string;
-  details: {
-    size: number;
+  /** Размер файла модели в байтах — llama.cpp showModel отдаёт его верхним уровнем */
+  size?: number;
+  /** Ollama /api/show возвращает details, но БЕЗ size (размер есть только в /api/tags) */
+  details?: {
+    size?: number;
     parent_model?: string;
     format?: string;
     family?: string;
