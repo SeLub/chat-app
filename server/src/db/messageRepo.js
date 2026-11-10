@@ -38,12 +38,16 @@ export function getMessagesBySession(sessionId) {
 /**
  * Удалить Q&A pair из БД.
  *
- * Финальное ТЗ (решение владельца): файлы и строки attachments НЕ удаляются —
- * ни с диска, ни из реестра. Orphan-файлы — предмет будущего File Manager.
- * Поле deletedAttachments оставлено в контракте ответа, всегда 0.
+ * ТЗ attachment-cascade (вердикт владельца 2026-11-11): строки attachments,
+ * принадлежащие удаляемым сообщениям (FK message_id), удаляются КАСКАДОМ на
+ * уровне БД. Orphan-политика строк отменена (реиспользование extracted_text
+ * по fileId/path отменено владельцем). Файлы на диске не удаляются —
+ * orphan-файлы (uploads/thumbs) — предмет будущего File Manager.
+ * reference-строки (пул PROJECT-сессии, message_id NULL) каскадом не затрагиваются.
  *
  * @param {string} questionId - ID вопроса (q_1_1234567890)
- * @returns {{ deletedMessages: number, deletedAttachments: number }}
+ * @returns {{ deletedMessages: number, deletedAttachments: number }} deletedAttachments —
+ *          реальное число удалённых строк реестра (снимается до DELETE)
  */
 export function deleteMessagesByQuestionId(questionId) {
     const db = getDb();
@@ -58,23 +62,30 @@ export function deleteMessagesByQuestionId(questionId) {
     }
 
     const sessionId = msgs[0].session_id;
+    const msgIds = msgs.map((m) => m.id);
 
-    // 2. Удалить сообщения (строки attachments и физические файлы остаются)
+    // 2. Реальное число строк реестра, которые уйдут каскадом (до DELETE)
+    const placeholders = msgIds.map(() => '?').join(',');
+    const deletedAttachments = db.prepare(
+        `SELECT COUNT(*) AS c FROM attachments WHERE message_id IN (${placeholders})`
+    ).get(...msgIds).c;
+
+    // 3. Удалить сообщения — строки attachments чистит FK ON DELETE CASCADE
     const msgResult = db.prepare(
         'DELETE FROM messages WHERE question_id = ?'
     ).run(questionId);
 
-    // 3. Пересчитать message_count
+    // 4. Пересчитать message_count
     db.prepare(`
-        UPDATE sessions 
+        UPDATE sessions
         SET message_count = (
             SELECT COUNT(*) FROM messages WHERE session_id = ?
-        ), updated_at = datetime('now') 
+        ), updated_at = datetime('now')
         WHERE id = ?
     `).run(sessionId, sessionId);
 
     return {
         deletedMessages: msgResult.changes,
-        deletedAttachments: 0
+        deletedAttachments
     };
 }

@@ -9,12 +9,19 @@
 > функциональности: пакеты извлечения уже в package.json — вернуть их в точку
 > извлечения, утраченную при демонтаже fileService в PR #16); #2 и #7 — вернулись
 > в отложенные (вердикт владельца 2026-11-11).
+>
+> **2026-11-11, вечер — вердикты владельца:** #6 исполнен (PR #19) и закрыт.
+> По orphan-политике реестра (отчёт владельца «записи в attachments остаются после
+> удаления сообщения»): **Вариант B** — чистить строки реестра, файлы на диске не
+> трогать (картинки — для будущего File Manager); принцип реиспользования
+> extracted_text по fileId/path **отменяется** (историческая причина orphan-политики,
+> не реализован); каскад — на уровне БД. ТЗ `docs/plans/attachment-cascade-cleanup.md`.
 
-## В работе (текущий трек — #6)
+## В работе (текущий трек — attachment-cascade)
 
 | # | Источник | Задача |
 |---|----------|--------|
-| 6 | WORKLOG Фазы B + исследование 2026-11-11 | **Восстановить извлечение текста из документов.** История: `fileService.processDocument` (pdfjs-dist для PDF, word-extractor для DOC/DOCX, xlsx для XLSX/CSV — честный текст в промпт) демонтирован в PR #16 вместе с инлайн-документами; переезд на реестр attachments потерял парсеры: `attachmentRepo.extractFromPaths` читает любой файл как utf-8 → PDF в `extracted_text` = сырой байтовый поток (`%PDF-1.6...FlateDecode`-мусор), и этот шум попадает в `[Материалы]` (contextBuilder инлайнит непустой extracted_text). В PROJECT — то же через чтение reference с диска. Пакеты остались в package.json (pdfjs-dist/word-extractor/xlsx — сейчас использует только webService для URL). Решение: единая `extractText(buffer, filename)` → extractFromPaths (kind=document) + buildLLMContext (reference с бинарным расширением, с mtime-кэшем); без новых зависимостей. **Исполнено в ветке `tz/doc-extraction` (162/162, red-first); после merge перенести в «Закрыто»** |
+| cascade | Отчёт владельца 2026-11-11 + ТЗ `docs/plans/attachment-cascade-cleanup.md` | **Каскадная очистка реестра attachments (Вариант B + FK на уровне БД).** Строки document/code/image живут не дольше своего сообщения: `attachments.message_id` FK ON DELETE CASCADE (fresh CREATE + guarded ALTER); миграция legacy-БД — claim по meta живых сообщений (json_each) + однократная очистка накопленного балласта; claim строк после успешного addMessage (RESEARCH-ветки), cleanup незаклеймлённых при провале LLM; deletedAttachments — реальный count; reference (пул PROJECT) не клеймится и не каскадится; файлы на диске не удаляются (File Manager); мёртвый POST /api/attachments/extract демонтирован. **Исполнено в ветке `tz/attachment-cascade` (174/174, red-first); после merge перенести в «Закрыто»** |
 
 ## Отложенные (в работу — по ТЗ владельца)
 
@@ -34,6 +41,7 @@
 
 | # | Что | Итог |
 |---|-----|------|
+| 6 | Восстановить извлечение текста из документов (утрачено в PR #16) | **Исполнено**: PR #19 (`tz/doc-extraction`) — `extractText(buffer, filename)` (pdfjs/word-extractor/xlsx) в extractFromPaths + buildLLMContext, без новых зависимостей; 162/162, red-first. Ограничения: .docx — смоук на реальном файле за владельцем; скан-PDF без текстового слоя → пустой текст (OCR — отдельная тема) |
 | 1 | E2E Playwright | Перенесён в «Отложенные» (2026-11-11) |
 | 3 | «Таблица `attachments` пуста после сообщения с вложением» (Фаза B) | **Устарело**: PR #16 демонтировал инлайн-документы — файлы всегда идут через реестр attachments; владелец 2026-11-11: не подтверждается |
 | 4 | Демонтаж правой панели `SettingsPanel` | **Устарело**: панель — живой UI Project mode (PR #17); владелец 2026-11-11: не подтверждается |
