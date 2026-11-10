@@ -47,6 +47,8 @@ export function initializeSchema(database) {
             updated_at      TEXT DEFAULT (datetime('now'))
         );
 
+        /* Финальное ТЗ «vision-картинки в истории»: image_data демонтирован —
+           единый реестр вложений это attachments (kind='image') + attachments_meta. */
         CREATE TABLE IF NOT EXISTS messages (
             id              TEXT PRIMARY KEY,
             session_id      TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
@@ -56,11 +58,12 @@ export function initializeSchema(database) {
             model           TEXT,
             attachments_meta TEXT DEFAULT '[]',
             metrics         TEXT DEFAULT '{}',
-            image_data      TEXT DEFAULT '{}',
             sort_order      INTEGER NOT NULL,
             created_at      TEXT DEFAULT (datetime('now'))
         );
 
+        /* S.2: реестр вложений с kind (document|code|image|reference) и path_base
+           (context = относительно CONTEXT_BASE_DIR; data = относительно server/data/). */
         CREATE TABLE IF NOT EXISTS attachments (
             id              TEXT PRIMARY KEY,
             session_id      TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
@@ -70,6 +73,8 @@ export function initializeSchema(database) {
             file_size       INTEGER,
             extracted_text  TEXT NOT NULL,
             language        TEXT,
+            kind            TEXT DEFAULT 'document',
+            path_base       TEXT DEFAULT 'context',
             created_at      TEXT DEFAULT (datetime('now'))
         );
 
@@ -118,6 +123,37 @@ export function initializeSchema(database) {
             updated_at      TEXT DEFAULT (datetime('now'))
         );
     `);
+
+    ensureColumns(database);
+}
+
+/**
+ * Guarded-ALTER для БД, созданных до появления новых колонок (dev-среда владельца).
+ * Свежие БД получают колонки сразу из CREATE TABLE — здесь они пропускаются.
+ * Миграционного фреймворка нет и не нужно: проверка PRAGMA table_info идемпотентна.
+ */
+function ensureColumns(database) {
+    const columnNames = (table) => database.pragma(`table_info(${table})`).map((c) => c.name);
+
+    const attachmentCols = columnNames('attachments');
+    if (attachmentCols.length > 0 && !attachmentCols.includes('kind')) {
+        database.exec("ALTER TABLE attachments ADD COLUMN kind TEXT DEFAULT 'document'");
+    }
+    if (attachmentCols.length > 0 && !attachmentCols.includes('path_base')) {
+        database.exec("ALTER TABLE attachments ADD COLUMN path_base TEXT DEFAULT 'context'");
+    }
+
+    // image_data демонтирован (финальное ТЗ): на существующей БД колонка удаляется.
+    // Обратной совместимости нет — старые URL /api/images/* мертвы вместе с uploads/.
+    const messageCols = columnNames('messages');
+    if (messageCols.length > 0 && messageCols.includes('image_data')) {
+        try {
+            database.exec('ALTER TABLE messages DROP COLUMN image_data');
+        } catch (error) {
+            // SQLite < 3.35 не умеет DROP COLUMN — колонка останется, код её не читает.
+            console.warn('[init] DROP COLUMN messages.image_data failed:', error.message);
+        }
+    }
 }
 
 export function setDbPath(customPath) {

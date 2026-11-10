@@ -1,5 +1,6 @@
 import { describe, it, before, after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
+import crypto from 'crypto';
 import fs from 'fs/promises';
 import path from 'path';
 import os from 'os';
@@ -183,6 +184,121 @@ export class UserService {
             ]);
 
             assert.equal(attachments.length, 1);
+        });
+    });
+
+    describe('S.2 реестр: kind / path_base / insertAttachment / getAttachmentPath', () => {
+        it('extractFromPaths пишет kind (по умолчанию document), file_path=null и kind в results', async () => {
+            const { results } = await attachmentRepo.extractFromPaths([testFilePath], sessionId, 'code');
+
+            assert.equal(results[0].kind, 'code');
+
+            const row = attachmentRepo.getAttachment(results[0].fileId);
+            assert.equal(row.kind, 'code');
+            assert.equal(row.path_base, 'context');
+            assert.equal(row.file_path, null, 'RESEARCH: tmp-файл удаляется — путь не храним');
+        });
+
+        it('extractFromPaths без явного kind → document', async () => {
+            const { results } = await attachmentRepo.extractFromPaths([testFilePath], sessionId);
+            const row = attachmentRepo.getAttachment(results[0].fileId);
+            assert.equal(row.kind, 'document');
+        });
+
+        it('insertAttachment сохраняет полный набор колонок (изображение)', () => {
+            const id = crypto.randomUUID();
+            attachmentRepo.insertAttachment({
+                id,
+                sessionId,
+                filename: 'photo.png',
+                filePath: 'uploads/s1_q1.png',
+                mimeType: 'image/png',
+                fileSize: 123,
+                extractedText: '',
+                language: 'image',
+                kind: 'image',
+                pathBase: 'data',
+            });
+
+            const row = attachmentRepo.getAttachment(id);
+            assert.equal(row.kind, 'image');
+            assert.equal(row.path_base, 'data');
+            assert.equal(row.file_path, 'uploads/s1_q1.png');
+            assert.equal(row.extracted_text, '');
+            assert.equal(row.language, 'image');
+        });
+
+        it('getAttachmentPath: path_base=data резолвится внутрь server/data', () => {
+            const id = crypto.randomUUID();
+            attachmentRepo.insertAttachment({
+                id, sessionId, filename: 'photo.png',
+                filePath: 'uploads/x.png', extractedText: '',
+                kind: 'image', pathBase: 'data',
+            });
+
+            const resolved = attachmentRepo.getAttachmentPath(id);
+            assert.ok(path.isAbsolute(resolved));
+            assert.ok(resolved.endsWith(path.join('data', 'uploads', 'x.png')));
+        });
+
+        it('getAttachmentPath: path_base=context резолвится от CONTEXT_BASE_DIR', async () => {
+            const baseDir = await fs.mkdtemp(path.join(os.tmpdir(), 'ctx-base-'));
+            process.env.CONTEXT_BASE_DIR = baseDir;
+            try {
+                const id = crypto.randomUUID();
+                attachmentRepo.insertAttachment({
+                    id, sessionId, filename: 'proj.ts',
+                    filePath: 'zoog/main.ts', extractedText: '',
+                    kind: 'reference', pathBase: 'context',
+                });
+
+                const resolved = attachmentRepo.getAttachmentPath(id);
+                assert.equal(resolved, path.resolve(baseDir, 'zoog/main.ts'));
+            } finally {
+                delete process.env.CONTEXT_BASE_DIR;
+                await fs.rm(baseDir, { recursive: true, force: true });
+            }
+        });
+
+        it('getAttachmentPath: traversal (../) отвергается', async () => {
+            const baseDir = await fs.mkdtemp(path.join(os.tmpdir(), 'ctx-base-'));
+            process.env.CONTEXT_BASE_DIR = baseDir;
+            try {
+                const id = crypto.randomUUID();
+                attachmentRepo.insertAttachment({
+                    id, sessionId, filename: 'evil',
+                    filePath: '../etc/passwd', extractedText: '',
+                    kind: 'reference', pathBase: 'context',
+                });
+
+                assert.throws(
+                    () => attachmentRepo.getAttachmentPath(id),
+                    /Path traversal/,
+                );
+            } finally {
+                delete process.env.CONTEXT_BASE_DIR;
+                await fs.rm(baseDir, { recursive: true, force: true });
+            }
+        });
+
+        it('getAttachmentPath: без CONTEXT_BASE_DIR → ошибка, не молчаливый null', () => {
+            delete process.env.CONTEXT_BASE_DIR;
+            const id = crypto.randomUUID();
+            attachmentRepo.insertAttachment({
+                id, sessionId, filename: 'proj.ts',
+                filePath: 'zoog/main.ts', extractedText: '',
+                kind: 'reference', pathBase: 'context',
+            });
+
+            assert.throws(
+                () => attachmentRepo.getAttachmentPath(id),
+                /CONTEXT_BASE_DIR/,
+            );
+        });
+
+        it('getAttachmentPath: нет file_path (RESEARCH-документ) → null', async () => {
+            const { results } = await attachmentRepo.extractFromPaths([testFilePath], sessionId);
+            assert.equal(attachmentRepo.getAttachmentPath(results[0].fileId), null);
         });
     });
 });
