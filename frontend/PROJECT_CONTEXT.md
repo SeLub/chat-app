@@ -85,7 +85,7 @@ Multi-Provider AI Chat — десктопный инструмент для ра
 
 ### 3.4 STT: `POST /api/stt/transcribe`
 - multipart, поле `audio`. Бэкенд пересылает файл в whisper.cpp как **recording.wav / audio/wav**.
-- **Требуется настоящий WAV PCM.** WebM присылать НЕЛЬЗЯ (webq98 так делал — ошибка).
+- **Требуется настоящий WAV PCM.** WebM присылать НЕЛЬЗЯ (так делал легаси-фронт — ошибка).
 - Конвертация на клиенте: MediaRecorder(webm) → `decodeAudioData` → ручная сборка WAV
   (порт функции `bufferToWave` из эталонного `public/script.js`).
 - `AudioContext` создавать как `new AudioContext({ sampleRate: 16000 })` — тогда WAV будет 16 kHz.
@@ -319,7 +319,8 @@ Multi-Provider AI Chat — десктопный инструмент для ра
 
 ```
 chat-app/
-├── README.md, docker-compose.yml, .gitignore, .kilocodeignore  # корень — только это (R.4)
+├── README.md, docker-compose.yml, .gitignore, .kilocodeignore  # tracked-файлы корня (R.4);
+│                                                                  # также tracked: .kilo/, .vscode/ — конфиги инструментов (видны только в ls -a)
 ├── docs/
 │   ├── WORKLOG.md, WORKFLOW.md, BACKLOG.md  # регламент/журнал/бэклог (R.4: перенесены из корня)
 │   ├── plans/                     # ТЗ и планы треков, вкл. restructure-server-frontend.md (R.4: из plans/)
@@ -340,7 +341,7 @@ chat-app/
 │   │   └── vad-assets/            # ЕДИНСТВЕННОЕ содержимое: VAD/ORT-ассеты (решение #109, COOP/COEP)
 │   ├── data/                      # runtime SQLite (chat.db; *.db* в gitignore — решения #114, R.3)
 │   │                              #   + uploads/ — clipboard-изображения реестра (kind='image', #119)
-└── frontend/                      # НАШ ФРОНТЕНД — вся работа здесь (бывший webq98 — R.3)
+└── frontend/                      # НАШ ФРОНТЕНД — вся работа здесь (R.3)
     ├── PROJECT_CONTEXT.md         # эта конституция
     ├── ARCHITECTURE.md, package.json, pnpm-lock.yaml, pnpm-workspace.yaml,
     │   tsconfig.json, vite.config.ts, eslint.config.js, index.html
