@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { ChatMessage, ResponseMetrics } from '@/types';
+import type { ChatMessage, ResponseMetrics, SessionMode } from '@/types';
 import { apiGateway, ApiError } from '@/lib/apiGateway';
 import { useProviderStore } from './providerStore';
 import { useUIStore } from './uiStore';
@@ -109,6 +109,9 @@ interface SessionStore {
   selectedQuestionIds: string[];
   retainPercent: number;
   contextInfo?: { contextSize: number; totalChars: number; includedQAPairs: number; totalQAPairs: number };
+  // ТЗ Project mode A (§4): режим АКТИВНОЙ сессии; не дублируется в projectStore.
+  // legacy 'chat' с бэка нормализуется в 'research'.
+  mode: SessionMode;
 
   init: () => Promise<void>;
   switchToViewing: (sessionId: string) => Promise<void>;
@@ -123,6 +126,8 @@ interface SessionStore {
   ) => void;
   updateSysprompt: (sysprompt: string) => Promise<void>;
   setSysprompt: (sysprompt: string) => void;
+  // ТЗ Project mode A (§4): переключение Research/Project через PATCH /api/sessions/:id
+  setMode: (mode: SessionMode) => Promise<void>;
   deleteMessage: (questionId: string) => Promise<void>;
   clearChat: () => Promise<void>;
   exportConversation: () => void;
@@ -186,7 +191,9 @@ function loadSelectedIds(sessionId: string): string[] | null {
   }
 }
 
-export const initialSessionState: Omit<SessionStore, 'init' | 'switchToViewing' | 'returnToCurrent' | 'addMessage' | 'addBotMessage' | 'updateSysprompt' | 'setSysprompt' | 'deleteMessage' | 'clearChat' | 'exportConversation' | 'loadViewingSession' | 'saveConversation' | 'sendMessage' | 'saveContextState' | 'loadContextState' | 'resetContextState' | 'toggleContextMode' | 'toggleQuestionSelection' | 'selectAllQuestions' | 'deselectAllQuestions' | 'setRetainPercent' | 'purgeSessionKeys' | 'startFreshAfterDelete' | 'deleteSession'> = {
+const normalizeMode = (raw?: string | null): SessionMode => (raw === 'project' ? 'project' : 'research');
+
+export const initialSessionState: Omit<SessionStore, 'init' | 'switchToViewing' | 'returnToCurrent' | 'addMessage' | 'addBotMessage' | 'updateSysprompt' | 'setSysprompt' | 'setMode' | 'deleteMessage' | 'clearChat' | 'exportConversation' | 'loadViewingSession' | 'saveConversation' | 'sendMessage' | 'saveContextState' | 'loadContextState' | 'resetContextState' | 'toggleContextMode' | 'toggleQuestionSelection' | 'selectAllQuestions' | 'deselectAllQuestions' | 'setRetainPercent' | 'purgeSessionKeys' | 'startFreshAfterDelete' | 'deleteSession'> = {
   activeSessionId: null,
   viewingSessionId: null,
   currentSessionTitle: '',
@@ -200,6 +207,7 @@ export const initialSessionState: Omit<SessionStore, 'init' | 'switchToViewing' 
   selectedQuestionIds: [],
   retainPercent: 80,
   contextInfo: undefined,
+  mode: 'research',
 };
 
 export const useSessionStore = create<SessionStore>((set, get) => ({
@@ -254,6 +262,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
             viewingSessionId: viewing,
             currentSessionTitle: session.title || '',
             sysprompt: session.sysprompt?.trim() || DEFAULT_SYSPROMPT,
+            mode: normalizeMode(session.mode),
           });
 
           // restore context state
@@ -408,6 +417,22 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     }
   },
 
+  // ТЗ Project mode A (§4): переключение режима активной сессии через PATCH.
+  // project_id не сбрасывается ни в одну из сторон (правило §3.2 на бэке).
+  setMode: async (mode: SessionMode) => {
+    const { activeSessionId } = get();
+    if (!activeSessionId) return;
+
+    const previousMode = get().mode;
+    set({ mode });
+    try {
+      await apiGateway.sessions.update(activeSessionId, { mode });
+    } catch (error) {
+      set({ mode: previousMode });
+      throw error;
+    }
+  },
+
   deleteMessage: async (questionId: string) => {
     const { viewingSessionId } = get();
     if (!viewingSessionId) return;
@@ -472,6 +497,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       sysprompt: DEFAULT_SYSPROMPT,
       syspromptDirty: false,
       contextInfo: undefined,
+      mode: 'research',
     });
     localStorage.setItem('activeSessionId', newSession.id);
     localStorage.setItem('viewingSessionId', newSession.id);

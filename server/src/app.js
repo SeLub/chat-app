@@ -39,6 +39,8 @@ import modelRoutes from './routes/modelRoutes.js';
 import chatRoutes from './routes/chatRoutes.js';
 import sessionRoutes from './routes/sessionRoutes.js';
 import attachmentRoutes from './routes/attachmentRoutes.js';
+import configRoutes from './routes/configRoutes.js';
+import projectRoutes from './routes/projectRoutes.js';
 
 // ВАЖНО: Добавляем маршрут /api/show отдельно
 import { showModelHandler } from './controllers/modelController.js';
@@ -50,6 +52,9 @@ app.use('/api/chat', chatRoutes);
 app.use('/api/sessions', sessionRoutes);
 app.use('/api/attachments', attachmentRoutes);
 app.use('/api/stt', sttRoutes);
+// ТЗ Project mode A: статус CONTEXT_BASE_DIR + PROJECT-эндпоинты
+app.use('/api/config', configRoutes);
+app.use('/api/projects', projectRoutes);
 app.use((err, req, res, next) => {
     // Ошибки подключения к провайдеру
     if (err.code === 'ECONNREFUSED' || err.code === 'ENOTFOUND' || err.code === 'ETIMEDOUT') {

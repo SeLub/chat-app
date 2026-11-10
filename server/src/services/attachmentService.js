@@ -22,6 +22,16 @@ export function getAttachmentPath(fileId) {
     return attachmentRepo.getAttachmentPath(fileId);
 }
 
+// ТЗ Project mode A (§3.6): detach — только строка реестра, файл на диске не трогаем.
+export function deleteAttachment(fileId) {
+    return attachmentRepo.deleteAttachment(fileId);
+}
+
+// ТЗ Project mode A (§3.8): список вложений сессии по kind (reference — пул PROJECT).
+export function listSessionAttachments(sessionId, kind = 'reference') {
+    return attachmentRepo.listBySessionAndKind(sessionId, kind);
+}
+
 /**
  * S.3: сохранить clipboard/загруженное изображение в единый реестр.
  *
