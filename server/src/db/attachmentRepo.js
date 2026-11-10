@@ -11,12 +11,21 @@ const languageMap = {
     '.py': 'python', '.go': 'go', '.rs': 'rust',
     '.java': 'java', '.c': 'c', '.cpp': 'cpp', '.h': 'c', '.hpp': 'cpp',
     '.html': 'html', '.css': 'css', '.json': 'json',
-    '.md': 'markdown', '.txt': 'text'
+    '.md': 'markdown', '.txt': 'text',
+    '.csv': 'text', '.yml': 'text', '.yaml': 'text', '.sh': 'text',
+    '.sql': 'text', '.toml': 'text', '.ini': 'text'
 };
 
 const mimeTypeMap = {
-    '.js': 'text/javascript', '.ts': 'text/typescript',
-    '.py': 'text/x-python', '.json': 'application/json'
+    '.js': 'text/javascript', '.jsx': 'text/javascript',
+    '.ts': 'text/typescript', '.tsx': 'text/typescript',
+    '.py': 'text/x-python', '.json': 'application/json',
+    '.html': 'text/html', '.css': 'text/css',
+    '.md': 'text/markdown', '.txt': 'text/plain',
+    '.csv': 'text/csv', '.yml': 'text/plain', '.yaml': 'text/plain',
+    '.go': 'text/x-go', '.rs': 'text/x-rust', '.java': 'text/x-java',
+    '.c': 'text/x-csrc', '.cpp': 'text/x-c++src', '.h': 'text/x-csrc', '.hpp': 'text/x-c++src',
+    '.sh': 'text/x-shellscript', '.sql': 'text/x-sql'
 };
 
 function detectLanguage(ext) {
@@ -26,6 +35,10 @@ function detectLanguage(ext) {
 function getMimeType(ext) {
     return mimeTypeMap[ext] || 'text/plain';
 }
+
+// ТЗ Project mode A (§3.4/§3.5): маппинги расширений переиспользуются
+// проектным browse/attach — экспортируем.
+export { detectLanguage, getMimeType };
 
 /**
  * Вставить строку вложения с полным набором колонок (S.2 реестра).
@@ -107,4 +120,34 @@ export function getAttachmentsByIds(fileIds) {
     return getDb().prepare(
         `SELECT * FROM attachments WHERE id IN (${placeholders})`
     ).all(...fileIds);
+}
+
+/**
+ * ТЗ Project mode A (§3.6): detach — удаляется ТОЛЬКО строка реестра.
+ * Файл на диске не трогается (orphan-политика); attachments_meta прошлых
+ * сообщений — иммутабельный снимок, не пересчитывается.
+ * @returns {boolean} true, если строка существовала и удалена
+ */
+export function deleteAttachment(fileId) {
+    const res = getDb().prepare('DELETE FROM attachments WHERE id = ?').run(fileId);
+    return res.changes > 0;
+}
+
+/**
+ * ТЗ Project mode A (§3.7/§3.8): список вложений сессии по kind
+ * (reference — текущий пул PROJECT-файлов).
+ */
+export function listBySessionAndKind(sessionId, kind = 'reference') {
+    return getDb().prepare(
+        "SELECT * FROM attachments WHERE session_id = ? AND kind = ? ORDER BY created_at ASC"
+    ).all(sessionId, kind);
+}
+
+/**
+ * ТЗ Project mode A (§3.5): идемпотентность attach — reference сессии по file_path.
+ */
+export function findReferenceByPath(sessionId, filePath) {
+    return getDb().prepare(
+        "SELECT id FROM attachments WHERE session_id = ? AND file_path = ? AND kind = 'reference'"
+    ).get(sessionId, filePath);
 }
