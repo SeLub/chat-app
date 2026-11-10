@@ -213,7 +213,8 @@ chat-app/
  ├── frontend/                       # Frontend: React 18 + Vite + Tailwind 4
  │   ├── src/                        # UI logic, Standard/Manual mode toggling
  │   └── dist/                       # Production build (gitignored), served by the backend
- └── docs/                          # WORKLOG/WORKFLOW/BACKLOG + plans/ + reference/ (legacy archives)
+ ├── BACKLOG.md                       # отложенные задачи (в корне, 2026-11-11)
+└── docs/                            # WORKLOG/WORKFLOW + plans/ + reference/ (legacy archives)
 ```
 
 ---

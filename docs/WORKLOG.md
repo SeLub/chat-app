@@ -463,3 +463,11 @@
 **Гейты:** `npm run test:backend` (149/149), `npm run lint` (--max-warnings 0), `test:run`, `npm run build`.
 
 **Статус:** ✅ докоммичено в ветку `tz/project-mode` (PR #17); merge — за владельцем.
+
+## 2026-11-11 — BACKLOG актуализирован и возвращён в корень (ветка `tz/backlog-refresh`)
+
+**Запрос владельца.** Вердикты по бэклогу после приёмки PR #17: #3/#4 — устарели и не подтверждаются, #5 — исполнен владельцем (`frontend/public/` отсутствует, `server/public/vad-assets/` на месте — проверено по репо). Взять в текущий трек #6 (binary-safe extraction) + #7 (code-splitting) + #2 (статус-точки провайдеров); создать `BACKLOG.md` в корне репозитория.
+
+**Сделано.** `git mv docs/BACKLOG.md BACKLOG.md` (история сохранена) + переписан: секция «В работе» (#2/#6/#7 — с точными фактами кода: dropdown-фильтр `status === 'connected'`, utf-8 в `extractFromPaths` и `buildLLMContext`, размеры чанков index 1258 kB / elk 1515 kB), секция «Отложенные» (E2E Playwright; llama.cpp vision — TODO #121; PROJECT vision — RESEARCH-only; RAG/Tree-sitter/watch/streaming — ТЗ `docs/plans/RAG/1783463502202-vector-db-repo-indexing-final.md`; отложенное создание сессии — ТЗ `docs/plans/1784201363408-deferred-session-creation.md`; multi-project; git-интеграция), секция «Закрыто/устарело» (#3/#4 устарели, #5 исполнено — с датой вердикта). Карта PROJECT_CONTEXT §10 и README-дерево обновлены под новый путь. Трек #2/#6/#7 стартует после подтверждения владельцем объяснения проблемы/пользы (запрошено владельцем).
+
+**Статус:** ✅ docs-only PR (`tz/backlog-refresh` → `main`); merge — за владельцем.
