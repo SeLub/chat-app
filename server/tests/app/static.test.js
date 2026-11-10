@@ -57,8 +57,8 @@ async function get(urlPath) {
     return { status: res.status, headers: res.headers, body: await res.text() };
 }
 
-describe('Phase F: static from webq98/dist + SPA-fallback', () => {
-    it('F.1.1: GET / отдаёт index.html из webq98/dist (не legacy public/index.html)', async () => {
+describe('Phase F: static from frontend/dist + SPA-fallback', () => {
+    it('F.1.1: GET / отдаёт index.html из frontend/dist (не legacy public/index.html)', async () => {
         const res = await get('/');
         assert.equal(res.status, 200);
         assert.match(res.headers.get('content-type') || '', /text\/html/);
