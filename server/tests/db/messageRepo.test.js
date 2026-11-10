@@ -189,32 +189,89 @@ describe('messageRepo', () => {
             assert.equal(messages.length, 1);
         });
 
-        it('финальное ТЗ: строки attachments НЕ удаляются, deletedAttachments всегда 0', () => {
-            const fileId = 'file-orphan-1';
+        it('ТЗ attachment-cascade: заклеймлённые строки удаляются каскадом, deletedAttachments реальный', () => {
+            const fileId = 'file-cascade-1';
             attachmentRepo.insertAttachment({
                 id: fileId,
                 sessionId,
-                filename: 'photo.png',
-                filePath: 'uploads/test_orphan.png',
-                mimeType: 'image/png',
-                fileSize: 10,
-                extractedText: '',
-                language: 'image',
-                kind: 'image',
-                pathBase: 'data',
+                filename: 'report.pdf',
+                filePath: null, // document: tmp удалён при отправке
+                mimeType: 'application/pdf',
+                fileSize: 123,
+                extractedText: 'moment-in-time text',
+                language: 'text',
+                kind: 'document',
+                pathBase: 'context',
             });
-            messageRepo.addMessage(sessionId, {
-                questionId: 'q_9_1', role: 'user', content: 'Q',
-                attachmentsMeta: [{ fileId, name: 'photo.png', kind: 'image' }],
+            const msgId = messageRepo.addMessage(sessionId, {
+                questionId: 'q_10_1', role: 'user', content: 'Q',
+                attachmentsMeta: [{ fileId, name: 'report.pdf', kind: 'document' }],
             });
+            attachmentRepo.claimAttachments([fileId], msgId);
 
-            const result = messageRepo.deleteMessagesByQuestionId('q_9_1');
+            const result = messageRepo.deleteMessagesByQuestionId('q_10_1');
 
             assert.equal(result.deletedMessages, 1);
-            assert.equal(result.deletedAttachments, 0, 'реестр не чистится (orphan-политика)');
-            // Строка вложения уцелела
-            const row = getDb().prepare('SELECT * FROM attachments WHERE id = ?').get(fileId);
-            assert.ok(row, 'строка attachments переживает удаление Q&A');
+            assert.equal(result.deletedAttachments, 1, 'реальное число удалённых строк реестра');
+            assert.ok(!getDb().prepare('SELECT 1 FROM attachments WHERE id = ?').get(fileId),
+                'строка attachments удалена каскадом БД (orphan-политика строк отменена)');
+        });
+
+        it('ТЗ attachment-cascade: незаклеймлённая reference-строка переживает удаление Q&A', () => {
+            const refId = 'ref-cascade-2';
+            attachmentRepo.insertAttachment({
+                id: refId,
+                sessionId,
+                filename: 'app.py',
+                filePath: 'proj/app.py', // reference: живой файл в CONTEXT_BASE_DIR
+                mimeType: 'text/x-python',
+                fileSize: 10,
+                extractedText: 'pool text',
+                language: 'python',
+                kind: 'reference',
+                pathBase: 'context',
+            });
+            messageRepo.addMessage(sessionId, {
+                questionId: 'q_10_2', role: 'user', content: 'Q',
+                attachmentsMeta: [{ fileId: refId, name: 'app.py', kind: 'reference' }],
+            });
+
+            const result = messageRepo.deleteMessagesByQuestionId('q_10_2');
+
+            assert.equal(result.deletedMessages, 1);
+            assert.equal(result.deletedAttachments, 0, 'reference не принадлежит сообщению');
+            assert.ok(getDb().prepare('SELECT 1 FROM attachments WHERE id = ?').get(refId),
+                'reference-строка — пул сессии, каскадом не затронута');
+        });
+
+        it('ТЗ attachment-cascade: удаление одного Q&A не трогает строки соседнего сообщения', () => {
+            const f1 = 'file-pair-a';
+            const f2 = 'file-pair-b';
+            attachmentRepo.insertAttachment({
+                id: f1, sessionId, filename: 'a.csv', filePath: null, mimeType: 'text/csv',
+                fileSize: 4, extractedText: 'a', language: 'text', kind: 'document', pathBase: 'context',
+            });
+            const msgId1 = messageRepo.addMessage(sessionId, {
+                questionId: 'q_11_1', role: 'user', content: 'Q1',
+                attachmentsMeta: [{ fileId: f1, name: 'a.csv', kind: 'document' }],
+            });
+            attachmentRepo.claimAttachments([f1], msgId1);
+            attachmentRepo.insertAttachment({
+                id: f2, sessionId, filename: 'b.csv', filePath: null, mimeType: 'text/csv',
+                fileSize: 4, extractedText: 'b', language: 'text', kind: 'document', pathBase: 'context',
+            });
+            const msgId2 = messageRepo.addMessage(sessionId, {
+                questionId: 'q_11_2', role: 'user', content: 'Q2',
+                attachmentsMeta: [{ fileId: f2, name: 'b.csv', kind: 'document' }],
+            });
+            attachmentRepo.claimAttachments([f2], msgId2);
+
+            const result = messageRepo.deleteMessagesByQuestionId('q_11_1');
+
+            assert.equal(result.deletedAttachments, 1);
+            assert.ok(!getDb().prepare('SELECT 1 FROM attachments WHERE id = ?').get(f1), 'своя строка удалена');
+            assert.ok(getDb().prepare('SELECT 1 FROM attachments WHERE id = ?').get(f2), 'строка соседнего сообщения уцелела');
+            assert.equal(getDb().prepare('SELECT message_id FROM attachments WHERE id = ?').get(f2).message_id, msgId2);
         });
     });
 });

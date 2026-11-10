@@ -151,7 +151,7 @@ describe('Database Initialization', () => {
                 created_at TEXT DEFAULT (datetime('now'))
             );
             INSERT INTO sessions (id) VALUES ('s-legacy');
-            INSERT INTO messages (id, session_id, role, content, sort_order) VALUES ('m-legacy', 's-legacy', 'user', 'old', 1);
+            INSERT INTO messages (id, session_id, role, content, sort_order, attachments_meta) VALUES ('m-legacy', 's-legacy', 'user', 'old', 1, '[{"fileId":"a-legacy","name":"old.csv","kind":"document"}]');
             INSERT INTO attachments (id, session_id, filename, extracted_text) VALUES ('a-legacy', 's-legacy', 'old.csv', 'x');
         `);
         legacy.close();
@@ -174,6 +174,11 @@ describe('Database Initialization', () => {
             const legacyRow = db.prepare("SELECT kind, path_base FROM attachments WHERE id = 'a-legacy'").get();
             assert.equal(legacyRow.kind, 'document');
             assert.equal(legacyRow.path_base, 'context');
+            // Строка пережила миграцию: backfill заклеймил её по meta живого сообщения
+            // (без claim она была бы удалена очисткой балласта — ТЗ attachment-cascade).
+            const claimMsg = db.prepare("SELECT message_id FROM attachments WHERE id = 'a-legacy'").get();
+            assert.equal(claimMsg.message_id, 'm-legacy', 'backfill миграции заклеймил legacy-строку');
+
             const legacyMsg = db.prepare("SELECT content FROM messages WHERE id = 'm-legacy'").get();
             assert.equal(legacyMsg.content, 'old');
         } finally {
@@ -194,5 +199,119 @@ describe('Database Initialization', () => {
 
         const msgCols = db.pragma('table_info(messages)').map((c) => c.name);
         assert.ok(!msgCols.includes('image_data'));
+    });
+
+    it('ТЗ attachment-cascade: message_id FK ON DELETE CASCADE в свежей схеме, каскад реально работает', () => {
+        setDbPath(':memory:');
+        const db = getDb();
+
+        const attachCols = db.pragma('table_info(attachments)').map((c) => c.name);
+        assert.ok(attachCols.includes('message_id'), 'message_id в CREATE TABLE');
+
+        const fk = db.pragma('foreign_key_list(attachments)')
+            .find((f) => f.table === 'messages' && f.from === 'message_id');
+        assert.ok(fk, 'FK attachments.message_id → messages.id');
+        assert.equal(fk.on_delete, 'CASCADE', 'FK-действие — каскад');
+
+        const indexes = db.prepare("SELECT name FROM sqlite_master WHERE type='index'").all().map((r) => r.name);
+        assert.ok(indexes.includes('idx_attachments_message'), 'индекс под каскад/count');
+
+        db.prepare("INSERT INTO sessions (id) VALUES ('s-casc')").run();
+        db.prepare("INSERT INTO messages (id, session_id, role, content, sort_order) VALUES ('m-casc', 's-casc', 'user', 'q', 1)").run();
+        db.prepare("INSERT INTO attachments (id, session_id, filename, extracted_text, message_id) VALUES ('a-casc', 's-casc', 'doc.csv', 'x', 'm-casc')").run();
+        db.prepare("INSERT INTO attachments (id, session_id, filename, extracted_text) VALUES ('a-free', 's-casc', 'ref.py', 'x')").run();
+
+        db.prepare("DELETE FROM messages WHERE id = 'm-casc'").run();
+
+        assert.ok(!db.prepare("SELECT 1 FROM attachments WHERE id = 'a-casc'").get(), 'строка ушла каскадом БД');
+        assert.ok(db.prepare("SELECT 1 FROM attachments WHERE id = 'a-free'").get(), 'строка без message_id (reference) выживает');
+    });
+
+    it('ТЗ attachment-cascade: legacy-БД — ALTER + backfill клеймит по meta, балласт очищен, reference выживает', () => {
+        const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'db-legacy-mid-'));
+        const legacyDbPath = path.join(tempDir, 'legacy-mid.db');
+
+        // БД «промежуточной» схемы: kind/path_base/extracted_mtime есть, message_id ещё нет.
+        // Данные: заклеймленный кандидат (в meta живого сообщения), reference-пул, балласт.
+        // sessions — без REFERENCES projects(id): таблицы projects в фикстуре нет,
+        // а better-sqlite3 на INSERT проверяет FK (в отличие от CREATE TABLE).
+        const legacy = new Database(legacyDbPath);
+        legacy.exec(`
+            CREATE TABLE sessions (
+                id TEXT PRIMARY KEY,
+                title TEXT DEFAULT 'unsavedSession 1',
+                category TEXT DEFAULT 'General',
+                mode TEXT DEFAULT 'chat',
+                project_id TEXT,
+                model TEXT,
+                provider TEXT DEFAULT 'ollama',
+                sysprompt TEXT,
+                message_count INTEGER DEFAULT 0,
+                is_archived INTEGER DEFAULT 0,
+                created_at TEXT DEFAULT (datetime('now')),
+                updated_at TEXT DEFAULT (datetime('now'))
+            );
+            CREATE TABLE messages (
+                id TEXT PRIMARY KEY,
+                session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+                question_id TEXT,
+                role TEXT NOT NULL,
+                content TEXT NOT NULL,
+                model TEXT,
+                attachments_meta TEXT DEFAULT '[]',
+                metrics TEXT DEFAULT '{}',
+                sort_order INTEGER NOT NULL,
+                created_at TEXT DEFAULT (datetime('now'))
+            );
+            CREATE TABLE attachments (
+                id TEXT PRIMARY KEY,
+                session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+                filename TEXT NOT NULL,
+                file_path TEXT,
+                mime_type TEXT,
+                file_size INTEGER,
+                extracted_text TEXT NOT NULL,
+                language TEXT,
+                kind TEXT DEFAULT 'document',
+                path_base TEXT DEFAULT 'context',
+                extracted_mtime INTEGER DEFAULT NULL,
+                created_at TEXT DEFAULT (datetime('now'))
+            );
+            INSERT INTO sessions (id) VALUES ('s-mid');
+            INSERT INTO messages (id, session_id, role, content, sort_order, attachments_meta)
+                VALUES ('m-mid', 's-mid', 'user', 'q', 1, '[{"fileId":"a-claim","name":"doc.csv","kind":"document"}]');
+            INSERT INTO attachments (id, session_id, filename, extracted_text, kind) VALUES ('a-claim', 's-mid', 'doc.csv', 'x', 'document');
+            INSERT INTO attachments (id, session_id, filename, extracted_text, kind) VALUES ('a-ref', 's-mid', 'proj.py', 'x', 'reference');
+            INSERT INTO attachments (id, session_id, filename, extracted_text, kind) VALUES ('a-orphan', 's-mid', 'old.csv', 'x', 'document');
+        `);
+        legacy.close();
+
+        try {
+            setDbPath(legacyDbPath);
+            const db = getDb(); // initializeSchema + ensureColumns (миграция)
+
+            const attachCols = db.pragma('table_info(attachments)').map((c) => c.name);
+            assert.ok(attachCols.includes('message_id'), 'guarded ALTER добавил message_id');
+
+            const claim = db.prepare("SELECT message_id FROM attachments WHERE id = 'a-claim'").get();
+            assert.equal(claim.message_id, 'm-mid', 'backfill заклеймил строку по meta живого сообщения');
+
+            const ref = db.prepare("SELECT message_id FROM attachments WHERE id = 'a-ref'").get();
+            assert.equal(ref.message_id, null, 'reference не клеймится (пул сессии)');
+            assert.ok(db.prepare("SELECT 1 FROM attachments WHERE id = 'a-ref'").get(), 'reference выживает при очистке балласта');
+
+            assert.ok(!db.prepare("SELECT 1 FROM attachments WHERE id = 'a-orphan'").get(), 'балласт (document без сообщения) очищен миграцией');
+
+            const indexes = db.prepare("SELECT name FROM sqlite_master WHERE type='index'").all().map((r) => r.name);
+            assert.ok(indexes.includes('idx_attachments_message'), 'индекс создан и на legacy-БД');
+
+            // FK действует и на ALTER-добавленной колонке
+            db.prepare("DELETE FROM messages WHERE id = 'm-mid'").run();
+            assert.ok(!db.prepare("SELECT 1 FROM attachments WHERE id = 'a-claim'").get(), 'каскад работает на ALTER-колонке');
+        } finally {
+            closeDb();
+            fs.rmSync(tempDir, { recursive: true, force: true });
+            setDbPath(':memory:');
+        }
     });
 });

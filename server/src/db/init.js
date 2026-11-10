@@ -65,7 +65,10 @@ export function initializeSchema(database) {
         /* S.2: реестр вложений с kind (document|code|image|reference) и path_base
            (context = относительно CONTEXT_BASE_DIR; data = относительно server/data/).
            ТЗ Project mode A: extracted_mtime — mtime-кэш чтения reference-файла с диска
-           (NULL = ещё не читался; при сборке контекста сверяется с fs.stat.mtimeMs). */
+           (NULL = ещё не читался; при сборке контекста сверяется с fs.stat.mtimeMs).
+           ТЗ attachment-cascade (2026-11-11): message_id — владелец строки среди
+           document/code/image (reference — пул сессии, message_id NULL); удаление
+           сообщения каскадом чистит его строки на уровне БД. */
         CREATE TABLE IF NOT EXISTS attachments (
             id              TEXT PRIMARY KEY,
             session_id      TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
@@ -77,6 +80,7 @@ export function initializeSchema(database) {
             language        TEXT,
             kind            TEXT DEFAULT 'document',
             path_base       TEXT DEFAULT 'context',
+            message_id      TEXT REFERENCES messages(id) ON DELETE CASCADE,
             extracted_mtime INTEGER DEFAULT NULL,
             created_at      TEXT DEFAULT (datetime('now'))
         );
@@ -128,6 +132,12 @@ export function initializeSchema(database) {
     `);
 
     ensureColumns(database);
+
+    /* Индекс под каскад/count по message_id (ТЗ attachment-cascade).
+       После ensureColumns: на legacy-БД колонка появляется только там. */
+    database.exec(
+        'CREATE INDEX IF NOT EXISTS idx_attachments_message ON attachments(message_id)'
+    );
 }
 
 /**
@@ -148,6 +158,34 @@ function ensureColumns(database) {
     // ТЗ Project mode A: mtime-кэш чтения reference-файлов (legacy-БД без колонки).
     if (attachmentCols.length > 0 && !attachmentCols.includes('extracted_mtime')) {
         database.exec('ALTER TABLE attachments ADD COLUMN extracted_mtime INTEGER DEFAULT NULL');
+    }
+
+    /* ТЗ attachment-cascade (вердикт владельца 2026-11-11): строки document/code/image
+       живут не дольше своего сообщения — FK message_id ON DELETE CASCADE. Миграция
+       legacy-БД: (1) guarded ALTER; (2) backfill — клейм по attachments_meta живых
+       сообщений; (3) однократная очистка накопленного балласта (не-reference без
+       message_id после backfill). reference не клеймится и не purge-ится никогда. */
+    if (attachmentCols.length > 0 && !attachmentCols.includes('message_id')) {
+        database.exec(
+            'ALTER TABLE attachments ADD COLUMN message_id TEXT REFERENCES messages(id) ON DELETE CASCADE'
+        );
+        database.prepare(`
+            UPDATE attachments SET message_id = (
+                SELECT m.id FROM messages m, json_each(
+                    CASE WHEN json_valid(m.attachments_meta) THEN m.attachments_meta ELSE '[]' END
+                ) je
+                WHERE json_extract(je.value, '$.fileId') = attachments.id
+                LIMIT 1
+            )
+            WHERE kind IN ('document', 'code', 'image') AND message_id IS NULL
+        `).run();
+        const claimed = database.prepare(
+            'SELECT COUNT(*) AS c FROM attachments WHERE message_id IS NOT NULL'
+        ).get().c;
+        const purged = database.prepare(
+            "DELETE FROM attachments WHERE kind != 'reference' AND message_id IS NULL"
+        ).run().changes;
+        console.log(`[init] attachments.message_id миграция: заклеймлено ${claimed}, балласт удалён ${purged}`);
     }
 
     // image_data демонтирован (финальное ТЗ): на существующей БД колонка удаляется.
