@@ -507,3 +507,17 @@
 **Не тронуто (по ТЗ):** файлы на диске (uploads/thumbs — File Manager), reference и attach/detach, PROJECT-ветка, снапшоты meta живых сообщений, `/raw` для удалённых строк отдаёт 404 (фронт их не рендерит).
 
 **Статус:** ✅ исполнено одним PR (`tz/attachment-cascade` → `main`); merge — за владельцем. Ручная проверка на живой БД владельца: удалить Q&A с файлом → записи в attachments исчезают, файлы картинок остаются.
+
+## 2026-11-11 (ночь) — фикс статистики: Size модели + единый процент контекста (ветка `fix/stats-size-context-load`)
+
+**Запрос владельца.** (1) Футер всегда «Size: – GB» — «наверное сервер не шлёт данные; когда-то ранее был». (2) Контекст-бар показывает 12%, диалог Detailed Statistics — Context Load 38% на тех же данных (`5 • 37200/603`, Ctx 98304) — «правильно скорее всего 38%».
+
+**Исследование (по исходникам llama.cpp master+b6000 и Ollama API).** (1) React-футер читает `modelDetail.details.size` — поля нет ни у одного провайдера: llama.cpp `showModel` отдаёт size верхним уровнем (ключа `details` нет вовсе), Ollama `/api/show` отдаёт `details` без size (размер только в `/api/tags`). Регрессия при переписывании на React: оригинальный `public/script.js:468–475` имел фолбэк на размер из списка моделей (`/api/tags`, llama.cpp `meta.size` = `llama_model_size` на b4xxx–b6xxx) — потерян в TZ-1.5a (774fd94). (2) Бар считал серверную char-эвристику `totalChars/(ctx*4)` («4 символа = 1 токен», как `maxChars` в contextBuilder), диалог — реальные токены метрик; на кириллице/коде плотность 1.3–2.5 символа/токен → эвристика занижает в 1.5–3 раза (12% при 38%).
+
+**Реализация.** Фронт: новый `frontend/src/lib/stats.ts` — чистые `computeContextLoadPct` (токеновая формула диалога, кап 100) и `formatSizeGb` (цепочка `modelDetail.size → details.size → models.find(name).size` — фолбэк script.js восстановлен); бар и диалог считают по одной формуле — разойтись не могут; тип `modelDetail` расширен `size?` (providerStore, ModelDetail). Бэк: `LlamaCppProvider.resolveModelSize(meta, props)` — `meta.size` → `fs.stat(props.model_path)` (покрывает master-сборки без meta.size; удалённый/недоступный путь → молча 0), применён в `showModel`. ТЗ: `docs/plans/stats-size-context-load.md`.
+
+**Тесты.** Фронт `stats.test.ts` +8 (кейс владельца (37200+603)/98304→38, кап 100, null-контекст, формат ГБ). Бэк llamaCppProvider +6 (meta.size приоритет; fs.stat по реальному tmp-файлу; каталог→0; недоступный путь→0 без throw; пустая строка size→0 — ollama-совместимый слой b6000 отдаёт `size: ""`). Гейты: backend 180/180 ✓ (было 174) · lint ✓ · vitest 119/119 ✓ (было 111) · build ✓.
+
+**Честный нюанс.** `totalInputTokens` — накопительная сумма полных промптов всех запросов (история пересылается каждым запросом): «Context Load» = «сколько окна сессия израсходовала суммарно», не строгое заполнение последнего промпта (точнее был бы `lastMetrics.inputTokens`, но бар и диалог снова разошлись бы). Для кейса владельца — ожидаемые 38%.
+
+**Статус:** PR `fix/stats-size-context-load` → `main`; merge — за владельцем. Ручная проверка (DoD): Size на llama.cpp и Ollama; бар = диалог по проценту.
