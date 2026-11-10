@@ -166,6 +166,9 @@ export interface AttachResponse {
 export interface SessionReferenceAttachment extends AttachedFile {
   filePath: string;
   missing?: boolean;
+  /** файл разросся сверх MAX_REFERENCE_FILE_SIZE после attach — в [Материалы] не попадёт (TOO LARGE) */
+  tooLarge?: boolean;
+  /** true = кэш был прочитан и устарел; false при extracted_mtime=NULL (свежий attach — ещё не читался) */
   mtimeStale?: boolean;
 }
 

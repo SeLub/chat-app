@@ -445,3 +445,21 @@
 **Ручной смоук на реальной модели — на владельце (DoD):** Project-сессия: вопрос по attach-файлу → ответ, в `[Материалы]` актуальная версия; изменить файл на диске → следующий вопрос видит новую версию (mtime-кэш перечитал); context-bar: mode/filesAttached.
 
 **Статус:** ✅ исполнено одним PR (`tz/project-mode` → `main`); merge — за владельцем.
+
+## 2026-11-11 — Приёмка PR #17 (Project mode A): наблюдения → решения (ветка `tz/project-mode`)
+
+**Запрос владельца.** Приёмка ТЗ — вердикт ✅ ПРИНЯТО; список наблюдений (не блокеров) — «рассмотри критически, сам реши, нужно ли выполнять».
+
+**Выполнено (решил «да»).**
+- **3.1 mtimeStale при свежем attach.** `getSessionReferenceAttachments`: `mtimeStale = extracted_mtime !== null && extracted_mtime !== stat.mtimeMs` — NULL теперь «кэш не инициализирован», а не «устарел»; ложный бейдж `stale` сразу после attach исчез (реальный stale — после первого вопроса при изменении файла). buildLLMContext не тронут (NULL → перечитать + UPDATE). Тест «свежий attach → mtimeStale=true» переписан на false.
+- **3.4 filesAttached vs факт.** Вместо правки `contextInfo.filesAttached` (фронт его не показывает) сделал наблюдаемость там, где пользователь реально смотрит: бэкенд-бейдж `tooLarge` в §3.7 (stat-only; файл, разросшийся после attach, раньше был невидим — attach его отклоняет, а разрастание ловилось только при сборке контекста TOO LARGE-блоком) + сводка «N/M in context» в заголовке AttachList (missing/tooLarge — блокирующие; stale — нет: stale-файл перечитывается и попадает актуальной версией). Тип `SessionReferenceAttachment.tooLarge`. Тест tooLarge: attach при дефолтном лимите → MAX='5' → `tooLarge: true`.
+- **3.8 .env.example.** `MAX_REFERENCE_FILE_SIZE` (+семантика post-attach-разрастания) задокументирован рядом с CONTEXT_BASE_DIR.
+- **Доки §7.** #128–130 — дословно по формулировкам владельца (SQL precedence, GET /api/projects/:id, walkProjectFiles); #131–132 — семантика mtimeStale/отказ по 3.2 и tooLarge-бейдж.
+
+**Отклонено (решил «нет»).**
+- **3.2 filesMissing при !CONTEXT_BASE_DIR** — оставлено: (а) состояние самозаживляется после настройки env, ничего не теряется; (б) причина уже объясняется красным баннером §5.1 в той же панели; (в) третье состояние (`missingReason`) расширяет контракт §3.7 ради transient-состояния, невидимого в норме (attach невозможен без базы — панель disabled); (г) с точки зрения сборки контекста файл действительно недоступен — `missing: true` честно.
+- **3.3/3.5/3.6/3.7** — уже ок (cleanup tmp в finally; иммутабельный снимок attachments_meta; regex корректны; default research), правок не требуют.
+
+**Гейты:** `npm run test:backend` (149/149), `npm run lint` (--max-warnings 0), `test:run`, `npm run build`.
+
+**Статус:** ✅ докоммичено в ветку `tz/project-mode` (PR #17); merge — за владельцем.

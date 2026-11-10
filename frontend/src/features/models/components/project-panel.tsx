@@ -8,6 +8,7 @@ import {
   Loader2,
   TriangleAlert,
   Clock,
+  FileWarning,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -19,7 +20,8 @@ import { cn } from '@/lib/utils';
 
 // ТЗ Project mode A (§4): ProjectPanel — тело правой панели в режиме Project.
 // Баннер CONTEXT_BASE_DIR (§5.1), CurrentProject (§5.2 шаг 8), AttachList с
-// бейджами missing/stale (§3.7), [📎 Attach file(s)] и [📂 Browse project files].
+// бейджами missing / too large / stale (§3.7 + приёмка PR #17 3.1/3.4),
+// [📎 Attach file(s)] и [📂 Browse project files].
 
 /** Attach file(s): обычный file picker — относительный путь внутри проекта
  * принимается равным имени файла (файл в корне проекта); сервер вернёт
@@ -45,6 +47,11 @@ export function ProjectPanel() {
 
   const baseDirOk = config?.contextBaseDir.ok ?? false;
   const baseDirError = config?.contextBaseDir.error ?? 'CONTEXT_BASE_DIR is not configured';
+
+  // Приёмка PR #17 (3.4): сводка «сколько файлов реально попадёт в [Материалы]».
+  // missing и tooLarge — блокирующие (файл в контекст не попадёт); mtimeStale —
+  // нет (stale-файл перечитывается при сборке и попадает актуальной версией).
+  const inContextCount = attachments.filter((a) => !a.missing && !a.tooLarge).length;
 
   // Смена активной сессии → перезагрузить пул reference и восстановить проект
   useEffect(() => {
@@ -139,10 +146,18 @@ export function ProjectPanel() {
         )}
       </section>
 
-      {/* AttachList (§3.7): бейджи missing / stale */}
+      {/* AttachList (§3.7): бейджи missing / too large / stale + сводка in context (приёмка 3.4) */}
       <section aria-label="Attached project files" className="flex-1 min-h-0 flex flex-col">
         <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1.5">
           Attached files
+          {attachments.length > 0 && (
+            <span
+              className="ml-1.5 font-normal normal-case tracking-normal"
+              title={`В пуле: ${attachments.length}; попадёт в [Материалы] при следующем вопросе: ${inContextCount}`}
+            >
+              · {inContextCount}/{attachments.length} in context
+            </span>
+          )}
         </h3>
         {attachments.length === 0 ? (
           <p className="text-xs text-muted-foreground italic py-2">No files attached</p>
@@ -162,7 +177,15 @@ export function ProjectPanel() {
                     <TriangleAlert className="w-3 h-3" /> missing
                   </span>
                 )}
-                {!a.missing && a.mtimeStale && (
+                {!a.missing && a.tooLarge && (
+                  <span
+                    className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400 shrink-0"
+                    title="Файл разросся сверх MAX_REFERENCE_FILE_SIZE после attach — в [Материалы] не попадёт (TOO LARGE)"
+                  >
+                    <FileWarning className="w-3 h-3" /> too large
+                  </span>
+                )}
+                {!a.missing && !a.tooLarge && a.mtimeStale && (
                   <span className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400 shrink-0">
                     <Clock className="w-3 h-3" /> stale
                   </span>

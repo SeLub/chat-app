@@ -426,7 +426,7 @@ describe('PROJECT API (ТЗ Project mode A)', () => {
             });
         });
 
-        it('список reference: filePath, missing=false; свежий attach → mtimeStale=true (кэш ещё пуст, §3.7)', async () => {
+        it('список reference: filePath, missing=false; свежий attach → mtimeStale=false (NULL = кэш не инициализирован, а не «устарел» — приёмка 3.1)', async () => {
             const body = await (await fetch(`${baseUrl}/api/sessions/${sessionId}/attachments?kind=reference`)).json();
             assert.equal(body.attachments.length, 1);
             const a = body.attachments[0];
@@ -435,7 +435,8 @@ describe('PROJECT API (ТЗ Project mode A)', () => {
             assert.equal(a.language, 'typescript');
             assert.equal(a.filePath, 'list-repo/src/chat.ts');
             assert.equal(a.missing, false);
-            assert.equal(a.mtimeStale, true, 'extracted_mtime=NULL !== mtimeMs → кэш считается устаревшим (обновится при сборке контекста)');
+            assert.equal(a.mtimeStale, false, 'extracted_mtime=NULL → файл просто ещё не читался; будет прочитан при первой сборке контекста');
+            assert.equal(a.tooLarge, false, 'файл в пределах лимита → tooLarge=false');
         });
 
         it('mtimeStale=true после искусственного устаревания extracted_mtime', async () => {
@@ -443,6 +444,19 @@ describe('PROJECT API (ТЗ Project mode A)', () => {
             getDb().prepare('UPDATE attachments SET extracted_mtime = 1000 WHERE id = ?').run(row.id);
             const body = await (await fetch(`${baseUrl}/api/sessions/${sessionId}/attachments`)).json();
             assert.equal(body.attachments[0].mtimeStale, true);
+        });
+
+        it('tooLarge=true, если файл разросся сверх лимита ПОСЛЕ attach (приёмка 3.4)', async () => {
+            // attach в beforeEach прошёл при дефолтном лимите; теперь файл «вырос»
+            // относительно нового лимита — в панели tooLarge-бейдж, в [Материалы] TOO LARGE-блок
+            process.env.MAX_REFERENCE_FILE_SIZE = '5'; // chat.ts — 36 байт
+            try {
+                const body = await (await fetch(`${baseUrl}/api/sessions/${sessionId}/attachments?kind=reference`)).json();
+                assert.equal(body.attachments[0].missing, false);
+                assert.equal(body.attachments[0].tooLarge, true, 'stat.size > MAX_REFERENCE_FILE_SIZE → tooLarge=true (stat-only, без записи в БД)');
+            } finally {
+                delete process.env.MAX_REFERENCE_FILE_SIZE;
+            }
         });
 
         it('missing=true после удаления файла с диска', async () => {
