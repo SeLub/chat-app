@@ -31,6 +31,7 @@ import ReactMarkdown from 'react-markdown';
 import { useNavigate } from 'react-router-dom';
 import { remarkPlugins, rehypePlugins } from '@/lib/chatRender';
 import { cn, scrollToQuestion, formatSize, shortModel } from '@/lib/utils';
+import { computeContextLoadPct, formatSizeGb } from '@/lib/stats';
 import { CodeBlock } from '@/components/chat/CodeBlock';
 import { useTheme } from '@/app/ThemeProvider';
 import type { Theme, Mode } from '@/app/ThemeProvider';
@@ -111,7 +112,7 @@ function StatFooter({
   userMsgCount,
 }: {
   currentModel: string | null;
-  modelDetail: { details?: { size?: number } } | null;
+  modelDetail: { size?: number; details?: { size?: number } } | null;
   currentContextLength: number | null;
   lastMetrics: ResponseMetrics | undefined;
   totalInputTokens: number;
@@ -119,10 +120,17 @@ function StatFooter({
   userMsgCount: number;
 }) {
   const [open, setOpen] = useState(false);
+  const models = useProviderStore((s) => s.models);
 
-  const sizeGb = modelDetail?.details?.size
-    ? (modelDetail.details.size / (1024 * 1024 * 1024)).toFixed(1)
-    : '–';
+  // ТЗ stats-size: цепочка источников размера модели — см. formatSizeGb.
+  // modelDetail.details.size не существует ни у одного провайдера (llama.cpp
+  // отдаёт size верхним уровнем, Ollama /api/show размера не отдаёт), поэтому
+  // последним источником идёт список моделей — фолбэк оригинального script.js.
+  const modelSizeBytes =
+    (modelDetail?.size || 0) ||
+    (modelDetail?.details?.size || 0) ||
+    (models.find((m) => m.name === currentModel)?.size || 0);
+  const sizeGb = formatSizeGb(modelSizeBytes);
 
   const ctx = currentContextLength ?? '–';
 
@@ -130,10 +138,7 @@ function StatFooter({
 
   const modelLabel = currentModel ? shortModel(currentModel) : 'No model selected';
 
-  const contextLoad =
-    currentContextLength
-      ? Math.round((totalInputTokens + totalOutputTokens) / currentContextLength * 100)
-      : undefined;
+  const contextLoad = computeContextLoadPct(totalInputTokens + totalOutputTokens, currentContextLength);
 
   return (
     <div className="h-8 flex items-center gap-2 px-4 border-t border-border glass text-xs text-muted-foreground whitespace-nowrap overflow-x-auto">
@@ -366,10 +371,10 @@ export function ChatArea({ className }: { className?: string }) {
   }
   if (currentGroup) groupedByQuestion.push(currentGroup);
 
-  // Context bar pct
-  const pct = contextInfo
-    ? Math.round(contextInfo.totalChars / (contextInfo.contextSize * 4) * 100)
-    : 0;
+  // Context bar pct — та же токеновая формула, что в Detailed Statistics
+  // (computeContextLoadPct). Прежняя char-эвристика totalChars/(ctx*4)
+  // занижала на кириллице/коде в 1.5–3 раза (12% вместо реальных 38%).
+  const pct = computeContextLoadPct(totalInputTokens + totalOutputTokens, currentContextLength) ?? 0;
 
   const pctColor = contextInfo
     ? pct <= 50
