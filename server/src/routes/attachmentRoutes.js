@@ -55,6 +55,24 @@ router.get('/:fileId', (req, res) => {
     }
 });
 
+// ТЗ Project mode A (§3.6): detach — удаляется ТОЛЬКО строка реестра.
+// Файл на диске НЕ трогаем (orphan-политика); attachments_meta прошлых сообщений —
+// иммутабельный снимок (каскада на messages нет, §3.6).
+router.delete('/:fileId', (req, res) => {
+    try {
+        const row = attachmentService.getAttachment(req.params.fileId);
+        if (!row) {
+            return res.status(404).json({ error: 'Attachment not found' });
+        }
+
+        attachmentService.deleteAttachment(req.params.fileId);
+        res.json({ ok: true, deletedId: req.params.fileId });
+    } catch (error) {
+        console.error('Error in DELETE /api/attachments/:fileId:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
 /**
  * S.4: раздача файла вложения по потоку (оригинал).
  * path_base='data' → server/data/<file_path>; 'context' → CONTEXT_BASE_DIR
