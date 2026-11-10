@@ -440,6 +440,126 @@ describe('chatHandler: Phase B (attachments)', () => {
 });
 
 // ============================================================
+// ТЗ attachment-cascade: claim строк реестра сообщением + cleanup при провале
+// ============================================================
+describe('chatHandler: ТЗ attachment-cascade — claim строк реестра + cleanup при провале', () => {
+    let sessionId;
+    let tempDir;
+
+    before(async () => {
+        setDbPath(':memory:');
+        getDb();
+        tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'claim-test-'));
+    });
+
+    after(async () => {
+        closeDb();
+        await fs.rm(tempDir, { recursive: true, force: true });
+    });
+
+    beforeEach(() => {
+        getDb().exec('DELETE FROM attachments');
+        getDb().exec('DELETE FROM messages');
+        getDb().exec('DELETE FROM sessions');
+        sessionId = sessionRepo.createSession('Claim Test').id;
+    });
+
+    it('успешная RESEARCH-отправка: message_id всех строк = id user-сообщения (каскад готов)', async () => {
+        const csvPath = path.join(tempDir, 'report_claim.csv');
+        await fs.writeFile(csvPath, 'name,qty\napple,3\n', 'utf-8');
+
+        const req = {
+            body: { message: 'Вопрос по файлу', model: 'test-model', sessionId, questionId: 'q_c1' },
+            files: {
+                file: [{ path: csvPath, originalname: 'report_claim.csv', mimetype: 'text/csv', size: 20 }],
+            },
+            provider: makeProvider(),
+            providerName: 'mock',
+        };
+        const res = makeRes();
+        await chatHandler(req, res);
+
+        assert.equal(res.statusCode, 200, `handler failed: ${JSON.stringify(res.body)}`);
+
+        const rows = getDb().prepare('SELECT id, message_id FROM attachments WHERE session_id = ?').all(sessionId);
+        assert.equal(rows.length, 1);
+        assert.ok(rows[0].message_id, 'message_id проставлен после отправки');
+
+        const userMsg = getDb()
+            .prepare("SELECT id FROM messages WHERE session_id = ? AND role = 'user'")
+            .get(sessionId);
+        assert.equal(rows[0].message_id, userMsg.id, 'строки клеймятся на user-сообщение');
+    });
+
+    it('провал провайдера: строк реестра не остаётся (реестр не копит балласт)', async () => {
+        const csvPath = path.join(tempDir, 'report_fail.csv');
+        await fs.writeFile(csvPath, 'a,b\n1,2\n', 'utf-8');
+
+        const failingProvider = {
+            name: 'mock-fail',
+            detectModelType: () => 'chat',
+            chat: async () => { throw new Error('provider down'); },
+        };
+        const req = {
+            body: { message: 'Вопрос', model: 'test-model', sessionId, questionId: 'q_c2' },
+            files: {
+                file: [{ path: csvPath, originalname: 'report_fail.csv', mimetype: 'text/csv', size: 9 }],
+            },
+            provider: failingProvider,
+            providerName: 'mock-fail',
+        };
+        const res = makeRes();
+        await chatHandler(req, res);
+
+        assert.equal(res.statusCode, 500, 'ошибка провайдера должна вернуть 500');
+        const count = getDb().prepare('SELECT COUNT(*) AS c FROM attachments WHERE session_id = ?').get(sessionId);
+        assert.equal(count.c, 0, 'незаклеймлённые строки текущей отправки удалены из реестра');
+    });
+
+    it('vision-успех: image-строка заклеймлена на user-сообщение, файлы остаются на диске', async () => {
+        const imgPath = path.join(tempDir, 'shot_claim.png');
+        await fs.writeFile(imgPath, PNG_1PX);
+
+        const visionProvider = {
+            name: 'mock-vision',
+            detectModelType: () => 'vision',
+            chat: async () => ({ response: 'mock answer', metrics: { prompt_tokens: 1, completion_tokens: 1 } }),
+        };
+        const req = {
+            body: { message: 'Что на картинке?', model: 'vision-model', sessionId, questionId: 'q_c3' },
+            files: {
+                file: [{ path: imgPath, originalname: 'shot_claim.png', mimetype: 'image/png', size: PNG_1PX.length }],
+            },
+            provider: visionProvider,
+            providerName: 'mock-vision',
+        };
+        const res = makeRes();
+        await chatHandler(req, res);
+
+        assert.equal(res.statusCode, 200, `handler failed: ${JSON.stringify(res.body)}`);
+
+        const imageRow = getDb()
+            .prepare("SELECT id, message_id, file_path FROM attachments WHERE session_id = ? AND kind = 'image'")
+            .get(sessionId);
+        assert.ok(imageRow, 'image-строка в реестре');
+        const userMsg = getDb()
+            .prepare("SELECT id FROM messages WHERE session_id = ? AND role = 'user'")
+            .get(sessionId);
+        assert.equal(imageRow.message_id, userMsg.id, 'image-строка заклеймлена на user-сообщение');
+
+        // orphan-политика файлов: оригинал остаётся на диске
+        const originalPath = path.join(UPLOADS_DIR, path.basename(imageRow.file_path));
+        const thumbPath = path.join(THUMBS_DIR, `${path.basename(imageRow.file_path, '.png')}_thumb.jpg`);
+        await fs.access(originalPath);
+        await fs.access(thumbPath);
+
+        // очистка app-managed файлов этого теста
+        await fs.rm(originalPath, { force: true });
+        await fs.rm(thumbPath, { force: true });
+    });
+});
+
+// ============================================================
 // ТЗ Project mode A (§3.8, §6.1): PROJECT-ветка chatHandler
 // ============================================================
 describe('chatHandler: PROJECT-ветка (ТЗ Project mode A)', () => {
@@ -554,6 +674,25 @@ describe('chatHandler: PROJECT-ветка (ТЗ Project mode A)', () => {
         // контракт info.* не изменён
         assert.ok('excludedIndices' in res.body);
         assert.ok('totalQAPairs' in res.body.contextInfo);
+    });
+
+    it('ТЗ attachment-cascade: PROJECT-отправка не клеймит reference (message_id NULL — пул сессии)', async () => {
+        const provider = makeCapturingProvider();
+        const req = {
+            body: { message: 'Как устроен chat.ts?', model: 'test-model', sessionId, questionId: 'q_pclaim' },
+            files: {},
+            provider,
+            providerName: 'mock-project',
+        };
+        const res = makeRes();
+        await chatHandler(req, res);
+
+        assert.equal(res.statusCode, 200, `handler failed: ${JSON.stringify(res.body)}`);
+
+        const refs = getDb().prepare('SELECT id, message_id FROM attachments WHERE session_id = ?').all(sessionId);
+        assert.equal(refs.length, 3);
+        assert.ok(refs.every((r) => r.message_id === null),
+            'reference — пул сессии: не клеймится, удаление сообщения их не каскадит');
     });
 
     it('PROJECT: file/codeFiles → 400 (§10.1)', async () => {
