@@ -185,8 +185,10 @@ describe('buildLLMContext: единый system + [Материалы]/[Ране�
 
         getDb().exec('DELETE FROM attachments');
         const { conversation: bare } = await sessionService.buildContext(sessionId, [], 65536, 80, null);
+        // NB: includes() не годится — новый DEFAULT_SYSPROMPT сам упоминает [Материалы];
+        // проверяем, что НЕТ user-сообщения-разделителя [Материалы]
         assert.ok(
-            !bare.some((m) => m.content.includes('[Материалы]')),
+            !bare.some((m) => m.role === 'user' && m.content.startsWith('[Материалы]')),
             'без файлов [Материалы] не отправляется',
         );
     });
