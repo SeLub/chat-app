@@ -12,7 +12,9 @@ interface ProviderStore {
   currentProvider: ProviderName;
   models: ModelInfo[];
   currentModel: string | null;
-  modelDetail: { details?: { size?: number; parent_model?: string; format?: string; family?: string } } | null;
+  // ТЗ stats-size: llama.cpp showModel отдаёт размер файла верхним уровнем (size),
+  // Ollama /api/show — объект details без size. Оба варианта опциональны.
+  modelDetail: { size?: number; details?: { size?: number; parent_model?: string; format?: string; family?: string } } | null;
   currentContextLength: number | null;
   isLoadingModels: boolean;
 
