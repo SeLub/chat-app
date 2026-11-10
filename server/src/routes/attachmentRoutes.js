@@ -3,41 +3,13 @@ import { Router } from 'express';
 import fs from 'fs';
 import path from 'path';
 import * as attachmentService from '../services/attachmentService.js';
-import * as sessionService from '../services/sessionService.js';
 import { DATA_DIR } from '../config/paths.js';
 
 const router = Router();
 
-// POST /api/attachments/extract - Extract text from file paths
-router.post('/extract', async (req, res) => {
-    try {
-        const { paths, sessionId } = req.body;
-
-        // Валидация
-        if (!paths || !Array.isArray(paths) || paths.length === 0) {
-            return res.status(400).json({ error: 'paths array is required' });
-        }
-
-        if (!sessionId) {
-            return res.status(400).json({ error: 'sessionId is required' });
-        }
-
-        // Проверка существования сессии
-        const session = sessionService.getSession(sessionId);
-        if (!session) {
-            return res.status(404).json({ error: 'Session not found' });
-        }
-
-        // Извлечение файлов
-        const { results, errors } = await attachmentService.extractFiles(paths, sessionId);
-
-        // Возвращаем результаты и ошибки
-        res.json({ results, errors });
-    } catch (error) {
-        console.error('Error in /api/attachments/extract:', error);
-        res.status(500).json({ error: error.message });
-    }
-});
+// ТЗ attachment-cascade (2026-11-11): POST /extract демонтирован — мёртвый роут
+// (не вызывался ни фронтендом, ни тестами) и создавал строки-сироты без владельца.
+// Извлечение при отправке — chatHandler → attachmentService.extractFiles.
 
 // GET /api/attachments/:fileId - Get extracted text for a file
 router.get('/:fileId', (req, res) => {
