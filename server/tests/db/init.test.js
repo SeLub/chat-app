@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
+import Database from 'better-sqlite3';
 import { getDb, setDbPath, closeDb, initializeSchema } from '../../src/db/init.js';
 
 describe('Database Initialization', () => {
@@ -89,5 +90,105 @@ describe('Database Initialization', () => {
         const db2 = getDb();
         
         assert.equal(db1, db2); // same instance
+    });
+
+    it('should upgrade legacy DB: attachments += kind/path_base, messages -= image_data (guarded ALTER)', () => {
+        const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'db-legacy-'));
+        const legacyDbPath = path.join(tempDir, 'legacy.db');
+
+        // Строим БД со СТАРОЙ схемой (до финального ТЗ): attachments без kind/path_base,
+        // messages с image_data.
+        const legacy = new Database(legacyDbPath);
+        legacy.exec(`
+            CREATE TABLE sessions (
+                id TEXT PRIMARY KEY,
+                title TEXT DEFAULT 'unsavedSession 1',
+                category TEXT DEFAULT 'General',
+                mode TEXT DEFAULT 'chat',
+                project_id TEXT REFERENCES projects(id),
+                model TEXT,
+                provider TEXT DEFAULT 'ollama',
+                sysprompt TEXT,
+                message_count INTEGER DEFAULT 0,
+                is_archived INTEGER DEFAULT 0,
+                created_at TEXT DEFAULT (datetime('now')),
+                updated_at TEXT DEFAULT (datetime('now'))
+            );
+            CREATE TABLE projects (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                path TEXT NOT NULL UNIQUE,
+                description TEXT DEFAULT '',
+                watch_enabled INTEGER DEFAULT 0,
+                last_indexed TEXT,
+                total_files INTEGER DEFAULT 0,
+                total_chunks INTEGER DEFAULT 0,
+                created_at TEXT DEFAULT (datetime('now')),
+                updated_at TEXT DEFAULT (datetime('now'))
+            );
+            CREATE TABLE messages (
+                id TEXT PRIMARY KEY,
+                session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+                question_id TEXT,
+                role TEXT NOT NULL,
+                content TEXT NOT NULL,
+                model TEXT,
+                attachments_meta TEXT DEFAULT '[]',
+                metrics TEXT DEFAULT '{}',
+                image_data TEXT DEFAULT '{}',
+                sort_order INTEGER NOT NULL,
+                created_at TEXT DEFAULT (datetime('now'))
+            );
+            CREATE TABLE attachments (
+                id TEXT PRIMARY KEY,
+                session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+                filename TEXT NOT NULL,
+                file_path TEXT,
+                mime_type TEXT,
+                file_size INTEGER,
+                extracted_text TEXT NOT NULL,
+                language TEXT,
+                created_at TEXT DEFAULT (datetime('now'))
+            );
+            INSERT INTO sessions (id) VALUES ('s-legacy');
+            INSERT INTO messages (id, session_id, role, content, sort_order) VALUES ('m-legacy', 's-legacy', 'user', 'old', 1);
+            INSERT INTO attachments (id, session_id, filename, extracted_text) VALUES ('a-legacy', 's-legacy', 'old.csv', 'x');
+        `);
+        legacy.close();
+
+        try {
+            setDbPath(legacyDbPath);
+            const db = getDb(); // initializeSchema + ensureColumns
+
+            const attachCols = db.pragma('table_info(attachments)').map((c) => c.name);
+            assert.ok(attachCols.includes('kind'), 'kind добавлен guarded ALTER-ом');
+            assert.ok(attachCols.includes('path_base'), 'path_base добавлен guarded ALTER-ом');
+
+            const msgCols = db.pragma('table_info(messages)').map((c) => c.name);
+            assert.ok(!msgCols.includes('image_data'), 'image_data демонтирован');
+
+            // Данные уцелели; default'ы проставлены
+            const legacyRow = db.prepare("SELECT kind, path_base FROM attachments WHERE id = 'a-legacy'").get();
+            assert.equal(legacyRow.kind, 'document');
+            assert.equal(legacyRow.path_base, 'context');
+            const legacyMsg = db.prepare("SELECT content FROM messages WHERE id = 'm-legacy'").get();
+            assert.equal(legacyMsg.content, 'old');
+        } finally {
+            closeDb();
+            fs.rmSync(tempDir, { recursive: true, force: true });
+            setDbPath(':memory:');
+        }
+    });
+
+    it('fresh schema: attachments имеет kind/path_base, messages без image_data', () => {
+        setDbPath(':memory:');
+        const db = getDb();
+
+        const attachCols = db.pragma('table_info(attachments)').map((c) => c.name);
+        assert.ok(attachCols.includes('kind'));
+        assert.ok(attachCols.includes('path_base'));
+
+        const msgCols = db.pragma('table_info(messages)').map((c) => c.name);
+        assert.ok(!msgCols.includes('image_data'));
     });
 });
