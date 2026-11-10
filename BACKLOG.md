@@ -5,20 +5,23 @@
 >
 > **2026-11-11, актуализация владельцем:** #3 и #4 устарели и не подтверждаются,
 > #5 исполнен (см. «Закрыто / устарело»); добавлены новые отложенные направления.
-> #2, #6, #7 взяты в текущий трек.
+> #6 подтверждён в работе (проблема подтверждена, решение — по итогам исследования
+> функциональности: пакеты извлечения уже в package.json — вернуть их в точку
+> извлечения, утраченную при демонтаже fileService в PR #16); #2 и #7 — вернулись
+> в отложенные (вердикт владельца 2026-11-11).
 
-## В работе (текущий трек — #2, #6, #7)
+## В работе (текущий трек — #6)
 
 | # | Источник | Задача |
 |---|----------|--------|
-| 2 | ТЗ «Миграция на React», п. C.4 | Статус-точки провайдеров в provider-dropdown (`bg-success`/`bg-muted`/`bg-warning`). Сейчас dropdown показывает **только** подключённых провайдеров (`chat-area.tsx` фильтрует `status === 'connected'`); API отдаёт `connected`/`disconnected`/`error` — показать всех с цветными точками статуса |
-| 6 | WORKLOG Фазы B — «Ограничение (вне скоупа ТЗ)» | **Binary-safe extraction**: `attachmentRepo.extractFromPaths` читает файл как utf-8 — для бинарных PDF/DOCX `extracted_text` в БД = шум. В PROJECT-режиме дыра шире: `buildLLMContext` читает reference с диска тоже utf-8 — attach бинарника → шум прямо в `[Материалы]` |
-| 7 | Логи сборки (гейты всех треков) | **Code-splitting** фронтенда: vite warning «chunks larger than 500 kB» — `index` 1258 kB (gzip 375), `elk` 1515 kB (gzip 464; mermaid/highlight.js/elk) — `build.rollupOptions.output.manualChunks` / dynamic `import()` |
+| 6 | WORKLOG Фазы B + исследование 2026-11-11 | **Восстановить извлечение текста из документов.** История: `fileService.processDocument` (pdfjs-dist для PDF, word-extractor для DOC/DOCX, xlsx для XLSX/CSV — честный текст в промпт) демонтирован в PR #16 вместе с инлайн-документами; переезд на реестр attachments потерял парсеры: `attachmentRepo.extractFromPaths` читает любой файл как utf-8 → PDF в `extracted_text` = сырой байтовый поток (`%PDF-1.6...FlateDecode`-мусор), и этот шум попадает в `[Материалы]` (contextBuilder инлайнит непустой extracted_text). В PROJECT — то же через чтение reference с диска. Пакеты остались в package.json (pdfjs-dist/word-extractor/xlsx — сейчас использует только webService для URL). Решение: единая `extractText(buffer, filename)` → extractFromPaths (kind=document) + buildLLMContext (reference с бинарным расширением, с mtime-кэшем); без новых зависимостей |
 
 ## Отложенные (в работу — по ТЗ владельца)
 
 | Направление | ТЗ / источник |
 |-------------|---------------|
+| 2 — статус-точки провайдеров | ТЗ «Миграция на React», п. C.4: dropdown показывает только подключённых (`chat-area.tsx` фильтрует `status === 'connected'`); API отдаёт `connected`/`disconnected`/`error` — показать всех с точками `bg-success`/`bg-muted`/`bg-warning`. Возвращён в отложенные (вердикт владельца 2026-11-11) |
+| 7 — code-splitting | vite warning «chunks larger than 500 kB»: `index` 1258 kB (gzip 375), `elk` 1515 kB (gzip 464; mermaid/highlight.js/elk) — `manualChunks` / dynamic `import()`. Возвращён в отложенные (вердикт владельца 2026-11-11) |
 | E2E Playwright смоук | ТЗ «Миграция на React», п. E.2 — `frontend/e2e/`, devDep `@playwright/test`, 11 сценариев |
 | llama.cpp vision | TODO в `LlamaCppProvider.js` (PROJECT_CONTEXT #121): поле `images` на message — формат Ollama; llama.cpp `/v1/chat/completions` его не стандартизует — vision гарантирован только для Ollama |
 | PROJECT-режим: vision/картинки | ТЗ Project mode A — RESEARCH-only в этом ТЗ; расширение по желанию владельца |
