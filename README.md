@@ -132,6 +132,11 @@ LLAMA_CPP_ENABLED=false
 
 # Server configuration
 PORT=3000
+
+# Base directory for user files referenced by relative path (PROJECT mode, future).
+# Attachments with path_base='context' resolve against it; traversal outside is rejected.
+# Not required for the current (research-style) workflow.
+# CONTEXT_BASE_DIR=/home/selub/Documents/progs
 ```
 
 ---
@@ -157,7 +162,15 @@ PORT=3000
 
 ### Chat
 * `POST /api/chat` — Send message to selected model (multipart/form-data, requires `X-Provider` header). 
-  *Accepts:* `sessionId`, `message`, `model`, `contextLength`, `retainPercent`, `includeQuestionIds` (for Manual mode).
+  *Accepts:* `sessionId`, `message`, `model`, `contextLength`, `retainPercent`, `includeQuestionIds` (for Manual mode), `file` (single document **or** image), `codeFiles` (up to 50) — all three can be combined; the composed message order is document → code → user text.
+
+### Attachments
+* `GET /api/attachments/:fileId` — Attachment metadata (registry row).
+* `GET /api/attachments/:fileId/raw` — Serve the original file (path_base=`data` → `server/data/uploads`, path_base=`context` → `CONTEXT_BASE_DIR`; traversal → 400).
+* `GET /api/attachments/:fileId/thumb` — Serve the 150×150 thumbnail (images only).
+* `POST /api/attachments/extract` — Extract text from server-side paths (auxiliary).
+
+Images live in the unified `attachments` registry (`kind='image'`, `path_base='data'`, file under `server/data/uploads/`); history previews are built from `attachments_meta`. Files are **never** deleted when Q&A pairs or sessions are removed (orphans are subject to the future File Manager).
 
 ---
 
@@ -180,7 +193,7 @@ chat-app/
  │   │   └── routes/
  │   ├── tests/                      # Backend tests (node --test)
  │   ├── public/vad-assets/          # VAD/ORT assets, served with COOP/COEP headers
- │   └── data/                       # Runtime SQLite (chat.db), gitignored
+ │   └── data/                       # Runtime, gitignored: SQLite (chat.db) + uploads/ (registry images & thumbnails)
  ├── frontend/                       # Frontend: React 18 + Vite + Tailwind 4
  │   ├── src/                        # UI logic, Standard/Manual mode toggling
  │   └── dist/                       # Production build (gitignored), served by the backend

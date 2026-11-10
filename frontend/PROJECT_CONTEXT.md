@@ -75,8 +75,9 @@ Multi-Provider AI Chat — десктопный инструмент для ра
   ```ts
   { questionId, questionText, answerText, model,
     attachments_meta | attachmentsMeta,   // ⚠️ поле может прийти в snake_case ИЛИ camelCase — нормализуем ОБА
-    metrics, image_data | imageData }
+    metrics }
   ```
+  ⚠️ `image_data` демонтирован (решение #119): превью строится из `attachments_meta` — первый `kind='image'` с `thumbnailUrl` (маппер `mapQAPairsToMessages`).
 - `DELETE /api/sessions/:id/messages/:questionId` → `{ deletedMessages, deletedAttachments }`
 - ⚠️ `/qa-pairs` и `/context-config` — существуют в старом коде, но эталоном НЕ вызываются, работа не подтверждена. **НЕ ИСПОЛЬЗОВАТЬ.** Конфигурация контекста живёт в localStorage (п. 4.3).
 
@@ -287,6 +288,8 @@ Multi-Provider AI Chat — десктопный инструмент для ра
 | 116 | R.3: `webq98` → `frontend/` (git mv, 58 rename-записей); `app.js` — dist-статика и SPA-fallback → `../../frontend/dist`; фикстура `static.test.js` → `frontend/dist`; README/ARCHITECTURE/§10/§8.1 — пути обновлены. Хвост R.2: `.gitignore` + `server/data/*.db*` (якорный `data/*.db*` не покрывал новую глубину). `@eslint/js` — прямой devDep (импорт `eslint.config.js` не разрешался при чистой pnpm-установке — латентный баг D1; пакет уже был в сторе как транзитив eslint) | план реструктуризации R.3, 2026-11-09 |
 | 117 | Хотфикс хвоста R.2: `import 'dotenv/config'` искал `.env` от cwd — после переезда бэкенда cwd=`server/`, корневой `.env` владельца не находился → дефолты кода (`LLAMA_CPP_ENABLED=false` из строгого `=== 'true'`) → работающий llama.cpp игнорировался, `/api/models` → 503. Фикс: `server/src/config/env.js` — пути от `__dirname` (`server/.env` основной, корневой — legacy-fallback без переопределения); `server.js` — `import './config/env.js'` первым. Тест `tests/config/env.test.js` (3). «Total Time» в футере — персист-метрики последнего ответа ассистента из БД (`deriveLastMetrics`), к провайдеру не относится | отчёт владельца, 2026-11-09 |
 | 118 | R.4+R.5 — реструктуризация исполнена полностью: `plans/` → `docs/plans/`, `WORKLOG/WORKFLOW/BACKLOG.md` → `docs/`, D3-остаток (`select_dir/`, `test-ai-helper-repo.js`) → `docs/reference/legacy-scratch/` (все — git mv, R.4); README: битый `run-ollama-docker.sh` → `docker compose up -d`; §10 — финальная карта (исправлено имя `docs/STT_SYSTEM.md`, ранее в карте ошибочно `AI_HELPER_STT.md`); README дополнен командами тестов/lint. Корень: `.gitignore`, `.kilocodeignore`, `README.md`, `docker-compose.yml`, `server/`, `frontend/`, `docs/` | план реструктуризации R.4/R.5, 2026-11-09 |
+| 119 | Финальное ТЗ «vision-картинки в истории» (план context-data-storage, S.1–S.6 одним PR): БЕЗ обратной совместимости и миграции — legacy `image_data` (колонка, SELECT/INSERT) и поток `imageService`/`/api/images`/`imageUtils`/`server/uploads` демонтированы; единый реестр `attachments` расширен `kind`/`path_base` (guarded ALTER); изображения → `server/data/uploads/<sid>_<qid>.<ext>` + `/api/attachments/:id/raw|thumb`; ветки контроллера (картинка/документ/код) НЕ взаимоисключающие, порядок сборки: документ → код → текст; файлы НЕ удаляются при удалении Q&A/сессии (orphan-политика → будущий File Manager, `deletedAttachments` всегда 0); `imageData` в ответе — legacy-shape из meta (фронт-контракт §3.1 не менялся); contextBuilder не инлайнит `kind='image'`/пустой текст | вердикт владельца 2026-11-10 (D-C «''», D-D демонтаж в этом же ТЗ, D-E один PR) |
+| 120 | `CONTEXT_BASE_DIR` (server/.env) — база для вложений `path_base='context'` (PROJECT/S.7); резолв в `config/paths.js` (`resolveAttachmentPath`: canonicalize + запрет выхода за базу → 400); в текущем RESEARCH-потоке не требуется (D-B/D-F) | план context-data-storage, 2026-11-10 |
 
 ## 8. Запрещено
 
@@ -327,16 +330,16 @@ chat-app/
 ├── server/                        # БЭКЕНД (Express 5 + better-sqlite3 + WS; порт :3000)
 │   ├── src/
 │   │   ├── server.js, app.js      # app.js: статика frontend/dist + SPA-fallback (решение #108)
-│   │   ├── config/                # env.js (.env от __dirname — #117), providers.js
+│   │   ├── config/                # env.js (.env от __dirname — #117), providers.js, paths.js (резолв вложений — #120)
 │   │   ├── db/                    # init.js (setDbPath); sessionRepo, messageRepo, attachmentRepo, aiHelperRepo
 │   │   ├── middleware/            # providerMiddleware (fallback-цепочка), uploadMiddleware, errorHandler
 │   │   └── controllers, services, providers, routes, ws, utils
-│   ├── tests/                     # node --test (test:backend): db/, controllers/, services/, app/, config/, fixtures/
+│   ├── tests/                     # node --test (test:backend): db/, controllers/, services/, routes/, app/, config/, fixtures/
 │   ├── scripts/                   # whisper.sh (pnpm run whisper)
 │   ├── public/
 │   │   └── vad-assets/            # ЕДИНСТВЕННОЕ содержимое: VAD/ORT-ассеты (решение #109, COOP/COEP)
 │   ├── data/                      # runtime SQLite (chat.db; *.db* в gitignore — решения #114, R.3)
-│   └── uploads/                   # runtime-загрузки (images/, thumbnails/; gitignore)
+│   │                              #   + uploads/ — clipboard-изображения реестра (kind='image', #119)
 └── frontend/                      # НАШ ФРОНТЕНД — вся работа здесь (бывший webq98 — R.3)
     ├── PROJECT_CONTEXT.md         # эта конституция
     ├── ARCHITECTURE.md, package.json, pnpm-lock.yaml, pnpm-workspace.yaml,
