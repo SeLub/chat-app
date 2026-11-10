@@ -2,6 +2,7 @@
 import { getDb } from '../db/init.js';
 import fs from 'fs';
 import { resolveAttachmentPath, getMaxReferenceFileSize } from '../config/paths.js';
+import { extractText, isDocExtractPath } from '../utils/docExtract.js';
 
 // ============================================================
 // === DEFAULT_SYSPROMPT — дефолтный системный промпт (ТЗ one-system) ===
@@ -197,8 +198,16 @@ export async function buildLLMContext(sessionId, currentAttachments = [], contex
                         continue;
                     }
                     if (r.extracted_mtime !== stat.mtimeMs || !content) {
-                        // Кэш протух (mtime изменился) или пуст — перечитываем и обновляем
-                        content = fs.readFileSync(abs, 'utf-8');
+                        // Кэш протух (mtime изменился) или пуст — перечитываем и обновляем.
+                        // BACKLOG #6: документные расширения (.pdf/.doc/.docx/.xls/.xlsx/.csv)
+                        // извлекаются парсерами (pdfjs/word-extractor/xlsx) — в extracted_text
+                        // честный текст, а не сырой utf-8 контейнера; ошибка парсера ловится
+                        // внешним catch → MISSING-блок (мусор не инлайнится).
+                        if (isDocExtractPath(r.filename)) {
+                            content = await extractText(fs.readFileSync(abs), r.filename);
+                        } else {
+                            content = fs.readFileSync(abs, 'utf-8');
+                        }
                         db.prepare('UPDATE attachments SET extracted_text = ?, extracted_mtime = ? WHERE id = ?')
                             .run(content, stat.mtimeMs, r.id);
                     }
