@@ -399,3 +399,25 @@
 **Наблюдение для следующего ТЗ (не входит в это):** `addBotMessage` не подставляет `result.imageData` в свежий ответ — превью после отправки появляется только после перезагрузки истории (поведение существовало и до ТЗ; теперь данные для фикса в ответе есть).
 
 **Статус:** ✅ S.1–S.6 исполнены одним PR (`tz/vision-attachments` → `main`); S.7 (режимы) — следующий PR.
+
+---
+
+## 2026-11-10 — ТЗ «один system, [Материалы] / [Ранее] / [Вопрос]» исполнено (ветка `tz/one-system-context`)
+
+**Запрос владельца.** Финальное ТЗ: два `system` подряд (sysprompt + filesContext) шаблон Qwen3.8-…-mtp отвергает (`System message must be at the beginning`); vision-ветка вообще не использовала `buildLLMContext` — теряла sysprompt и историю Q&A. Решение — единая архитектура промпта.
+
+**Контекст-сборка (`contextBuilder.js`).** `DEFAULT_SYSPROMPT` — именованная константа (на бэке её не было — инлайн «Ты — полезный и компетентный ИИ-ассистент…», текст отличался от фронтовского «Senior Developer»; по ТЗ новый текст объясняет модели структуру промпта и правила работы с файлами, синхронная копия в `sessionStore.ts`). `finalConversation = system(sysprompt) + user[Материалы](filesContext)? + user[Ранее в этой сессии]? + truncatedHistory` — ровно один system. Латентный баг, пойман тестом: при нулевых строках реестра `filesContext` оставался строкой-заголовком → пустой `[Материалы]`; исправлено (`rows.length > 0`).
+
+**`chatController.js`.** `message` = только текст пользователя (после URL-extract); инлайн документов/кода демонтирован — `processDocument`/`processCodeFiles` и `fileService.js` (unit-экспорты, импортёров больше нет) удалены; следствие: невалидный документ — warn + строка реестра без `extracted_text` (не 400). Контекст-конфиг (contextLength/retainPercent/includeQuestionIds) поднят выше ветвления — общий для chat и vision. Обе ветки добавляют последнее user-сообщение `[Вопрос]` (в БД пишется БЕЗ префикса); vision-ветка теперь вызывает `buildContext` и крепит base64-картинку к `[Вопрос]` (`images`) — sysprompt и история в vision восстановлены, картинка не попадает в `[Материалы]` (фильтр `kind != 'image'`). `info.*` не изменён.
+
+**Провайдеры.** `LlamaCppProvider.mergeSystemMessages` — страховка-склейка system (п.6 ТЗ: в репо склейки НЕ было — файл не менялся с R.2, добавлена; в норме no-op — та же ссылка) + TODO(vision): поле `images` — формат Ollama, llama.cpp `/v1/chat/completions` его не стандартизует. Ollama шлёт messages как есть — vision нативно.
+
+**Тесты (red-first, коммит `15e4c1e`).** Бэкенд 98/98 (было 89; +9: 5×one-system-контракт contextBuilder — один system с/без файлов, `[Материалы]` user, `[Ранее]`+порядок истории, info.*-контракт, регрессия DEFAULT_SYSPROMPT; 3×`mergeSystemMessages` — no-op/склейка/без system; 2.0.3 chat-ветка — system + `[Ранее]` + история + `[Вопрос]`). 2.0.1a/b переведены на новый контракт (vision: system + `[Материалы]` с кодом + `[Вопрос]`+images; `[Вопрос]` = ровно текст пользователя — ассерты в формате fileService заменены на сырой `extracted_text` реестра). Фронт 89/89 без изменений (тест sysprompt — non-empty, текст не фиксируется).
+
+**Гейты:** `pnpm run build` ✓ (29.8s, известный warning >500 kB — BACKLOG #7) · `pnpm run lint` ✓ (--max-warnings 0) · `test:run` ✓ 89/89 · `test:backend` ✓ 98/98 · live-smoke :3100 ✓ (`GET /` 200 html, `/dashboard` 200, `/api/nonexistent` 404 JSON, `POST /api/chat` → 503 «no providers» — в песочнице провайдеров нет, полный путь chat покрыт мок-тестами).
+
+**Доки.** README (структура: contextBuilder — сборка промпта, attachmentService добавлен, fileService удалён), PROJECT_CONTEXT §10 (+providers/ в тестах), решение **#121**.
+
+**Ручной смоук на реальной модели — на владельце (DoD):** сообщение с PDF → ответ, в консоли llama.cpp нет `System message must be at the beginning`; vision → ответ в стиле Senior Developer (sysprompt применён).
+
+**Статус:** ✅ исполнено одним PR (`tz/one-system-context` → `main`); ручная приёмка на модели — за владельцем.
