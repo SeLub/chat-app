@@ -17,11 +17,11 @@
 > extracted_text по fileId/path **отменяется** (историческая причина orphan-политики,
 > не реализован); каскад — на уровне БД. ТЗ `docs/plans/attachment-cascade-cleanup.md`.
 
-## В работе (текущий трек — attachment-cascade)
+## В работе (текущий трек — stats-size)
 
 | # | Источник | Задача |
 |---|----------|--------|
-| cascade | Отчёт владельца 2026-11-11 + ТЗ `docs/plans/attachment-cascade-cleanup.md` | **Каскадная очистка реестра attachments (Вариант B + FK на уровне БД).** Строки document/code/image живут не дольше своего сообщения: `attachments.message_id` FK ON DELETE CASCADE (fresh CREATE + guarded ALTER); миграция legacy-БД — claim по meta живых сообщений (json_each) + однократная очистка накопленного балласта; claim строк после успешного addMessage (RESEARCH-ветки), cleanup незаклеймлённых при провале LLM; deletedAttachments — реальный count; reference (пул PROJECT) не клеймится и не каскадится; файлы на диске не удаляются (File Manager); мёртвый POST /api/attachments/extract демонтирован. **Исполнено в ветке `tz/attachment-cascade` (174/174, red-first); после merge перенести в «Закрыто»** |
+| stats-size | Отчёт владельца 2026-11-11 (ночь) + ТЗ `docs/plans/stats-size-context-load.md` | **Фикс статистики: «Size: – GB» в футере + расхождение процента бар/диалог (12% vs 38%).** Корень: (1) React-футер читал `modelDetail.details.size` — поля нет ни у одного провайдера (llama.cpp — size верхним уровнем, Ollama /api/show — без size; фолбэк из списка моделей потерян при переписывании с script.js); (2) бар считал char-эвристику `totalChars/(ctx*4)` (занижение на кириллице/коде в 1.5–3 раза), диалог — реальные токены. Решение: `frontend/src/lib/stats.ts` — `computeContextLoadPct` (единая токеновая формула, кап 100) и `formatSizeGb` (цепочка `modelDetail.size → details.size → models.find(name).size`); `LlamaCppProvider.resolveModelSize` — `meta.size → fs.stat(props.model_path)`. **Исполнено в ветке `fix/stats-size-context-load` (backend 180/180, vitest 119/119); после merge перенести в «Закрыто»** |
 
 ## Отложенные (в работу — по ТЗ владельца)
 
@@ -41,6 +41,7 @@
 
 | # | Что | Итог |
 |---|-----|------|
+| cascade | Каскадная очистка реестра attachments (Вариант B + FK на уровне БД) | **Исполнено**: PR #20 (`tz/attachment-cascade`) — `attachments.message_id` FK ON DELETE CASCADE (fresh CREATE + guarded ALTER); миграция legacy-БД (backfill по meta живых сообщений + очистка балласта); claim строк после успешного addMessage, cleanup незаклеймлённых при провале LLM; deletedAttachments — реальный count; reference не каскадится; файлы на диске не удаляются (File Manager); мёртвый POST /api/attachments/extract демонтирован; 174/174, red-first |
 | 6 | Восстановить извлечение текста из документов (утрачено в PR #16) | **Исполнено**: PR #19 (`tz/doc-extraction`) — `extractText(buffer, filename)` (pdfjs/word-extractor/xlsx) в extractFromPaths + buildLLMContext, без новых зависимостей; 162/162, red-first. Ограничения: .docx — смоук на реальном файле за владельцем; скан-PDF без текстового слоя → пустой текст (OCR — отдельная тема) |
 | 1 | E2E Playwright | Перенесён в «Отложенные» (2026-11-11) |
 | 3 | «Таблица `attachments` пуста после сообщения с вложением» (Фаза B) | **Устарело**: PR #16 демонтировал инлайн-документы — файлы всегда идут через реестр attachments; владелец 2026-11-11: не подтверждается |

@@ -2,11 +2,41 @@
 // Реализация провайдера llama.cpp
 
 import fetch from 'node-fetch';
+import { stat } from 'node:fs/promises';
 import { BaseProvider } from './BaseProvider.js';
 import { extractLlamaCppMetrics } from '../services/metricsService.js';
 import { createLogger } from '../utils/logger.js';
 
 const log = createLogger('LlamaCppProvider');
+
+/**
+ * ТЗ stats-size: разрешение размера файла модели (в байтах) из данных llama.cpp.
+ * Проблема: футер «Size: – GB» — фронту нужен размер, но разные сборки
+ * llama-server отдают его в разных местах, а некоторые — нигде:
+ *   1) meta.size   — /v1/models meta.size (сборки b4xxx–b6xxx: llama_model_size,
+ *      реальный размер файла). Master-ветка (router-сборки) его не отдаёт.
+ *   2) props.model_path — GET /props возвращает путь к GGUF; если llama-server
+ *      на той же машине (штатная схема проекта) — fs.stat даёт точный размер.
+ * @param {object} modelMeta - meta из /v1/models (data[i].meta), может быть {}
+ * @param {object} props     - ответ GET /props, может быть {}
+ * @returns {Promise<number>} размер в байтах; 0 — ни один источник не сработал
+ *   (фронт тогда падает на фолбэк — размер из списка моделей, иначе «–»)
+ */
+export async function resolveModelSize(modelMeta = {}, props = {}) {
+    const metaSize = Number(modelMeta.size) || 0;
+    if (metaSize > 0) return metaSize;
+
+    const modelPath = typeof props.model_path === 'string' ? props.model_path : '';
+    if (!modelPath) return 0;
+    try {
+        const st = await stat(modelPath);
+        return st.isFile() ? st.size : 0;
+    } catch {
+        // удалённый llama-server / недоступный путь — молча отдаём 0,
+        // это некритичная деградация (UI покажет «–»)
+        return 0;
+    }
+}
 
 /**
  * ТЗ «один system, [Материалы] / [Ранее] / [Вопрос]», п.6 — СТРАХОВКА.
@@ -185,7 +215,7 @@ export class LlamaCppProvider extends BaseProvider {
             const contextLength = modelMeta.n_ctx || props.n_ctx || null;
             const trainContext = modelMeta.n_ctx_train || null;
             const nParams = modelMeta.n_params || null;
-            const size = modelMeta.size || 0;
+            const size = await resolveModelSize(modelMeta, props);
 
             return {
                 model: name,
