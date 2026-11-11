@@ -10,6 +10,34 @@ import { createLogger } from '../utils/logger.js';
 const log = createLogger('LlamaCppProvider');
 
 /**
+ * ТЗ context-overflow-ux: парсинг тела ошибки llama.cpp (в т.ч. 400
+ * exceed_context_size_error с n_prompt_tokens/n_ctx) в структуру для
+ * проброса на фронт — баннер показывает РЕАЛЬНЫЕ числа токенизатора,
+ * а не «Chat error: Bad Request». Обёртка {error:{…}} (b4xxx–b6xxx) и
+ * плоский JSON разбираются одинаково; не-JSON/пусто → null (фронт
+ * покажет общий текст ошибки, числа просто не появятся).
+ * @param {string} bodyText - сырое тело ответа
+ * @returns {{ message?: string, type?: string, n_prompt_tokens?: number, n_ctx?: number } | null}
+ */
+export function parseLlamaCppErrorResponse(bodyText) {
+    if (typeof bodyText !== 'string' || bodyText === '') return null;
+    let body = null;
+    try {
+        body = JSON.parse(bodyText);
+    } catch {
+        return null;
+    }
+    const err = body && typeof body.error === 'object' && body.error !== null ? body.error : body;
+    if (!err || typeof err !== 'object') return null;
+    const out = {};
+    if (typeof err.message === 'string') out.message = err.message;
+    if (typeof err.type === 'string') out.type = err.type;
+    if (Number.isFinite(err.n_prompt_tokens)) out.n_prompt_tokens = err.n_prompt_tokens;
+    if (Number.isFinite(err.n_ctx)) out.n_ctx = err.n_ctx;
+    return Object.keys(out).length > 0 ? out : null;
+}
+
+/**
  * ТЗ stats-size: разрешение размера файла модели (в байтах) из данных llama.cpp.
  * Проблема: футер «Size: – GB» — фронту нужен размер, но разные сборки
  * llama-server отдают его в разных местах, а некоторые — нигде:
@@ -318,7 +346,13 @@ export class LlamaCppProvider extends BaseProvider {
             if (!response.ok) {
                 const errorText = await response.text();
                 log.error('llama.cpp chat response not ok', { status: response.status, body: errorText });
-                throw new Error(`Chat error: ${response.statusText}`);
+                // ТЗ context-overflow-ux: тело 400 (exceed_context_size_error) содержит
+                // n_prompt_tokens/n_ctx — парсим и вешаем на err.details; chatController
+                // пробрасывает их на фронт верхним уровнем JSON-ответа.
+                const parsed = parseLlamaCppErrorResponse(errorText);
+                const err = new Error(parsed?.message || `Chat error: ${response.statusText}`);
+                if (parsed) err.details = parsed;
+                throw err;
             }
 
             if (stream && response.body) {

@@ -783,3 +783,142 @@ describe('chatHandler: PROJECT-ветка (ТЗ Project mode A)', () => {
         assert.equal(res.body.contextInfo.mode, 'research');
     });
 });
+
+// ============================================================
+// ТЗ context-overflow-ux (№1): пре-флайт переполнения контекста
+// ============================================================
+// filesContext ([Материалы]) бюджетом НЕ обрезается — большой документ уходит
+// в промпт целиком (кейс владельца: PDF 5.4 MB → n_prompt_tokens 3937667 при
+// n_ctx 98304 → 400 exceed_context_size_error уже от llama.cpp). Пре-флайт на
+// той же chars/4-эвристике отклоняет заведомо непомещающийся промпт ДО вызова
+// LLM: быстрый 400 {code:'context_overflow', estimatedTokens, contextLength},
+// строки реестра этой отправки чистятся (attachment-cascade).
+describe('chatHandler: ТЗ context-overflow-ux — пре-флайт переполнения контекста', () => {
+    let sessionId;
+    let tempDir;
+
+    before(async () => {
+        setDbPath(':memory:');
+        getDb();
+        tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'preflight-test-'));
+    });
+
+    after(async () => {
+        closeDb();
+        await fs.rm(tempDir, { recursive: true, force: true });
+    });
+
+    beforeEach(() => {
+        getDb().exec('DELETE FROM attachments');
+        getDb().exec('DELETE FROM messages');
+        getDb().exec('DELETE FROM sessions');
+        sessionId = sessionRepo.createSession('Pre-flight Test').id;
+    });
+
+    function makeCountingProvider(modelType = 'chat', response = 'mock answer') {
+        const calls = [];
+        return {
+            calls,
+            name: 'mock-preflight',
+            detectModelType: () => modelType,
+            chat: async (payload) => {
+                calls.push(payload);
+                return { response, metrics: { prompt_tokens: 1, completion_tokens: 1 } };
+            },
+        };
+    }
+
+    it('промпт заведомо больше контекста → 400 code=context_overflow ДО вызова LLM, строки реестра чистятся', async () => {
+        // ~20 KB текста: fixedChars ≈ 20700 символов → оценка ≈ 5200 ток > ctx 100
+        const csvPath = path.join(tempDir, 'huge.csv');
+        await fs.writeFile(csvPath, 'x'.repeat(20000), 'utf-8');
+
+        const provider = makeCountingProvider();
+        const req = {
+            body: { message: 'Вопрос по файлу', model: 'test-model', sessionId, questionId: 'q_pf_1', contextLength: '100' },
+            files: {
+                file: [{ path: csvPath, originalname: 'huge.csv', mimetype: 'text/csv', size: 20000 }],
+            },
+            provider,
+            providerName: 'mock',
+        };
+        const res = makeRes();
+        await chatHandler(req, res);
+
+        assert.equal(res.statusCode, 400, `expected 400, got ${res.statusCode}: ${JSON.stringify(res.body)}`);
+        assert.equal(res.body.code, 'context_overflow');
+        assert.ok(res.body.estimatedTokens > 100, 'estimatedTokens должен превышать contextLength');
+        assert.equal(res.body.contextLength, 100);
+        assert.match(res.body.error, /exceeds the context size/);
+        assert.equal(provider.calls.length, 0, 'LLM не должен вызываться при пре-флайт отказе');
+
+        const rows = getDb().prepare('SELECT * FROM attachments WHERE session_id = ?').all(sessionId);
+        assert.equal(rows.length, 0, 'проваленная отправка не оставляет строк в реестре (attachment-cascade)');
+    });
+
+    it('обычный запрос с запасом контекста проходит пре-флайт (200, LLM вызван)', async () => {
+        const provider = makeCountingProvider();
+        const req = {
+            body: { message: 'Простой вопрос', model: 'test-model', sessionId, questionId: 'q_pf_2', contextLength: '65536' },
+            files: {},
+            provider,
+            providerName: 'mock',
+        };
+        const res = makeRes();
+        await chatHandler(req, res);
+
+        assert.equal(res.statusCode, 200, `handler failed: ${JSON.stringify(res.body)}`);
+        assert.equal(provider.calls.length, 1);
+    });
+
+    it('большой файл при достаточном контексте проходит (пре-флайт не срабатывает на границе снизу)', async () => {
+        const csvPath = path.join(tempDir, 'medium.csv');
+        await fs.writeFile(csvPath, 'y'.repeat(5000), 'utf-8');
+
+        const provider = makeCountingProvider();
+        const req = {
+            body: { message: 'Вопрос', model: 'test-model', sessionId, questionId: 'q_pf_3', contextLength: '65536' },
+            files: {
+                file: [{ path: csvPath, originalname: 'medium.csv', mimetype: 'text/csv', size: 5000 }],
+            },
+            provider,
+            providerName: 'mock',
+        };
+        const res = makeRes();
+        await chatHandler(req, res);
+
+        assert.equal(res.statusCode, 200, `handler failed: ${JSON.stringify(res.body)}`);
+        assert.equal(provider.calls.length, 1);
+    });
+
+    it('провайдер ответил 400 exceed_context_size_error → 500 с n_prompt_tokens/n_ctx/type верхним уровнем (проброс details)', async () => {
+        const provider = {
+            name: 'mock-overflow',
+            detectModelType: () => 'chat',
+            chat: async () => {
+                const err = new Error('request (3937667 tokens) exceeds the available context size (98304 tokens), try increasing it');
+                err.details = {
+                    message: err.message,
+                    type: 'exceed_context_size_error',
+                    n_prompt_tokens: 3937667,
+                    n_ctx: 98304,
+                };
+                throw err;
+            },
+        };
+        const req = {
+            body: { message: 'Вопрос', model: 'test-model', sessionId, questionId: 'q_pf_4' },
+            files: {},
+            provider,
+            providerName: 'mock',
+        };
+        const res = makeRes();
+        await chatHandler(req, res);
+
+        assert.equal(res.statusCode, 500);
+        assert.match(res.body.error, /3937667 tokens/);
+        assert.equal(res.body.type, 'exceed_context_size_error');
+        assert.equal(res.body.n_prompt_tokens, 3937667);
+        assert.equal(res.body.n_ctx, 98304);
+    });
+});
