@@ -127,4 +127,34 @@ describe('buildSendErrorInfo — остальные виды ошибок', () =
     });
     expect(info.failedFiles?.file).toBe(file);
   });
+
+  // ТЗ adaptive-context-budget (№4): 400 message_too_long (путь прямых
+  // запросов — композер блокирует раньше) → понятный баннер с числами капа
+  it('400 code=message_too_long → «Слишком длинный ввод», числа messageLength/maxMessageChars в detail', () => {
+    const info = buildSendErrorInfo(
+      new ApiError(400, 'Message is too long: 64001 chars, limit is 64000.', {
+        error: 'Message is too long: 64001 chars, limit is 64000.',
+        code: 'message_too_long',
+        messageLength: 64001,
+        maxMessageChars: 64000,
+      }),
+      baseCtx,
+    );
+    expect(info.kind).toBe('server'); // это не переполнение контекста модели
+    expect(info.title).toBe('Слишком длинный ввод');
+    expect(info.detail).toContain('64 001');
+    expect(info.detail).toContain('64 000');
+    expect(info.detail).toContain('вынеси часть в файл');
+    expect(info.failedText).toBe('Вопрос');
+    expect(info.sessionId).toBe('sess-1');
+  });
+
+  it('message_too_long без чисел → общий текст подсказки (без форматирования)', () => {
+    const info = buildSendErrorInfo(
+      new ApiError(400, 'Message is too long', { error: 'Message is too long', code: 'message_too_long' }),
+      baseCtx,
+    );
+    expect(info.title).toBe('Слишком длинный ввод');
+    expect(info.detail).toBe('Сообщение превышает лимит длины — сократи текст или вынеси часть в файл.');
+  });
 });

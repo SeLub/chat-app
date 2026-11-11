@@ -34,6 +34,10 @@ import { remarkPlugins, rehypePlugins } from '@/lib/chatRender';
 import { cn, scrollToQuestion, formatSize, shortModel } from '@/lib/utils';
 import { computeContextLoadPct, formatSizeGb } from '@/lib/stats';
 import { formatTokensCompact } from '@/lib/sendError';
+// ТЗ adaptive-context-budget (№4): кап длины message — мягкий кап в UI:
+// композер блокирует отправку раньше сервера (messageCap — дубликат
+// серверной константы, менять ОБА места)
+import { MAX_MESSAGE_CHARS, isMessageOverCap, isMessageNearCap, formatChars } from '@/lib/messageCap';
 import { CodeBlock } from '@/components/chat/CodeBlock';
 import { useTheme } from '@/app/ThemeProvider';
 import type { Theme, Mode } from '@/app/ThemeProvider';
@@ -334,8 +338,17 @@ export function ChatArea({ className }: { className?: string }) {
     };
   }, [fileSlot, codeFiles]);
 
+  // ТЗ adaptive-context-budget (№4): длина отправляемого текста (trim — как
+  // в handleSend) против капа. overCap — Send заблокирован + разрушающая
+  // подсказка; nearCap (>90%) — нейтральный счётчик («пометка в UI»).
+  const trimmedInput = inputValue.trim();
+  const messageOverCap = isMessageOverCap(trimmedInput.length);
+  const messageNearCap = isMessageNearCap(trimmedInput.length);
+
   const handleSend = useCallback(async () => {
     if (!inputValue.trim() || isSending) return;
+    // №4: кап длины message — не отправляем, подсказка уже видна в футере
+    if (isMessageOverCap(inputValue.trim().length)) return;
     const text = inputValue.trim();
     const files = collectFiles();
     setInputValue('');
@@ -1098,7 +1111,7 @@ export function ChatArea({ className }: { className?: string }) {
           />
           <button
             onClick={handleSend}
-            disabled={isSending || !inputValue.trim() || !currentModel}
+            disabled={isSending || !inputValue.trim() || !currentModel || messageOverCap}
             className={cn(
               'p-2.5 rounded-[1.5rem] bg-primary text-primary-foreground hover:opacity-90 transition-all duration-500 disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0',
               inputValue.trim() && currentModel ? 'scale-100' : 'scale-90',
@@ -1109,7 +1122,19 @@ export function ChatArea({ className }: { className?: string }) {
           </button>
         </div>
         <div className="flex items-center justify-between mt-2 text-xs text-muted-foreground">
-          <span>Press Enter to send, Shift+Enter for newline</span>
+          {messageOverCap ? (
+            // №4: мягкий кап — разрушающая пометка вместо отправки
+            <span className="text-destructive">
+              Слишком длинный ввод: {formatChars(trimmedInput.length)} / {formatChars(MAX_MESSAGE_CHARS)} символов — сократи вопрос или вынеси часть в файл
+            </span>
+          ) : messageNearCap ? (
+            // №4: предупреждение до капа — нейтральный счётчик
+            <span>
+              {formatChars(trimmedInput.length)} / {formatChars(MAX_MESSAGE_CHARS)} символов
+            </span>
+          ) : (
+            <span>Press Enter to send, Shift+Enter for newline</span>
+          )}
         </div>
       </div>
 
