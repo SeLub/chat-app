@@ -92,6 +92,20 @@ describe('Database Initialization', () => {
         assert.equal(db1, db2); // same instance
     });
 
+    // ТЗ send-error-persist (№3 context-overflow-ux): свежая схема получает колонку
+    // плашки последней провальной отправки сразу из CREATE TABLE.
+    it('fresh schema: sessions.last_send_error present, default NULL', () => {
+        setDbPath(':memory:');
+        const db = getDb();
+
+        const cols = db.pragma('table_info(sessions)').map((c) => c.name);
+        assert.ok(cols.includes('last_send_error'), 'колонка плашки в CREATE TABLE');
+
+        db.prepare("INSERT INTO sessions (id) VALUES ('s-fresh')").run();
+        const row = db.prepare("SELECT last_send_error FROM sessions WHERE id = 's-fresh'").get();
+        assert.equal(row.last_send_error, null);
+    });
+
     it('should upgrade legacy DB: attachments += kind/path_base, messages -= image_data (guarded ALTER)', () => {
         const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'db-legacy-'));
         const legacyDbPath = path.join(tempDir, 'legacy.db');
@@ -166,6 +180,13 @@ describe('Database Initialization', () => {
             assert.ok(attachCols.includes('extracted_mtime'), 'ТЗ Project mode A: extracted_mtime добавлен guarded ALTER-ом');
             const legacyRef = db.prepare("SELECT extracted_mtime FROM attachments WHERE id = 'a-legacy'").get();
             assert.equal(legacyRef.extracted_mtime, null, 'default NULL');
+
+            // ТЗ send-error-persist (№3): sessions.last_send_error добавляется guarded
+            // ALTER-ом на legacy-БД, старые строки не тронуты.
+            const sessionCols = db.pragma('table_info(sessions)').map((c) => c.name);
+            assert.ok(sessionCols.includes('last_send_error'), 'sessions.last_send_error добавлен guarded ALTER-ом');
+            const legacySession = db.prepare("SELECT last_send_error FROM sessions WHERE id = 's-legacy'").get();
+            assert.equal(legacySession.last_send_error, null, 'legacy-строка: плашка NULL');
 
             const msgCols = db.pragma('table_info(messages)').map((c) => c.name);
             assert.ok(!msgCols.includes('image_data'), 'image_data демонтирован');
