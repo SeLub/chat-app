@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import type { ChatMessage, ResponseMetrics, SessionMode } from '@/types';
 import { apiGateway } from '@/lib/apiGateway';
-import { buildSendErrorInfo, type SendErrorInfo } from '@/lib/sendError';
+import { buildSendErrorInfo, buildPersistedSendErrorInfo, type SendErrorInfo } from '@/lib/sendError';
 import { useProviderStore } from './providerStore';
 import { useUIStore } from './uiStore';
 
@@ -144,6 +144,10 @@ interface SessionStore {
   // поле ввода (failedText), вложения — в композер (failedFiles). Пара
   // «вопрос-ошибка» в чате больше не создаётся, F5 больше не нужен.
   sendError: SendErrorInfo | null;
+  // ТЗ send-error-persist (№3): персистентная плашка последней провальной
+  // отправки сессии (sessions.last_send_error) — переживает F5, в отличие от
+  // транзитного sendError. null = инцидента нет / погашен.
+  persistedSendError: SendErrorInfo | null;
   setSendErrorFromException: (
     e: unknown,
     failedText: string,
@@ -153,6 +157,15 @@ interface SessionStore {
   ) => void;
   dismissSendError: () => void;
   rollbackMessage: (questionId: string) => void;
+
+  // ТЗ send-error-persist (№3): сборка плашки из снапшота сессии — вызывается
+  // из всех точек открытия сессии (init / switchToViewing / returnToCurrent /
+  // loadViewingSession); явный dismiss — крестик плашки (+ DELETE на бэке).
+  setPersistedSendErrorFromSession: (
+    session: { last_send_error?: string | null } | undefined,
+    sessionId: string | null,
+  ) => void;
+  dismissPersistedSendError: () => Promise<void>;
 
   // context state
   saveContextState: () => void;
@@ -209,7 +222,7 @@ function loadSelectedIds(sessionId: string): string[] | null {
 
 const normalizeMode = (raw?: string | null): SessionMode => (raw === 'project' ? 'project' : 'research');
 
-export const initialSessionState: Omit<SessionStore, 'init' | 'switchToViewing' | 'returnToCurrent' | 'addMessage' | 'addBotMessage' | 'updateSysprompt' | 'setSysprompt' | 'setMode' | 'deleteMessage' | 'clearChat' | 'exportConversation' | 'loadViewingSession' | 'saveConversation' | 'sendMessage' | 'setSendErrorFromException' | 'dismissSendError' | 'rollbackMessage' | 'saveContextState' | 'loadContextState' | 'resetContextState' | 'toggleContextMode' | 'toggleQuestionSelection' | 'selectAllQuestions' | 'deselectAllQuestions' | 'setRetainPercent' | 'purgeSessionKeys' | 'startFreshAfterDelete' | 'deleteSession'> = {
+export const initialSessionState: Omit<SessionStore, 'init' | 'switchToViewing' | 'returnToCurrent' | 'addMessage' | 'addBotMessage' | 'updateSysprompt' | 'setSysprompt' | 'setMode' | 'deleteMessage' | 'clearChat' | 'exportConversation' | 'loadViewingSession' | 'saveConversation' | 'sendMessage' | 'setSendErrorFromException' | 'dismissSendError' | 'rollbackMessage' | 'setPersistedSendErrorFromSession' | 'dismissPersistedSendError' | 'saveContextState' | 'loadContextState' | 'resetContextState' | 'toggleContextMode' | 'toggleQuestionSelection' | 'selectAllQuestions' | 'deselectAllQuestions' | 'setRetainPercent' | 'purgeSessionKeys' | 'startFreshAfterDelete' | 'deleteSession'> = {
   activeSessionId: null,
   viewingSessionId: null,
   currentSessionTitle: '',
@@ -224,6 +237,7 @@ export const initialSessionState: Omit<SessionStore, 'init' | 'switchToViewing' 
   retainPercent: 80,
   contextInfo: undefined,
   sendError: null,
+  persistedSendError: null,
   mode: 'research',
 };
 
@@ -280,7 +294,10 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
             currentSessionTitle: session.title || '',
             sysprompt: session.sysprompt?.trim() || DEFAULT_SYSPROMPT,
             mode: normalizeMode(session.mode),
+            // плашка не «переезжает» с прошлой сессии — будет собрана из снапшота ниже
+            persistedSendError: null,
           });
+          get().setPersistedSendErrorFromSession(session, viewing);
 
           // restore context state
           set({ contextMode: 'standard', selectedQuestionIds: [] });
@@ -327,6 +344,9 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       viewingSessionId: sessionId,
       contextMode: 'standard',
       selectedQuestionIds: [],
+      // ТЗ send-error-persist (№3): плашка не «переезжает» — соберётся из
+      // снапшота открываемой сессии ниже.
+      persistedSendError: null,
     });
     localStorage.setItem('viewingSessionId', sessionId);
 
@@ -338,6 +358,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
           currentSessionTitle: session.title || '',
           sysprompt: session.sysprompt?.trim() || DEFAULT_SYSPROMPT,
         });
+        get().setPersistedSendErrorFromSession(session, sessionId);
       }
     } catch {
       set({ currentSessionTitle: '' });
@@ -359,7 +380,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     const { activeSessionId } = get();
     if (!activeSessionId) return;
 
-    set({ viewingSessionId: activeSessionId });
+    set({ viewingSessionId: activeSessionId, persistedSendError: null });
     localStorage.setItem('viewingSessionId', activeSessionId);
 
     try {
@@ -369,6 +390,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
           currentSessionTitle: session.title || '',
           sysprompt: session.sysprompt || DEFAULT_SYSPROMPT,
         });
+        get().setPersistedSendErrorFromSession(session, activeSessionId);
       }
     } catch {
       set({ currentSessionTitle: '' });
@@ -416,6 +438,28 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         contextInfo,
       };
     });
+  },
+
+  // ── ТЗ send-error-persist (№3) ──
+  // Сборка персистентной плашки из снапшота sessions.last_send_error —
+  // вызывается из всех точек открытия сессии.
+  setPersistedSendErrorFromSession: (session, sessionId) => {
+    set({
+      persistedSendError: buildPersistedSendErrorInfo(session?.last_send_error ?? null, sessionId),
+    });
+  },
+
+  // Явный dismiss (крестик плашки): локально сразу, на бэке — best-effort.
+  // Если запрос не прошёл — серверную запись погасит следующая успешная отправка.
+  dismissPersistedSendError: async () => {
+    const { viewingSessionId } = get();
+    set({ persistedSendError: null });
+    if (!viewingSessionId) return;
+    try {
+      await apiGateway.sessions.clearSendError(viewingSessionId);
+    } catch {
+      /* ignore — плашка уже скрыта локально */
+    }
   },
 
   // ── ТЗ context-overflow-ux (№2) ──
@@ -557,6 +601,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       syspromptDirty: false,
       contextInfo: undefined,
       mode: 'research',
+      persistedSendError: null,
     });
     localStorage.setItem('activeSessionId', newSession.id);
     localStorage.setItem('viewingSessionId', newSession.id);
@@ -597,6 +642,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
           currentSessionTitle: session.title || '',
           sysprompt: session.sysprompt?.trim() || DEFAULT_SYSPROMPT,
         });
+        get().setPersistedSendErrorFromSession(session, viewingSessionId);
       }
 
       const rawMessages = await apiGateway.sessions.getMessages(viewingSessionId);
@@ -762,6 +808,10 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       result.contextInfo,
     );
 
+    // ТЗ send-error-persist (№3): успех гасит персистентную плашку локально
+    // (сервер чистит sessions.last_send_error в той же точке — chatController).
+    set({ persistedSendError: null });
+
     // After successful send at viewing ≠ active, sync active
     if (get().viewingSessionId !== get().activeSessionId) {
       const newActive = get().viewingSessionId!;
@@ -894,6 +944,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       sysprompt: DEFAULT_SYSPROMPT,
       syspromptDirty: false,
       contextInfo: undefined,
+      persistedSendError: null,
     });
     localStorage.setItem('activeSessionId', newSession.id);
     localStorage.setItem('viewingSessionId', newSession.id);
