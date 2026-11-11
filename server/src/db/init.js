@@ -41,6 +41,13 @@ export function initializeSchema(database) {
             model           TEXT,
             provider        TEXT DEFAULT 'ollama',
             sysprompt       TEXT, /* === НОВОЕ: Системный промпт сессии === */
+            /* ТЗ send-error-persist (№3 context-overflow-ux): JSON последней
+               провальной отправки {kind, failedText, fileNames, estimatedTokens,
+               contextLength, message, providerName, at} или NULL. Пишется сервером
+               на каждом провале (пре-флайт, catch провайдера), чистится на успехе
+               и по явному dismiss — плашка переживает F5 (провальная отправка
+               не оставляет следов в messages/attachments). */
+            last_send_error TEXT,
             message_count   INTEGER DEFAULT 0,
             is_archived     INTEGER DEFAULT 0,
             created_at      TEXT DEFAULT (datetime('now')),
@@ -147,6 +154,13 @@ export function initializeSchema(database) {
  */
 function ensureColumns(database) {
     const columnNames = (table) => database.pragma(`table_info(${table})`).map((c) => c.name);
+
+    /* ТЗ send-error-persist (№3): колонка плашки последней провальной отправки.
+       Guarded ALTER для legacy-БД (свежая схема получает колонку из CREATE). */
+    const sessionCols = columnNames('sessions');
+    if (sessionCols.length > 0 && !sessionCols.includes('last_send_error')) {
+        database.exec('ALTER TABLE sessions ADD COLUMN last_send_error TEXT');
+    }
 
     const attachmentCols = columnNames('attachments');
     if (attachmentCols.length > 0 && !attachmentCols.includes('kind')) {

@@ -238,4 +238,67 @@ describe('sessionRepo', () => {
             assert.equal(session.title, 'unsavedSession 1');
         });
     });
+
+    // ТЗ send-error-persist (№3 context-overflow-ux): персистентная плашка последней
+    // провальной отправки — JSON в sessions.last_send_error. updated_at НЕ трогается
+    // (провал не поднимает сессию наверх списка).
+    describe('setSendError / getSendError', () => {
+        it('should store payload JSON and read it back', () => {
+            const { id } = sessionRepo.createSession();
+
+            sessionRepo.setSendError(id, {
+                kind: 'context_overflow',
+                failedText: 'Вопрос по PDF',
+                fileNames: ['report.pdf'],
+                estimatedTokens: 3937667,
+                contextLength: 98304,
+            });
+
+            const stored = sessionRepo.getSendError(id);
+            assert.equal(stored.kind, 'context_overflow');
+            assert.equal(stored.failedText, 'Вопрос по PDF');
+            assert.deepEqual(stored.fileNames, ['report.pdf']);
+            assert.equal(stored.estimatedTokens, 3937667);
+            assert.equal(stored.contextLength, 98304);
+        });
+
+        it('should clear (null) — getSendError возвращает null', () => {
+            const { id } = sessionRepo.createSession();
+            sessionRepo.setSendError(id, { kind: 'server', failedText: 'x' });
+
+            sessionRepo.setSendError(id, null);
+
+            assert.equal(sessionRepo.getSendError(id), null);
+            const row = sessionRepo.getSession(id);
+            assert.equal(row.last_send_error, null);
+        });
+
+        it('should return null for corrupted JSON (bit-rot защита)', () => {
+            const { id } = sessionRepo.createSession();
+            getDb().prepare('UPDATE sessions SET last_send_error = ? WHERE id = ?').run('{not-json', id);
+
+            assert.equal(sessionRepo.getSendError(id), null);
+        });
+
+        it('should return null for non-object JSON (строка/число в колонке)', () => {
+            const { id } = sessionRepo.createSession();
+            getDb().prepare('UPDATE sessions SET last_send_error = ? WHERE id = ?').run('"weird"', id);
+
+            assert.equal(sessionRepo.getSendError(id), null);
+        });
+
+        it('should not touch updated_at (провал не поднимает сессию в списке)', () => {
+            const { id } = sessionRepo.createSession();
+            const before = sessionRepo.getSession(id).updated_at;
+
+            sessionRepo.setSendError(id, { kind: 'server', failedText: 'x' });
+
+            const after = sessionRepo.getSession(id).updated_at;
+            assert.equal(after, before);
+        });
+
+        it('should return null for unknown session', () => {
+            assert.equal(sessionRepo.getSendError('no-such-session'), null);
+        });
+    });
 });

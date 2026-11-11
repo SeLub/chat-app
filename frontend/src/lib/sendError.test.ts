@@ -1,6 +1,13 @@
 import { describe, it, expect } from 'vitest';
 import { ApiError } from './apiGateway';
-import { buildSendErrorInfo, formatTokensCompact } from './sendError';
+import {
+  buildSendErrorInfo,
+  buildPersistedSendErrorInfo,
+  findLatestFileQAPairId,
+  isInjectingFileMeta,
+  formatSendErrorTime,
+  formatTokensCompact,
+} from './sendError';
 
 // ТЗ context-overflow-ux: чистая логика баннера ошибок отправки
 // (№2) + форматирование чисел из пре-флайта (№1).
@@ -126,5 +133,144 @@ describe('buildSendErrorInfo — остальные виды ошибок', () =
       failedFiles: { file, codeFiles: [] },
     });
     expect(info.failedFiles?.file).toBe(file);
+  });
+});
+
+// ТЗ send-error-persist (№3): персистентная плашка из sessions.last_send_error —
+// единственный след провальной отправки после F5 (сервер не пишет messages).
+describe('buildPersistedSendErrorInfo', () => {
+  it('строка JSON пре-флайта → context_overflow с числами + failedText (кейс владельца)', () => {
+    const raw = JSON.stringify({
+      kind: 'context_overflow',
+      providerName: 'llama_cpp',
+      failedText: 'Проанализируй отчёт',
+      fileNames: ['report.pdf'],
+      estimatedTokens: 3937667,
+      contextLength: 98304,
+      at: '2026-11-11T09:30:00.000Z',
+    });
+    const info = buildPersistedSendErrorInfo(raw, 'sess-1');
+
+    expect(info).not.toBeNull();
+    expect(info!.kind).toBe('context_overflow');
+    expect(info!.title).toBe('Контекст переполнен');
+    expect(info!.detail).toContain('3.94M');
+    expect(info!.detail).toContain('98K');
+    expect(info!.detail).toContain('report.pdf');
+    expect(info!.failedText).toBe('Проанализируй отчёт');
+    expect(info!.estimatedTokens).toBe(3937667);
+    expect(info!.contextLength).toBe(98304);
+    expect(info!.sessionId).toBe('sess-1');
+    expect(info!.at).toBe('2026-11-11T09:30:00.000Z');
+  });
+
+  it('жёсткий 400 llama.cpp (nPromptTokens/nCtxTokens) → те же числа токенизатора', () => {
+    const raw = JSON.stringify({
+      kind: 'context_overflow',
+      failedText: 'Вопрос',
+      nPromptTokens: 3937667,
+      nCtxTokens: 98304,
+    });
+    const info = buildPersistedSendErrorInfo(raw, 'sess-1');
+
+    expect(info!.kind).toBe('context_overflow');
+    expect(info!.estimatedTokens).toBe(3937667);
+    expect(info!.contextLength).toBe(98304);
+    expect(info!.detail).toContain('токенов превышает контекст');
+  });
+
+  it('kind=server → «Отправка не удалась» с raw-сообщением провайдера', () => {
+    const raw = JSON.stringify({
+      kind: 'server',
+      providerName: 'llama_cpp',
+      failedText: 'Вопрос',
+      message: 'connect ECONNREFUSED 127.0.0.1:8080',
+    });
+    const info = buildPersistedSendErrorInfo(raw, 'sess-1');
+
+    expect(info!.kind).toBe('server');
+    expect(info!.title).toBe('Отправка не удалась');
+    expect(info!.detail).toContain('ECONNREFUSED');
+    expect(info!.failedText).toBe('Вопрос');
+  });
+
+  it('context_overflow БЕЗ чисел (битый снапшот) → fallback в server-kind плашку', () => {
+    const raw = JSON.stringify({ kind: 'context_overflow', failedText: 'Вопрос' });
+    const info = buildPersistedSendErrorInfo(raw, 'sess-1');
+
+    expect(info!.kind).toBe('server');
+    expect(info!.failedText).toBe('Вопрос');
+  });
+
+  it('мусор в столбце → null (нет плашки): null, не-JSON, массив, число', () => {
+    expect(buildPersistedSendErrorInfo(null, 's')).toBeNull();
+    expect(buildPersistedSendErrorInfo(undefined, 's')).toBeNull();
+    expect(buildPersistedSendErrorInfo('', 's')).toBeNull();
+    expect(buildPersistedSendErrorInfo('{not-json', 's')).toBeNull();
+    expect(buildPersistedSendErrorInfo(JSON.stringify([1, 2]), 's')).toBeNull();
+    expect(buildPersistedSendErrorInfo(JSON.stringify('weird'), 's')).toBeNull();
+    expect(buildPersistedSendErrorInfo(42, 's')).toBeNull();
+  });
+
+  it('fileNames с мусором фильтруются, пустой список не попадает в info', () => {
+    const raw = JSON.stringify({ kind: 'server', failedText: 'q', fileNames: ['a.pdf', '', 42, null] });
+    const info = buildPersistedSendErrorInfo(raw, 's');
+    expect(info!.failedFileNames).toEqual(['a.pdf']);
+
+    const empty = buildPersistedSendErrorInfo(JSON.stringify({ kind: 'server', fileNames: [] }), 's');
+    expect(empty!.failedFileNames).toBeUndefined();
+  });
+});
+
+// ТЗ send-error-persist (№4): «Удалить пару с файлом» — последняя user-пара,
+// чьи вложения инжектятся в [Материалы] (document/code). Картинки/reference не считаются.
+describe('findLatestFileQAPairId / isInjectingFileMeta', () => {
+  it('DB-мета: kind document/code считаются, image/reference нет', () => {
+    expect(isInjectingFileMeta({ kind: 'document', name: 'a.pdf' })).toBe(true);
+    expect(isInjectingFileMeta({ kind: 'code', name: 'a.py' })).toBe(true);
+    expect(isInjectingFileMeta({ kind: 'image', name: 'a.png' })).toBe(false);
+    expect(isInjectingFileMeta({ kind: 'reference', name: 'a.ts' })).toBe(false);
+  });
+
+  it('optimistic-мета без kind: не-картинка считается, image/* нет', () => {
+    expect(isInjectingFileMeta({ name: 'a.pdf', size: 1, type: 'application/pdf' })).toBe(true);
+    expect(isInjectingFileMeta({ name: 'a.py', size: 1, type: '' })).toBe(true);
+    expect(isInjectingFileMeta({ name: 'a.png', size: 1, type: 'image/png' })).toBe(false);
+    expect(isInjectingFileMeta(null)).toBe(false);
+    expect(isInjectingFileMeta('str')).toBe(false);
+  });
+
+  it('последняя user-пара с файлом, assistant и пустые user пропускаются', () => {
+    const messages = [
+      { role: 'user', questionId: 'q_1', attachmentsMeta: [{ kind: 'document', name: 'old.pdf' }] },
+      { role: 'assistant', questionId: 'q_1', attachmentsMeta: [{ kind: 'document' }] },
+      { role: 'user', questionId: 'q_2', attachmentsMeta: [] },
+      { role: 'assistant', questionId: 'q_2' },
+      { role: 'user', questionId: 'q_3', attachmentsMeta: [{ kind: 'image', name: 'pic.png' }] },
+      { role: 'user', questionId: 'q_4', attachmentsMeta: [{ kind: 'code', name: 'fix.py' }] },
+    ];
+    expect(findLatestFileQAPairId(messages)).toBe('q_4');
+  });
+
+  it('только картинки → null (кнопка скрыта)', () => {
+    const messages = [
+      { role: 'user', questionId: 'q_1', attachmentsMeta: [{ kind: 'image' }] },
+    ];
+    expect(findLatestFileQAPairId(messages)).toBeNull();
+    expect(findLatestFileQAPairId([])).toBeNull();
+  });
+});
+
+describe('formatSendErrorTime', () => {
+  it('валидный ISO → строка ДД.ММ, ЧЧ:ММ (ru-RU)', () => {
+    const s = formatSendErrorTime('2026-11-11T09:30:00.000Z');
+    expect(s).not.toBeNull();
+    expect(s).toMatch(/^\d{2}\.\d{2},\s+\d{2}:\d{2}$/);
+  });
+
+  it('мусор/пустота → null', () => {
+    expect(formatSendErrorTime(undefined)).toBeNull();
+    expect(formatSendErrorTime('')).toBeNull();
+    expect(formatSendErrorTime('not-a-date')).toBeNull();
   });
 });

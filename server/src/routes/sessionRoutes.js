@@ -125,6 +125,22 @@ router.delete('/:id/messages/:questionId', (req, res) => {
     }
 });
 
+// ТЗ send-error-persist (№3): явный dismiss персистентной плашки последней
+// провальной отправки (крестик на плашке фронта). Автоматически плашка чистится
+// ещё и при успешной отправке (chatController) и умирает вместе с сессией.
+router.delete('/:id/send-error', (req, res) => {
+    try {
+        const session = sessionService.getSession(req.params.id);
+        if (!session) {
+            return res.status(404).json({ error: 'Session not found' });
+        }
+        sessionService.clearSessionSendError(req.params.id);
+        res.json({ ok: true });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
 // POST /api/sessions - Create new empty session
 router.post('/', (req, res) => {
     try {
