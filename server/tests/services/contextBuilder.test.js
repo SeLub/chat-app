@@ -4,7 +4,7 @@ import { getDb, setDbPath, closeDb } from '../../src/db/init.js';
 import * as sessionRepo from '../../src/db/sessionRepo.js';
 import * as messageRepo from '../../src/db/messageRepo.js';
 import * as sessionService from '../../src/services/sessionService.js';
-import { DEFAULT_SYSPROMPT } from '../../src/services/contextBuilder.js';
+import { DEFAULT_SYSPROMPT, resolveCharsPerToken } from '../../src/services/contextBuilder.js';
 
 /**
  * TZ-B.2b (в редакции финального ТЗ): контракт GET /api/sessions/:id/messages (Q&A-пары)
@@ -480,5 +480,116 @@ describe('buildLLMContext mode=project (ТЗ Project mode A)', () => {
         assert.equal(info.mode, 'research');
         assert.deepEqual(info.filesMissing, []);
         assert.deepEqual(info.filesTooLarge, []);
+    });
+});
+
+// ============================================================
+// ТЗ adaptive-context-budget (№3): адаптивный char-бюджет.
+// Плотность chars/токен измеряется по последнему текстовому ответу
+// (metrics.promptChars / metrics.inputTokens — пишутся с этого ТЗ),
+// бюджет = ctx * density * 0.9. Фолбэк — эвристика 4 БЕЗ запаса.
+// ============================================================
+describe('resolveCharsPerToken: измеренная плотность (№3)', () => {
+    it('нет валидных метрик → фолбэк { 4, default }', () => {
+        assert.deepEqual(resolveCharsPerToken([]), { charsPerToken: 4, source: 'default' });
+        assert.deepEqual(resolveCharsPerToken(null), { charsPerToken: 4, source: 'default' });
+        assert.deepEqual(
+            resolveCharsPerToken([{ role: 'assistant', metrics: '{}' }]),
+            { charsPerToken: 4, source: 'default' },
+        );
+    });
+
+    it('кириллическая метрика (2000 симв / 1000 ток) → { 2, measured }', () => {
+        const messages = [
+            { role: 'user', content: 'Вопрос' },
+            { role: 'assistant', metrics: JSON.stringify({ promptChars: 2000, inputTokens: 1000 }) },
+        ];
+        assert.deepEqual(resolveCharsPerToken(messages), { charsPerToken: 2, source: 'measured' });
+    });
+
+    it('последний ход вне полосы (плотность 8) → берётся предыдущий валидный', () => {
+        const messages = [
+            { role: 'assistant', metrics: JSON.stringify({ promptChars: 4000, inputTokens: 1000 }) }, // 4.0 ✓
+            { role: 'assistant', metrics: JSON.stringify({ promptChars: 8000, inputTokens: 1000 }) }, // 8.0 ✗
+        ];
+        const r = resolveCharsPerToken(messages);
+        assert.equal(r.source, 'measured');
+        assert.equal(r.charsPerToken, 4);
+    });
+
+    it('мусор в metrics / promptChars<=0 / inputTokens<64 — кандидаты пропускаются', () => {
+        const messages = [
+            { role: 'assistant', metrics: 'not-json{{' },
+            { role: 'assistant', metrics: JSON.stringify({ promptChars: 0, inputTokens: 500 }) },
+            { role: 'assistant', metrics: JSON.stringify({ promptChars: 2000, inputTokens: 10 }) },
+            { role: 'assistant', metrics: null },
+        ];
+        assert.deepEqual(resolveCharsPerToken(messages), { charsPerToken: 4, source: 'default' });
+    });
+
+    it('vision-ход (без promptChars, токенизирует mmproj) пропускается — берётся текстовая метрика', () => {
+        const messages = [
+            { role: 'assistant', metrics: JSON.stringify({ promptChars: 2000, inputTokens: 1000 }) }, // текст
+            { role: 'assistant', metrics: JSON.stringify({ inputTokens: 900, outputTokens: 50 }) },   // vision
+        ];
+        const r = resolveCharsPerToken(messages);
+        assert.equal(r.source, 'measured');
+        assert.equal(r.charsPerToken, 2);
+    });
+});
+
+describe('buildLLMContext: адаптивный бюджет истории (№3)', () => {
+    let sessionId;
+
+    before(() => {
+        setDbPath(':memory:');
+        getDb();
+    });
+
+    after(() => closeDb());
+
+    beforeEach(() => {
+        getDb().exec('DELETE FROM messages');
+        getDb().exec('DELETE FROM sessions');
+        sessionId = sessionRepo.createSession('Adaptive budget').id;
+    });
+
+    function addQAPair(questionId, chars, metrics) {
+        messageRepo.addMessage(sessionId, {
+            role: 'user', content: 'в'.repeat(chars), model: 'm', questionId,
+        });
+        messageRepo.addMessage(sessionId, {
+            role: 'assistant', content: 'о'.repeat(chars), model: 'm', questionId,
+            ...(metrics ? { metrics } : {}),
+        });
+    }
+
+    it('измеренная плотность 2 (кириллица) → бюджет ctx*2*0.9, история режется раньше чем по chars/4', async () => {
+        // 4 пары по 4000 симв = 16000 симв истории; sysprompt ~700 симв.
+        // measured: maxChars = 4000*2*0.9 = 7200 → target ≈ (7200-~700)*1.0
+        //   (retainPercent 100) ≈ 6400 → 1 пара (8000 симв > 6400 не влезает… стоп:
+        //   пара = 8000 симв > target) — 0 пар; с фолбэком 4: maxChars = 16000,
+        //   target ≈ 15300 → 1 пара (8000 ≤ 15300), вторая (16000 > 15300) — нет.
+        for (let i = 1; i <= 4; i++) {
+            addQAPair(`q_${i}`, 4000, i === 4
+                ? { promptChars: 6000, inputTokens: 3000 } // плотность 2 (repo стрингифицирует сам)
+                : undefined);
+        }
+
+        const { info } = await sessionService.buildContext(sessionId, [], 4000, 100, null);
+        assert.equal(info.charsPerTokenSource, 'measured');
+        assert.equal(info.charsPerToken, 2);
+        assert.equal(info.maxChars, Math.floor(4000 * 2 * 0.9), 'бюджет = ctx * density * 0.9');
+        assert.equal(info.includedQAPairs, 0, 'при плотности 2 ни одна пара 8К симв не влезает');
+    });
+
+    it('без метрик — фолбэк 4 без запаса: maxChars = ctx*4 (поведение до ТЗ)', async () => {
+        addQAPair('q_1', 100, undefined);
+
+        const { info } = await sessionService.buildContext(sessionId, [], 4000, 100, null);
+        assert.equal(info.charsPerTokenSource, 'default');
+        assert.equal(info.charsPerToken, 4);
+        assert.equal(info.maxChars, 16000);
+        assert.equal(info.includedQAPairs, 1);
     });
 });

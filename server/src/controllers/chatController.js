@@ -33,6 +33,13 @@ const log = createLogger('ChatController');
 
 const isImageFile = (mimetype) => Boolean(mimetype && mimetype.startsWith('image/'));
 
+// ТЗ adaptive-context-budget (№4 из списка владельца): кап на длину message.
+// Закрывает канал «мегабайты из поля ввода» мгновенным 400 ДО URL-обработки
+// и реестра вложений. Фронт блокирует раньше (композер, messageCap.ts — там
+// дубликат этой константы, менять ОБА места); здесь — контракт для прямых
+// запросов. Граница снизу: ровно MAX_MESSAGE_CHARS проходит.
+export const MAX_MESSAGE_CHARS = 64000;
+
 export async function chatHandler(req, res) {
     let { message, model, sessionId, questionId, contextLength, retainPercent, includeQuestionIds } = req.body;
 
@@ -57,6 +64,24 @@ export async function chatHandler(req, res) {
     let sentFileIds = [];
 
     try {
+        // === ТЗ adaptive-context-budget (№4): кап на длину message —
+        // мгновенный 400 до URL-обработки/реестра. Валидация без persist:
+        // строки реестра ещё не созданы, вопрос фронт всегда откатывает в
+        // поле ввода (семейство прочих 400-валидаций handler'а).
+        if (typeof message === 'string' && message.length > MAX_MESSAGE_CHARS) {
+            log.warn('Message exceeds cap, rejecting', {
+                length: message.length,
+                max: MAX_MESSAGE_CHARS,
+                sessionId: sessionId?.slice(0, 8)
+            });
+            return res.status(400).json({
+                error: `Message is too long: ${message.length} chars, limit is ${MAX_MESSAGE_CHARS}. Trim the input or move part of it into an attached file.`,
+                code: 'message_too_long',
+                messageLength: message.length,
+                maxMessageChars: MAX_MESSAGE_CHARS
+            });
+        }
+
         // TZ-B.1: при diskStorage у файлов нет буфера — восстанавливаем из файла на диске.
         if (file?.path) file.buffer = await fs.promises.readFile(file.path);
         for (const cf of codeFiles) {
@@ -281,24 +306,26 @@ export async function chatHandler(req, res) {
                 excludedIndices: contextResult.info?.excludedIndices ?? []
             });
 
-            // ТЗ context-overflow-ux (№1): пре-флайт ДО вызова LLM. filesContext
-            // ([Материалы]) бюджетом НЕ обрезается — fixedChars может быть >> maxChars
-            // (большой документ уходит в промпт целиком; в RESEARCH — в каждый запрос),
-            // история при этом зажимается в 0, и llama.cpp отвечает 400
-            // exceed_context_size_error уже после дорогостоящей обработки вложений.
-            // Здесь — та же chars/4-эвристика, что в buildLLMContext: если промпт
-            // заведомо не влезает в контекст — быстрый 400 со структурой
-            // {code:'context_overflow', estimatedTokens, contextLength}; строки
-            // реестра этой отправки чистятся (как у других провальных исходов).
+            // ТЗ context-overflow-ux (№1) + adaptive-context-budget (№3): пре-флайт
+            // ДО вызова LLM. filesContext ([Материалы]) бюджетом НЕ обрезается —
+            // fixedChars может быть >> maxChars (большой документ уходит в промпт
+            // целиком; в RESEARCH — в каждый запрос), история при этом зажимается
+            // в 0, и llama.cpp отвечает 400 exceed_context_size_error уже после
+            // дорогостоящей обработки вложений. Оценка — не константная chars/4,
+            // а ИЗМЕРЕННАЯ плотность этого хода (info.charsPerToken из
+            // buildLLMContext; у моков без поля — фолбэк 4): на кириллице оценка
+            // совпадает с реальностью в разы точнее и ловит переполнение раньше.
             // Vision-ветку не трогаем: base64-картинку токенизирует mmproj,
-            // chars/4 неприменим.
+            // char-плотность неприменима.
             const PROMPT_OVERHEAD_CHARS = 64; // [Ранее в этой сессии] + обвязка шаблона
             const questionChars = ('[Вопрос]\n' + (message || '')).length;
-            const estimatedPromptTokens = Math.ceil(
-                (contextResult.info.fixedChars +
-                 contextResult.info.actualHistoryChars +
-                 questionChars + PROMPT_OVERHEAD_CHARS) / 4
-            );
+            // Числитель оценки — он же promptChars assistant-метрики этого хода (№3):
+            // следующая посылка этой сессии измерит плотность как promptChars/inputTokens.
+            const promptChars = contextResult.info.fixedChars +
+                contextResult.info.actualHistoryChars + questionChars + PROMPT_OVERHEAD_CHARS;
+            const charsPerToken = Number.isFinite(contextResult.info?.charsPerToken)
+                ? contextResult.info.charsPerToken : 4;
+            const estimatedPromptTokens = Math.ceil(promptChars / charsPerToken);
             if (Number.isFinite(contextLength) && estimatedPromptTokens > contextLength) {
                 log.warn('Pre-flight: prompt exceeds context, rejecting before LLM call', {
                     estimatedPromptTokens,
@@ -341,7 +368,11 @@ export async function chatHandler(req, res) {
                 content: result.response,
                 model,
                 questionId: finalQuestionId,
-                metrics: result.metrics
+                // ТЗ adaptive-context-budget (№3): promptChars — символы промпта
+                // ЭТОГО хода; вместе с inputTokens (полный промпт, см.
+                // metricsService) — измеренная плотность следующего хода.
+                // Vision-ветка promptChars не пишет (mmproj, char-плотность неприменима).
+                metrics: { ...(result.metrics || {}), promptChars }
             });
 
             res.json({

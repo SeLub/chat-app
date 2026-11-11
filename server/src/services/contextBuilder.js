@@ -25,6 +25,60 @@ export const DEFAULT_SYSPROMPT = `Ты Senior Developer. Отвечай чётк
 - Если файл изменился с момента прикрепления — сообщи об этом.`;
 
 // ============================================================
+// === ТЗ adaptive-context-budget (№3 из списка владельца) ===
+// === Константы и измеренная плотность chars/токен ===
+// ============================================================
+// Фолбэк-эвристика «4 символа = 1 токен» (поведение до ТЗ; на кириллице
+// занижает токены в 1.6–3 раза). Измеренная плотность — из metrics последнего
+// текстового ответа: promptChars / inputTokens (обо хранятся с этого ТЗ).
+export const DEFAULT_CHARS_PER_TOKEN = 4;
+// Полоса достоверности измеренной плотности: вне её кандидат пропускается
+// (кэш-артефак, вырожденный ход, экзотический текст) и берётся предыдущий.
+export const MEASURED_CHARS_PER_TOKEN_MIN = 1.0;
+export const MEASURED_CHARS_PER_TOKEN_MAX = 5.0;
+// Промпт меньше этого числа токенов — плотность не доверяем (шум округления).
+export const MIN_MEASURABLE_PROMPT_TOKENS = 64;
+// Запас бюджета при ИЗМЕРЕННОЙ плотности (вариативность токенизатора между
+// ходами). Фолбэк-эвристика 4 применяется БЕЗ запаса — поведение до ТЗ.
+export const BUDGET_HEADROOM = 0.9;
+
+/**
+ * Измеренная плотность chars/токен по истории сессии.
+ * С конца ищем assistant-сообщение с валидным измерением: metrics.promptChars > 0,
+ * metrics.inputTokens >= MIN_MEASURABLE_PROMPT_TOKENS, плотность в полосе
+ * [MIN; MAX]. Мусор/не-JSON в столбце metrics — пропуск. Ни одного кандидата —
+ * { charsPerToken: 4, source: 'default' } (поведение до ТЗ).
+ * Vision-ходы (promptChars не пишется — токенизирует mmproj) пропускаются:
+ * берётся последняя ТЕКСТОВАЯ метрика.
+ * @param {Array} messages - [{ role, metrics }, ...] в порядке sort_order
+ * @returns {{ charsPerToken: number, source: 'measured'|'default' }}
+ */
+export function resolveCharsPerToken(messages) {
+    if (!Array.isArray(messages)) {
+        return { charsPerToken: DEFAULT_CHARS_PER_TOKEN, source: 'default' };
+    }
+    for (let i = messages.length - 1; i >= 0; i--) {
+        const m = messages[i];
+        if (!m || m.role !== 'assistant') continue;
+        let metrics = null;
+        try {
+            metrics = typeof m.metrics === 'string' ? JSON.parse(m.metrics) : m.metrics;
+        } catch {
+            continue; // мусор в столбце — не роняем построение контекста
+        }
+        if (!metrics || typeof metrics !== 'object') continue;
+        const promptChars = Number(metrics.promptChars);
+        const inputTokens = Number(metrics.inputTokens);
+        if (!Number.isFinite(promptChars) || promptChars <= 0) continue;
+        if (!Number.isFinite(inputTokens) || inputTokens < MIN_MEASURABLE_PROMPT_TOKENS) continue;
+        const density = promptChars / inputTokens;
+        if (density < MEASURED_CHARS_PER_TOKEN_MIN || density > MEASURED_CHARS_PER_TOKEN_MAX) continue;
+        return { charsPerToken: density, source: 'measured' };
+    }
+    return { charsPerToken: DEFAULT_CHARS_PER_TOKEN, source: 'default' };
+}
+
+// ============================================================
 // === cutContext — чистая математика обрезки Q&A истории ===
 // ============================================================
 /**
@@ -141,9 +195,10 @@ export async function buildLLMContext(sessionId, currentAttachments = [], contex
         ? session.sysprompt.trim() 
         : DEFAULT_SYSPROMPT;
 
-    // 2. Получаем историю из БД (только user и assistant)
+    // 2. Получаем историю из БД (только user и assistant; metrics — для №3,
+    //    измеренной плотности последнего текстового ответа)
     const messages = db.prepare(
-        'SELECT role, content, attachments_meta, question_id, sort_order FROM messages WHERE session_id = ? ORDER BY sort_order ASC'
+        'SELECT role, content, attachments_meta, question_id, sort_order, metrics FROM messages WHERE session_id = ? ORDER BY sort_order ASC'
     ).all(sessionId);
 
     // 3. Собираем файлы
@@ -230,9 +285,16 @@ export async function buildLLMContext(sessionId, currentAttachments = [], contex
         }
     }
 
-    // 4. Расчёт бюджетов
+    // 4. Расчёт бюджетов — №3 adaptive-context-budget: вместо константы
+    //    «4 символа = 1 токен» — измеренная плотность последнего текстового
+    //    ответа (кириллический бюджет сам ужмётся в ~2–3 раза). Измеренная
+    //    плотность — с запасом BUDGET_HEADROOM (0.9); фолбэк 4 — без запаса
+    //    (поведение до ТЗ, сохранено для сессий без метрик).
+    const { charsPerToken, source: charsPerTokenSource } = resolveCharsPerToken(messages);
     const fixedChars = sysprompt.length + filesContext.length;
-    const maxChars = contextSize * 4;
+    const maxChars = charsPerTokenSource === 'measured'
+        ? Math.floor(contextSize * charsPerToken * BUDGET_HEADROOM)
+        : Math.floor(contextSize * charsPerToken);
     const availableChars = Math.max(maxChars - fixedChars, 0);
     const targetChars = Math.floor(availableChars * (retainPercent / 100));
 
@@ -266,6 +328,9 @@ export async function buildLLMContext(sessionId, currentAttachments = [], contex
             fixedChars,
             availableChars,
             targetChars,
+            maxChars,
+            charsPerToken,
+            charsPerTokenSource,
             mode,
             filesMissing,
             filesTooLarge
