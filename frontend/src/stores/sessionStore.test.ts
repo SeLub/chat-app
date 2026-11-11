@@ -543,7 +543,7 @@ describe('sessionStore — sendMessage lifecycle', () => {
     expect(useSessionStore.getState().syspromptDirty).toBe(false);
   });
 
-  it('10. sendMessage: ApiError 503 → bot message with warning, refreshStatus called', async () => {
+  it('10. ТЗ context-overflow-ux: ApiError 503 → sendError kind=provider_unavailable, пары в чате нет, refreshStatus вызван', async () => {
     const store = useSessionStore.getState();
     store.activeSessionId = 'a1';
     store.viewingSessionId = 'a1';
@@ -571,14 +571,18 @@ describe('sessionStore — sendMessage lifecycle', () => {
     await store.sendMessage('Q');
 
     const state = useSessionStore.getState();
-    const lastMsg = state.messages[state.messages.length - 1];
-    expect(lastMsg.role).toBe('assistant');
-    expect(lastMsg.content).toContain('⚠️');
-    expect(lastMsg.content).toContain('is unavailable');
+    expect(state.messages).toHaveLength(0);
+    expect(state.questionCounter).toBe(0);
+    expect(state.sendError).not.toBeNull();
+    expect(state.sendError?.kind).toBe('provider_unavailable');
+    expect(state.sendError?.title).toBe('ollama недоступен');
+    expect(state.sendError?.detail).toContain('provider unavailable');
+    expect(state.sendError?.failedText).toBe('Q');
+    expect(state.sendError?.sessionId).toBe('a1');
     expect(providerRefresh).toHaveBeenCalled();
   });
 
-  it('11. sendMessage: ApiError 400 → bot message "Error 400" (not Network error)', async () => {
+  it('11. ТЗ context-overflow-ux: ApiError 400 → sendError kind=server (title «Ошибка 400»), пары в чате нет', async () => {
     const store = useSessionStore.getState();
     store.activeSessionId = 'a1';
     store.viewingSessionId = 'a1';
@@ -598,11 +602,111 @@ describe('sessionStore — sendMessage lifecycle', () => {
     await store.sendMessage('Q');
 
     const state = useSessionStore.getState();
+    expect(state.messages).toHaveLength(0);
+    expect(state.sendError?.kind).toBe('server');
+    expect(state.sendError?.title).toBe('Ошибка 400');
+    expect(state.sendError?.detail).toContain('Images require vision models');
+    expect(state.sendError?.failedText).toBe('Q');
+    expect(state.sendError?.kind).not.toBe('network');
+  });
+
+  it('12. ТЗ context-overflow-ux: пре-флайт 400 (code=context_overflow) → kind=context_overflow с числами', async () => {
+    const store = useSessionStore.getState();
+    store.activeSessionId = 'a1';
+    store.viewingSessionId = 'a1';
+    store.messages = [];
+    store.questionCounter = 0;
+    store.contextMode = 'standard';
+    store.selectedQuestionIds = [];
+
+    s().create.mockResolvedValue({ id: 'a1' });
+
+    (apiGateway.chat.send as FnMock).mockRejectedValue(
+      new mocked.ApiError(400, 'Prompt (~3937667 tokens) exceeds the context size (98304 tokens)', {
+        error: 'Prompt (~3937667 tokens) exceeds the context size (98304 tokens)',
+        code: 'context_overflow',
+        estimatedTokens: 3937667,
+        contextLength: 98304,
+      }),
+    );
+
+    await store.sendMessage('Разбери PDF');
+
+    const state = useSessionStore.getState();
+    expect(state.messages).toHaveLength(0);
+    expect(state.sendError?.kind).toBe('context_overflow');
+    expect(state.sendError?.title).toBe('Контекст переполнен');
+    expect(state.sendError?.estimatedTokens).toBe(3937667);
+    expect(state.sendError?.contextLength).toBe(98304);
+    expect(state.sendError?.detail).toContain('3.94M');
+    expect(state.sendError?.detail).toContain('98K');
+    expect(state.sendError?.failedText).toBe('Разбери PDF');
+  });
+
+  it('13. ТЗ context-overflow-ux: жёсткий 400 llama.cpp (type=exceed_context_size_error) → числа проброшены в баннер', async () => {
+    const store = useSessionStore.getState();
+    store.activeSessionId = 'a1';
+    store.viewingSessionId = 'a1';
+    store.messages = [];
+    store.questionCounter = 0;
+    store.contextMode = 'standard';
+    store.selectedQuestionIds = [];
+
+    s().create.mockResolvedValue({ id: 'a1' });
+
+    (apiGateway.chat.send as FnMock).mockRejectedValue(
+      new mocked.ApiError(500, 'request (3937667 tokens) exceeds the available context size (98304 tokens)', {
+        error: 'request (3937667 tokens) exceeds the available context size (98304 tokens)',
+        type: 'exceed_context_size_error',
+        n_prompt_tokens: 3937667,
+        n_ctx: 98304,
+      }),
+    );
+
+    await store.sendMessage('Q');
+
+    const state = useSessionStore.getState();
+    expect(state.messages).toHaveLength(0);
+    expect(state.sendError?.kind).toBe('context_overflow');
+    expect(state.sendError?.estimatedTokens).toBe(3937667);
+    expect(state.sendError?.contextLength).toBe(98304);
+  });
+
+  it('14. ТЗ context-overflow-ux: новая отправка гасит предыдущий sendError (успех — баннера нет)', async () => {
+    const store = useSessionStore.getState();
+    store.activeSessionId = 'a1';
+    store.viewingSessionId = 'a1';
+    store.messages = [];
+    store.questionCounter = 0;
+    store.contextMode = 'standard';
+    store.selectedQuestionIds = [];
+
+    s().create.mockResolvedValue({ id: 'a1' });
+
+    // stale sendError от предыдущей провальной отправки
+    useSessionStore.setState({
+      sendError: {
+        sessionId: 'a1',
+        kind: 'network',
+        title: 'Нет связи с сервером',
+        detail: 'старая ошибка',
+        failedText: 'старый вопрос',
+      },
+    });
+
+    (apiGateway.chat.send as FnMock).mockResolvedValue({
+      response: 'ok answer',
+      model: 'test-model',
+      metrics: { inputTokens: 10, outputTokens: 5 },
+    });
+
+    await store.sendMessage('Q');
+
+    const state = useSessionStore.getState();
     const lastMsg = state.messages[state.messages.length - 1];
     expect(lastMsg.role).toBe('assistant');
-    expect(lastMsg.content).toContain('❌ **Error 400**');
-    expect(lastMsg.content).toContain('Images require vision models');
-    expect(lastMsg.content).not.toContain('Network error');
+    expect(lastMsg.content).toBe('ok answer');
+    expect(state.sendError).toBeNull();
   });
 });
 

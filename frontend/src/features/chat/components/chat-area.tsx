@@ -22,6 +22,7 @@ import {
   ChevronDown,
   ClipboardCopy,
   ArrowUp,
+  AlertTriangle,
 } from 'lucide-react';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useProviderStore } from '@/stores/providerStore';
@@ -32,6 +33,7 @@ import { useNavigate } from 'react-router-dom';
 import { remarkPlugins, rehypePlugins } from '@/lib/chatRender';
 import { cn, scrollToQuestion, formatSize, shortModel } from '@/lib/utils';
 import { computeContextLoadPct, formatSizeGb } from '@/lib/stats';
+import { formatTokensCompact } from '@/lib/sendError';
 import { CodeBlock } from '@/components/chat/CodeBlock';
 import { useTheme } from '@/app/ThemeProvider';
 import type { Theme, Mode } from '@/app/ThemeProvider';
@@ -212,6 +214,8 @@ export function ChatArea({ className }: { className?: string }) {
   const deleteSession = useSessionStore((s) => s.deleteSession);
   const exportConversation = useSessionStore((s) => s.exportConversation);
   const deleteMessage = useSessionStore((s) => s.deleteMessage);
+  const sendError = useSessionStore((s) => s.sendError);
+  const dismissSendError = useSessionStore((s) => s.dismissSendError);
 
   const [inputValue, setInputValue] = useState('');
   const [isSending, setIsSending] = useState(false);
@@ -229,10 +233,37 @@ export function ChatArea({ className }: { className?: string }) {
 
   const lastMetrics = deriveLastMetrics(messages);
 
+  // ТЗ context-overflow-ux (№2): баннер показывается только в той сессии,
+  // где произошла провальная отправка (не «переезжает» при переключении).
+  const activeSendError =
+    sendError && sendError.sessionId === viewingSessionId ? sendError : null;
+
   useEffect(() => {
     const el = messagesContainerRef.current;
     if (el) el.scrollTop = el.scrollHeight;
   }, [messages]);
+
+  // ТЗ context-overflow-ux (№2): при провале отправки вопрос не теряется —
+  // текст возвращается в поле ввода (если пользователь не начал печатать
+  // новый) и вложения возвращаются в композер (если он пуст).
+  useEffect(() => {
+    if (!activeSendError) return;
+    const err = activeSendError;
+    setInputValue((prev) => (prev.trim() === '' ? err.failedText : prev));
+    const f = err.failedFiles?.file;
+    if (f) {
+      setFileSlot((prev) =>
+        prev ?? {
+          file: f,
+          preview: f.type.startsWith('image/') ? URL.createObjectURL(f) : undefined,
+        },
+      );
+    }
+    const code = err.failedFiles?.codeFiles;
+    if (code && code.length > 0) {
+      setCodeFiles((prev) => (prev.length === 0 ? code.map((file) => ({ file })) : prev));
+    }
+  }, [activeSendError]);
 
   useEffect(() => {
     if (textareaRef.current) {
@@ -314,15 +345,65 @@ export function ChatArea({ className }: { className?: string }) {
       await sendMessage(text, files);
       await refreshStatus();
     } catch (e) {
+      // Guards (нет сессии/модели) — исключение доходит сюда. ТЗ
+      // context-overflow-ux: вопрос не теряется — возвращаем в композер.
       useUIStore.getState().addToast(
         e instanceof Error ? e.message : 'Failed to send',
         'error',
       );
+      setInputValue(text);
+      const f = files?.file;
+      if (f) {
+        setFileSlot({
+          file: f,
+          preview: f.type.startsWith('image/') ? URL.createObjectURL(f) : undefined,
+        });
+      }
+      const code = files?.codeFiles;
+      if (code && code.length > 0) {
+        setCodeFiles(code.map((file) => ({ file })));
+      }
     } finally {
       setIsSending(false);
       textareaRef.current?.focus();
     }
   }, [inputValue, isSending, sendMessage, collectFiles, clearAttachments, refreshStatus]);
+
+  // ТЗ context-overflow-ux (№2): «Повторить» на баннере — повторная отправка
+  // ИСХОДНОГО вопроса с исходными вложениями; композер на время попытки
+  // очищается (при новом провале баннер вернёт текст/файлы обратно).
+  const handleRetry = useCallback(async () => {
+    const err = useSessionStore.getState().sendError;
+    if (!err || isSending) return;
+    useSessionStore.getState().dismissSendError();
+    setInputValue('');
+    clearAttachments();
+    setIsSending(true);
+    try {
+      await sendMessage(err.failedText, err.failedFiles);
+      await refreshStatus();
+    } catch (e) {
+      useUIStore.getState().addToast(
+        e instanceof Error ? e.message : 'Failed to send',
+        'error',
+      );
+      setInputValue(err.failedText);
+      const f = err.failedFiles?.file;
+      if (f) {
+        setFileSlot({
+          file: f,
+          preview: f.type.startsWith('image/') ? URL.createObjectURL(f) : undefined,
+        });
+      }
+      const code = err.failedFiles?.codeFiles;
+      if (code && code.length > 0) {
+        setCodeFiles(code.map((file) => ({ file })));
+      }
+    } finally {
+      setIsSending(false);
+      textareaRef.current?.focus();
+    }
+  }, [isSending, sendMessage, refreshStatus, clearAttachments]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -888,6 +969,44 @@ export function ChatArea({ className }: { className?: string }) {
         )}
         <div ref={messagesEndRef} />
       </div>
+
+      {/* ── Send Error Banner (ТЗ context-overflow-ux №2) ── */}
+      {activeSendError && (
+        <div
+          className="mx-4 mb-2 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 flex items-start gap-2 flex-shrink-0"
+          role="alert"
+        >
+          <AlertTriangle className="w-4 h-4 text-destructive flex-shrink-0 mt-0.5" />
+          <div className="flex-1 min-w-0">
+            <div className="text-xs font-semibold text-destructive">{activeSendError.title}</div>
+            <div className="text-xs text-muted-foreground mt-0.5">{activeSendError.detail}</div>
+            {activeSendError.estimatedTokens != null && activeSendError.contextLength != null && (
+              <div className="font-mono text-[11px] mt-1 text-foreground">
+                ≈{formatTokensCompact(activeSendError.estimatedTokens)} / {formatTokensCompact(activeSendError.contextLength)} tok
+              </div>
+            )}
+          </div>
+          <div className="flex items-center gap-1 flex-shrink-0">
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 px-2.5 text-xs"
+              disabled={isSending}
+              onClick={handleRetry}
+            >
+              Повторить
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              onClick={() => dismissSendError()}
+              aria-label="Dismiss error"
+            >
+              <X className="w-3.5 h-3.5" />
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* ── File Previews ── */}
       {(fileSlot || codeFiles.length > 0) && (

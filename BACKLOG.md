@@ -17,11 +17,11 @@
 > extracted_text по fileId/path **отменяется** (историческая причина orphan-политики,
 > не реализован); каскад — на уровне БД. ТЗ `docs/plans/attachment-cascade-cleanup.md`.
 
-## В работе (текущий трек — stats-size)
+## В работе (текущий трек — context-overflow-ux)
 
 | # | Источник | Задача |
 |---|----------|--------|
-| stats-size | Отчёт владельца 2026-11-11 (ночь) + ТЗ `docs/plans/stats-size-context-load.md` | **Фикс статистики: «Size: – GB» в футере + расхождение процента бар/диалог (12% vs 38%).** Корень: (1) React-футер читал `modelDetail.details.size` — поля нет ни у одного провайдера (llama.cpp — size верхним уровнем, Ollama /api/show — без size; фолбэк из списка моделей потерян при переписывании с script.js); (2) бар считал char-эвристику `totalChars/(ctx*4)` (занижение на кириллице/коде в 1.5–3 раза), диалог — реальные токены. Решение: `frontend/src/lib/stats.ts` — `computeContextLoadPct` (единая токеновая формула, кап 100) и `formatSizeGb` (цепочка `modelDetail.size → details.size → models.find(name).size`); `LlamaCppProvider.resolveModelSize` — `meta.size → fs.stat(props.model_path)`. **Исполнено в ветке `fix/stats-size-context-load` (backend 180/180, vitest 119/119); после merge перенести в «Закрыто»** |
+| context-overflow-ux | Отчёт владельца 2026-11-11 (400 `exceed_context_size_error`, PDF 5.4 MB → 3.9M токенов) + вердикт «Делаем №1+2. Не терять вопрос. На фейле возвращать текст в поле ввода» + ТЗ `docs/plans/context-overflow-ux.md` | **UX переполнения контекста.** Корень аномалии: `[Материалы]` (извлечённый текст вложений) инжектится в промпт целиком без обрезки и в RESEARCH реинжектится каждый запрос (история бюджетом режется, файлы — нет). №1: серверный пре-флайт ДО вызова LLM (та же chars/4) → `400 {code:'context_overflow', estimatedTokens, contextLength}` + cleanup реестра; жёсткий 400 llama.cpp парсится (`parseLlamaCppErrorResponse`) и числа пробрасываются на фронт. №2: транзитная пара «вопрос-ошибка» демонтирована — `sendError`-баннер над композером (kind, деталь, `≈N/M tok`, «Повторить» исходного текста с файлами, крестик), вопрос и вложения возвращаются в поле ввода (F5 больше не «способ убрать ошибку»). **Исполнено в ветке `feat/context-overflow-ux` (backend 189/189, vitest 134/134); после merge перенести в «Закрыто»** |
 
 ## Отложенные (в работу — по ТЗ владельца)
 
@@ -41,6 +41,7 @@
 
 | # | Что | Итог |
 |---|-----|------|
+| stats-size | Футер «Size: – GB» + расхождение бар/диалог (12% vs 38%) | **Исполнено**: PR #21 (`fix/stats-size-context-load`, смержен) — `frontend/src/lib/stats.ts`: `computeContextLoadPct` (единая токеновая формула, кап 100) и `formatSizeGb` (цепочка `modelDetail.size → details.size → models.find(name).size`); `LlamaCppProvider.resolveModelSize` (`meta.size → fs.stat(props.model_path)`). 180/180, vitest 119/119 |
 | cascade | Каскадная очистка реестра attachments (Вариант B + FK на уровне БД) | **Исполнено**: PR #20 (`tz/attachment-cascade`) — `attachments.message_id` FK ON DELETE CASCADE (fresh CREATE + guarded ALTER); миграция legacy-БД (backfill по meta живых сообщений + очистка балласта); claim строк после успешного addMessage, cleanup незаклеймлённых при провале LLM; deletedAttachments — реальный count; reference не каскадится; файлы на диске не удаляются (File Manager); мёртвый POST /api/attachments/extract демонтирован; 174/174, red-first |
 | 6 | Восстановить извлечение текста из документов (утрачено в PR #16) | **Исполнено**: PR #19 (`tz/doc-extraction`) — `extractText(buffer, filename)` (pdfjs/word-extractor/xlsx) в extractFromPaths + buildLLMContext, без новых зависимостей; 162/162, red-first. Ограничения: .docx — смоук на реальном файле за владельцем; скан-PDF без текстового слоя → пустой текст (OCR — отдельная тема) |
 | 1 | E2E Playwright | Перенесён в «Отложенные» (2026-11-11) |
