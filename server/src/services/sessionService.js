@@ -30,6 +30,21 @@ export function archiveSession(id, newTitle) {
     return sessionRepo.archiveSession(id, newTitle);
 }
 
+// ТЗ send-error-persist (№3 context-overflow-ux): персистентная плашка последней
+// провальной отправки — пишется на провале (пре-флайт/catch), чистится на успехе
+// и по dismiss. payload=null эквивалентен очистке.
+export function setSessionSendError(id, payload) {
+    return sessionRepo.setSendError(id, payload);
+}
+
+export function clearSessionSendError(id) {
+    return sessionRepo.setSendError(id, null);
+}
+
+export function getSessionSendError(id) {
+    return sessionRepo.getSendError(id);
+}
+
 // === Messages ===
 export function getMessagesBySession(sessionId) {
     return messageRepo.getMessagesBySession(sessionId);
