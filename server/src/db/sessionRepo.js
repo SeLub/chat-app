@@ -52,6 +52,27 @@ export function deleteSession(id) {
     getDb().prepare('DELETE FROM sessions WHERE id = ?').run(id);
 }
 
+/* ТЗ send-error-persist (№3 context-overflow-ux): JSON последней провальной
+   отправки на сессии. Пишется chatController'ом на каждом известном серверу
+   провале (пре-флайт, catch провайдера), чистится на успешной отправке и по
+   явному dismiss (DELETE /api/sessions/:id/send-error). updated_at НЕ трогаем:
+   провал — не повод поднимать сессию наверх списка. payload = объект или null. */
+export function setSendError(id, payload) {
+    const json = payload == null ? null : JSON.stringify(payload);
+    getDb().prepare('UPDATE sessions SET last_send_error = ? WHERE id = ?').run(json, id);
+}
+
+export function getSendError(id) {
+    const row = getDb().prepare('SELECT last_send_error FROM sessions WHERE id = ?').get(id);
+    if (!row || !row.last_send_error) return null;
+    try {
+        const parsed = JSON.parse(row.last_send_error);
+        return parsed && typeof parsed === 'object' ? parsed : null;
+    } catch {
+        return null;
+    }
+}
+
 export function archiveSession(id, newTitle) {
     getDb().prepare(`
         UPDATE sessions SET title = ?, updated_at = datetime('now') WHERE id = ?

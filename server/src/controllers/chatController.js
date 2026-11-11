@@ -40,6 +40,39 @@ const isImageFile = (mimetype) => Boolean(mimetype && mimetype.startsWith('image
 // запросов. Граница снизу: ровно MAX_MESSAGE_CHARS проходит.
 export const MAX_MESSAGE_CHARS = 64000;
 
+// ТЗ send-error-persist (№3 context-overflow-ux): персистентная плашка последней
+// провальной отправки на сессии (sessions.last_send_error). Провальная отправка не
+// оставляет следов в messages/attachments (вопрос откатывается, строки реестра
+// чистятся) — без этой записи F5 стирает инцидент безвозвратно, и сессия выглядит
+// «чистой». Пишется на каждом известном серверу провале, чистится на успехе и по
+// явному dismiss. Ни запись, ни очистка не роняют основной обработчик.
+function persistSendError(sessionId, payload) {
+    try {
+        sessionService.setSessionSendError(sessionId, { ...payload, at: new Date().toISOString() });
+    } catch (e) {
+        log.warn('Failed to persist send error', { error: e.message });
+    }
+}
+
+function clearSendErrorSafe(sessionId) {
+    try {
+        sessionService.clearSessionSendError(sessionId);
+    } catch (e) {
+        log.warn('Failed to clear send error', { error: e.message });
+    }
+}
+
+// Классификация details провайдера (тот же контракт, что пробрасывается на фронт):
+// жёсткий 400 llama.cpp → context_overflow с реальными числами токенизатора,
+// остальное → server. Используется catch-ветками chat и vision.
+function classifyProviderError(details) {
+    const d = details && typeof details === 'object' ? details : {};
+    const promptTok = typeof d.n_prompt_tokens === 'number' ? d.n_prompt_tokens : undefined;
+    const nCtxTok = typeof d.n_ctx === 'number' ? d.n_ctx : undefined;
+    const isOverflow = d.type === 'exceed_context_size_error' || (promptTok != null && nCtxTok != null);
+    return { isOverflow, promptTok, nCtxTok };
+}
+
 export async function chatHandler(req, res) {
     let { message, model, sessionId, questionId, contextLength, retainPercent, includeQuestionIds } = req.body;
 
@@ -62,6 +95,9 @@ export async function chatHandler(req, res) {
     // ТЗ attachment-cascade: fileIds строк реестра, созданных ЭТОЙ отправкой (RESEARCH).
     // PROJECT-ветка строки не создаёт (reference — пул сессии): claim/cleanup к ней неприменимы.
     let sentFileIds = [];
+    // ТЗ send-error-persist (№3): имена вложений провальной отправки — плашка
+    // показывает, с какими файлами отправка не прошла (сами файлы не переживают F5).
+    let sentFileNames = [];
 
     try {
         // === ТЗ adaptive-context-budget (№4): кап на длину message —
@@ -171,6 +207,7 @@ export async function chatHandler(req, res) {
             // ТЗ attachment-cascade: claim/cleanup касаются только строк, созданных этой
             // отправкой; PROJECT-reference — пул сессии (message_id всегда NULL).
             sentFileIds = currentAttachments.map((a) => a.fileId).filter(Boolean);
+            sentFileNames = currentAttachments.map((a) => a.name).filter(Boolean);
         }
 
         // === Шаг 2. Контекст-конфиг — общий для chat и vision веток ===
@@ -255,6 +292,9 @@ export async function chatHandler(req, res) {
                     metrics: result.metrics
                 });
 
+                // ТЗ send-error-persist (№3): успешная отправка гасит персистентную плашку.
+                clearSendErrorSafe(sessionId);
+
                 return res.json({
                     response: result.response,
                     model,
@@ -271,6 +311,17 @@ export async function chatHandler(req, res) {
                 log.error('Vision model error', { error: error.message, details: error.details });
                 // ТЗ attachment-cascade: проваленная отправка не оставляет строк в реестре
                 attachmentService.deleteUnclaimedAttachments(sentFileIds);
+                // ТЗ send-error-persist (№3): плашка последней провальной отправки —
+                // переживает F5 (провальная vision-отправка тоже не пишет в messages).
+                const { isOverflow, promptTok, nCtxTok } = classifyProviderError(error.details);
+                persistSendError(sessionId, {
+                    kind: isOverflow ? 'context_overflow' : 'server',
+                    providerName: req.providerName,
+                    failedText: message || '',
+                    fileNames: sentFileNames,
+                    ...(isOverflow ? { nPromptTokens: promptTok, nCtxTokens: nCtxTok } : {}),
+                    message: error.message,
+                });
                 // ТЗ context-overflow-ux: details провайдера (n_prompt_tokens/n_ctx/type
                 // из тела 400 llama.cpp) — верхним уровнем, баннер фронта покажет числа.
                 return res.status(500).json({
@@ -334,6 +385,16 @@ export async function chatHandler(req, res) {
                     historyChars: contextResult.info.actualHistoryChars
                 });
                 attachmentService.deleteUnclaimedAttachments(sentFileIds);
+                // ТЗ send-error-persist (№3): пре-флайт-провал — персистентная плашка
+                // (после F5 сессия не выглядит «чистой», вопрос восстанавливается).
+                persistSendError(sessionId, {
+                    kind: 'context_overflow',
+                    providerName: req.providerName,
+                    failedText: message,
+                    fileNames: sentFileNames,
+                    estimatedTokens: estimatedPromptTokens,
+                    contextLength,
+                });
                 return res.status(400).json({
                     error: `Prompt (~${estimatedPromptTokens} tokens) exceeds the context size (${contextLength} tokens)`,
                     code: 'context_overflow',
@@ -375,6 +436,9 @@ export async function chatHandler(req, res) {
                 metrics: { ...(result.metrics || {}), promptChars }
             });
 
+            // ТЗ send-error-persist (№3): успешная отправка гасит персистентную плашку.
+            clearSendErrorSafe(sessionId);
+
             res.json({
                 response: result.response,
                 model,
@@ -401,6 +465,17 @@ export async function chatHandler(req, res) {
             log.error('Chat error', { error: error.message, code: error.code, details: error.details });
             // ТЗ attachment-cascade: проваленная отправка не оставляет строк в реестре
             attachmentService.deleteUnclaimedAttachments(sentFileIds);
+            // ТЗ send-error-persist (№3): плашка последней провальной отправки —
+            // переживает F5 (в messages ничего не пишется, вопрос был optimistic).
+            const { isOverflow, promptTok, nCtxTok } = classifyProviderError(error.details);
+            persistSendError(sessionId, {
+                kind: isOverflow ? 'context_overflow' : 'server',
+                providerName: req.providerName,
+                failedText: message,
+                fileNames: sentFileNames,
+                ...(isOverflow ? { nPromptTokens: promptTok, nCtxTokens: nCtxTok } : {}),
+                message: error.message,
+            });
             // ТЗ context-overflow-ux: details провайдера (n_prompt_tokens/n_ctx/type
             // из тела 400 llama.cpp) — верхним уровнем, баннер фронта покажет числа.
             res.status(500).json({
@@ -413,6 +488,15 @@ export async function chatHandler(req, res) {
         // ТЗ attachment-cascade: реестр не переживает проваленную отправку
         // (ветка context-config вне inner-try — строки уже вставлены)
         attachmentService.deleteUnclaimedAttachments(sentFileIds);
+        // ТЗ send-error-persist (№3): провал до веток chat/vision — тоже плашка
+        // (message на этом этапе ещё исходный текст запроса).
+        persistSendError(sessionId, {
+            kind: 'server',
+            providerName: req.providerName,
+            failedText: message || '',
+            fileNames: sentFileNames,
+            message: error.message,
+        });
         res.status(500).json({ error: 'Failed to process message' });
     } finally {
         // TZ-B.3: cleanup временных файлов — сама директория uploads/tmp сохраняется

@@ -81,13 +81,15 @@ export const sessionsApi = {
     if (options?.offset) params.append('offset', String(options.offset));
     if (options?.search) params.append('search', options.search);
     const qs = params.toString();
-    return request<Array<{ id: string; title: string; category: string; message_count: number; model?: string; provider?: string; sysprompt: string; created_at: string; updated_at: string; mode?: SessionMode; project_id?: string }>>(
+    return request<Array<{ id: string; title: string; category: string; message_count: number; model?: string; provider?: string; sysprompt: string; created_at: string; updated_at: string; mode?: SessionMode; project_id?: string; last_send_error?: string | null }>>(
       'GET',
       `/api/sessions${qs ? '?' + qs : ''}`,
     );
   },
   get(id: string) {
-    return request<{ id: string; title: string; category: string; model?: string; provider?: string; sysprompt: string; message_count: number; created_at: string; updated_at: string; mode?: SessionMode; project_id?: string }>(
+    // ТЗ send-error-persist (№3): last_send_error — сырой JSON-столбец sessions
+    // (персистентная плашка последней провальной отправки, переживает F5).
+    return request<{ id: string; title: string; category: string; model?: string; provider?: string; sysprompt: string; message_count: number; created_at: string; updated_at: string; mode?: SessionMode; project_id?: string; last_send_error?: string | null }>(
       'GET',
       `/api/sessions/${id}`,
     );
@@ -124,6 +126,10 @@ export const sessionsApi = {
       'DELETE',
       `/api/sessions/${sessionId}/messages/${questionId}`,
     );
+  },
+  // ТЗ send-error-persist (№3): явный dismiss персистентной плашки (крестик).
+  clearSendError(id: string) {
+    return request<{ ok: boolean }>('DELETE', `/api/sessions/${id}/send-error`);
   },
 };
 
