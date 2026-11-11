@@ -243,10 +243,15 @@ export async function chatHandler(req, res) {
                     attachmentsMeta: currentAttachments,
                 });
             } catch (error) {
-                log.error('Vision model error', { error: error.message });
+                log.error('Vision model error', { error: error.message, details: error.details });
                 // ТЗ attachment-cascade: проваленная отправка не оставляет строк в реестре
                 attachmentService.deleteUnclaimedAttachments(sentFileIds);
-                return res.status(500).json({ error: error.message || 'Vision model connection failed' });
+                // ТЗ context-overflow-ux: details провайдера (n_prompt_tokens/n_ctx/type
+                // из тела 400 llama.cpp) — верхним уровнем, баннер фронта покажет числа.
+                return res.status(500).json({
+                    error: error.message || 'Vision model connection failed',
+                    ...(error.details && typeof error.details === 'object' ? error.details : {})
+                });
             }
         }
 
@@ -275,6 +280,40 @@ export async function chatHandler(req, res) {
                 removedQAPairs: contextResult.info?.removedQAPairs ?? 0,
                 excludedIndices: contextResult.info?.excludedIndices ?? []
             });
+
+            // ТЗ context-overflow-ux (№1): пре-флайт ДО вызова LLM. filesContext
+            // ([Материалы]) бюджетом НЕ обрезается — fixedChars может быть >> maxChars
+            // (большой документ уходит в промпт целиком; в RESEARCH — в каждый запрос),
+            // история при этом зажимается в 0, и llama.cpp отвечает 400
+            // exceed_context_size_error уже после дорогостоящей обработки вложений.
+            // Здесь — та же chars/4-эвристика, что в buildLLMContext: если промпт
+            // заведомо не влезает в контекст — быстрый 400 со структурой
+            // {code:'context_overflow', estimatedTokens, contextLength}; строки
+            // реестра этой отправки чистятся (как у других провальных исходов).
+            // Vision-ветку не трогаем: base64-картинку токенизирует mmproj,
+            // chars/4 неприменим.
+            const PROMPT_OVERHEAD_CHARS = 64; // [Ранее в этой сессии] + обвязка шаблона
+            const questionChars = ('[Вопрос]\n' + (message || '')).length;
+            const estimatedPromptTokens = Math.ceil(
+                (contextResult.info.fixedChars +
+                 contextResult.info.actualHistoryChars +
+                 questionChars + PROMPT_OVERHEAD_CHARS) / 4
+            );
+            if (Number.isFinite(contextLength) && estimatedPromptTokens > contextLength) {
+                log.warn('Pre-flight: prompt exceeds context, rejecting before LLM call', {
+                    estimatedPromptTokens,
+                    contextLength,
+                    fixedChars: contextResult.info.fixedChars,
+                    historyChars: contextResult.info.actualHistoryChars
+                });
+                attachmentService.deleteUnclaimedAttachments(sentFileIds);
+                return res.status(400).json({
+                    error: `Prompt (~${estimatedPromptTokens} tokens) exceeds the context size (${contextLength} tokens)`,
+                    code: 'context_overflow',
+                    estimatedTokens: estimatedPromptTokens,
+                    contextLength
+                });
+            }
 
             const totalQAPairs = contextResult.info?.totalQAPairs ?? 0;
             const isManualMode = parsedIncludeIds && parsedIncludeIds.length < totalQAPairs;
@@ -328,10 +367,15 @@ export async function chatHandler(req, res) {
                 }
             });
         } catch (error) {
-            log.error('Chat error', { error: error.message, code: error.code });
+            log.error('Chat error', { error: error.message, code: error.code, details: error.details });
             // ТЗ attachment-cascade: проваленная отправка не оставляет строк в реестре
             attachmentService.deleteUnclaimedAttachments(sentFileIds);
-            res.status(500).json({ error: error.message || 'Connection failed' });
+            // ТЗ context-overflow-ux: details провайдера (n_prompt_tokens/n_ctx/type
+            // из тела 400 llama.cpp) — верхним уровнем, баннер фронта покажет числа.
+            res.status(500).json({
+                error: error.message || 'Connection failed',
+                ...(error.details && typeof error.details === 'object' ? error.details : {})
+            });
         }
     } catch (error) {
         log.error('Error processing URLs', { error: error.message });

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { mergeSystemMessages, resolveModelSize } from '../../src/providers/LlamaCppProvider.js';
+import { mergeSystemMessages, resolveModelSize, parseLlamaCppErrorResponse } from '../../src/providers/LlamaCppProvider.js';
 
 /**
  * ТЗ «один system, [Материалы] / [Ранее] / [Вопрос]», п.6:
@@ -94,5 +94,61 @@ describe('LlamaCppProvider: resolveModelSize (ТЗ stats-size)', () => {
     it('meta.size как строка («» из ollama-совместимого слоя b6000) → 0, не NaN', async () => {
         const size = await resolveModelSize({ size: '' }, {});
         assert.equal(size, 0);
+    });
+});
+
+// ============================================================
+// ТЗ context-overflow-ux: парсинг тела ошибки llama.cpp
+// ============================================================
+// 400 exceed_context_size_error несёт n_prompt_tokens/n_ctx — раньше тело
+// уходило только в лог, фронт получал голый «Chat error: Bad Request».
+// parseLlamaCppErrorResponse достаёт структуру для проброса на фронт.
+describe('LlamaCppProvider: parseLlamaCppErrorResponse (ТЗ context-overflow-ux)', () => {
+    it('реальное тело 400 (обёртка {error:{…}}) → message/type/n_prompt_tokens/n_ctx', () => {
+        const body = JSON.stringify({
+            error: {
+                code: 400,
+                message: 'request (3937667 tokens) exceeds the available context size (98304 tokens), try increasing it',
+                type: 'exceed_context_size_error',
+                n_prompt_tokens: 3937667,
+                n_ctx: 98304,
+            },
+        });
+        const parsed = parseLlamaCppErrorResponse(body);
+        assert.ok(parsed, 'должен распарсить');
+        assert.equal(parsed.type, 'exceed_context_size_error');
+        assert.equal(parsed.n_prompt_tokens, 3937667);
+        assert.equal(parsed.n_ctx, 98304);
+        assert.match(parsed.message, /exceeds the available context size/);
+    });
+
+    it('плоский JSON без обёртки error → те же поля', () => {
+        const parsed = parseLlamaCppErrorResponse(
+            JSON.stringify({ type: 'exceed_context_size_error', n_prompt_tokens: 10, n_ctx: 5 }),
+        );
+        assert.ok(parsed);
+        assert.equal(parsed.type, 'exceed_context_size_error');
+        assert.equal(parsed.n_prompt_tokens, 10);
+        assert.equal(parsed.n_ctx, 5);
+    });
+
+    it('не-JSON тело → null (фронт покажет общий текст ошибки)', () => {
+        assert.equal(parseLlamaCppErrorResponse('<html>Bad Request</html>'), null);
+        assert.equal(parseLlamaCppErrorResponse(''), null);
+        assert.equal(parseLlamaCppErrorResponse(undefined), null);
+    });
+
+    it('JSON без известных полей → null', () => {
+        assert.equal(parseLlamaCppErrorResponse(JSON.stringify({ error: { code: 400 } })), null);
+        assert.equal(parseLlamaCppErrorResponse('{}'), null);
+    });
+
+    it('строковые n_prompt_tokens (нечисловые) отбрасываются — только честные числа', () => {
+        const parsed = parseLlamaCppErrorResponse(
+            JSON.stringify({ error: { type: 'exceed_context_size_error', n_prompt_tokens: '3937667' } }),
+        );
+        assert.ok(parsed);
+        assert.equal(parsed.type, 'exceed_context_size_error');
+        assert.equal(parsed.n_prompt_tokens, undefined);
     });
 });
