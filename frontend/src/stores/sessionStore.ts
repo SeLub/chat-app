@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import type { ChatMessage, ResponseMetrics, SessionMode } from '@/types';
-import { apiGateway, ApiError } from '@/lib/apiGateway';
+import { apiGateway } from '@/lib/apiGateway';
+import { buildSendErrorInfo, type SendErrorInfo } from '@/lib/sendError';
 import { useProviderStore } from './providerStore';
 import { useUIStore } from './uiStore';
 
@@ -138,6 +139,21 @@ interface SessionStore {
     files?: { file?: File; codeFiles?: File[] },
   ) => Promise<void>;
 
+  // ТЗ context-overflow-ux (№2): структурированная ошибка ПОСЛЕДНЕЙ провальной
+  // отправки — баннер в ChatArea с кнопкой «Повторить»; вопрос возвращается в
+  // поле ввода (failedText), вложения — в композер (failedFiles). Пара
+  // «вопрос-ошибка» в чате больше не создаётся, F5 больше не нужен.
+  sendError: SendErrorInfo | null;
+  setSendErrorFromException: (
+    e: unknown,
+    failedText: string,
+    failedFiles: { file?: File; codeFiles?: File[] } | undefined,
+    providerName: string,
+    sessionId: string | null,
+  ) => void;
+  dismissSendError: () => void;
+  rollbackMessage: (questionId: string) => void;
+
   // context state
   saveContextState: () => void;
   loadContextState: () => void;
@@ -193,7 +209,7 @@ function loadSelectedIds(sessionId: string): string[] | null {
 
 const normalizeMode = (raw?: string | null): SessionMode => (raw === 'project' ? 'project' : 'research');
 
-export const initialSessionState: Omit<SessionStore, 'init' | 'switchToViewing' | 'returnToCurrent' | 'addMessage' | 'addBotMessage' | 'updateSysprompt' | 'setSysprompt' | 'setMode' | 'deleteMessage' | 'clearChat' | 'exportConversation' | 'loadViewingSession' | 'saveConversation' | 'sendMessage' | 'saveContextState' | 'loadContextState' | 'resetContextState' | 'toggleContextMode' | 'toggleQuestionSelection' | 'selectAllQuestions' | 'deselectAllQuestions' | 'setRetainPercent' | 'purgeSessionKeys' | 'startFreshAfterDelete' | 'deleteSession'> = {
+export const initialSessionState: Omit<SessionStore, 'init' | 'switchToViewing' | 'returnToCurrent' | 'addMessage' | 'addBotMessage' | 'updateSysprompt' | 'setSysprompt' | 'setMode' | 'deleteMessage' | 'clearChat' | 'exportConversation' | 'loadViewingSession' | 'saveConversation' | 'sendMessage' | 'setSendErrorFromException' | 'dismissSendError' | 'rollbackMessage' | 'saveContextState' | 'loadContextState' | 'resetContextState' | 'toggleContextMode' | 'toggleQuestionSelection' | 'selectAllQuestions' | 'deselectAllQuestions' | 'setRetainPercent' | 'purgeSessionKeys' | 'startFreshAfterDelete' | 'deleteSession'> = {
   activeSessionId: null,
   viewingSessionId: null,
   currentSessionTitle: '',
@@ -207,6 +223,7 @@ export const initialSessionState: Omit<SessionStore, 'init' | 'switchToViewing' 
   selectedQuestionIds: [],
   retainPercent: 80,
   contextInfo: undefined,
+  sendError: null,
   mode: 'research',
 };
 
@@ -401,6 +418,48 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     });
   },
 
+  // ── ТЗ context-overflow-ux (№2) ──
+  dismissSendError: () => {
+    set({ sendError: null });
+  },
+
+  // Откат оптимистичного user-сообщения при провале отправки: в чате не
+  // остаётся пары-призрака — вопрос уходит в поле ввода (sendError.failedText).
+  rollbackMessage: (questionId: string) => {
+    set((state) => {
+      const hadUserMsg = state.messages.some(
+        (m) => m.questionId === questionId && m.role === 'user',
+      );
+      return {
+        messages: state.messages.filter((m) => m.questionId !== questionId),
+        questionCounter: hadUserMsg
+          ? Math.max(0, state.questionCounter - 1)
+          : state.questionCounter,
+      };
+    });
+  },
+
+  // Сборка баннера из исключения отправки: buildSendErrorInfo — чистая функция
+  // (см. lib/sendError.ts); подсказка про fallback-провайдера — как раньше,
+  // плюс refreshStatus для провайдерских/серверных ошибок (как раньше для 503).
+  setSendErrorFromException: (e, failedText, failedFiles, providerName, sessionId) => {
+    const providers = useProviderStore.getState().providers;
+    const fallback = providers.find(
+      (p) => p.status === 'connected' && p.name !== providerName,
+    );
+    const info = buildSendErrorInfo(e, {
+      sessionId,
+      failedText,
+      ...(failedFiles ? { failedFiles } : {}),
+      providerName,
+      ...(fallback ? { fallbackProvider: fallback.name } : {}),
+    });
+    set({ sendError: info });
+    if (info.kind === 'provider_unavailable' || info.kind === 'server') {
+      useProviderStore.getState().refreshStatus();
+    }
+  },
+
   setSysprompt: (sysprompt: string) => {
     set({ sysprompt, syspromptDirty: true });
   },
@@ -579,6 +638,10 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       throw new Error('No model selected');
     }
 
+    // ТЗ context-overflow-ux (№2): баннер отражает ПОСЛЕДНЮЮ провальную
+    // отправку — новая отправка гасит предыдущий баннер.
+    set({ sendError: null });
+
     // Generate questionId
     const n = questionCounter + 1;
     const questionId = `q_${n}_${Date.now()}`;
@@ -640,54 +703,41 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         files,
       );
     } catch (e) {
-      if (e instanceof ApiError && e.status === 503) {
-        get().addBotMessage(
-          `⚠️ **${currentProvider} is unavailable**\n\n${e.message}\n\nПроверь статус провайдера или смени провайдера.`,
-          currentModel,
-        );
-        useProviderStore.getState().refreshStatus();
-        return;
-      }
-      if (e instanceof ApiError) {
-        get().addBotMessage(`❌ **Error ${e.status}**\n\n${e.message}`, currentModel);
-        return;
-      }
-      const msg = e instanceof Error ? e.message : String(e);
-      get().addBotMessage(
-        `❌ **Network error**\n\n${msg}\n\nПроверь соединение с сервером.`,
-        currentModel,
-      );
+      // ТЗ context-overflow-ux (№2): никакого сообщения-пары в чате — откат
+      // оптимистичного вопроса + баннер (sendError). Вопрос не теряется:
+      // ChatArea вернёт failedText в поле ввода и failedFiles в композер.
+      get().rollbackMessage(questionId);
+      get().setSendErrorFromException(e, message, files, currentProvider, viewingSessionId);
       return;
     }
 
     if (!result) {
-      // null response — network error already logged by apiGateway
-      get().addBotMessage(
-        '⚠️ **Request failed**\n\nNo response received from the server.',
-        currentModel,
+      // null response — network error already logged by apiGateway.
+      // ТЗ context-overflow-ux (№2): пара-ошибка не создаётся — баннер.
+      get().rollbackMessage(questionId);
+      get().setSendErrorFromException(
+        new Error('No response received from the server'),
+        message,
+        files,
+        currentProvider,
+        viewingSessionId,
       );
       // After failed send at viewing ≠ active, don't sync active
       return;
     }
 
     // Handle response
+    // ТЗ context-overflow-ux (№2): 200 с error-полем (legacy-контракт) — тот же
+    // баннер: откат вопроса + sendError (ECONNREFUSED-текст строит buildSendErrorInfo).
     if (result.error) {
-      let errorMsg: string;
-      if (result.error.includes('ECONNREFUSED')) {
-        errorMsg =
-          '⚠️ **Connection refused**\n\n' +
-          'The backend server is not running or the URL is incorrect.\n' +
-          'Make sure the server (port 3000) is started and accessible.';
-      } else {
-        errorMsg = `❌ **Error**\n\n${result.error}`;
-      }
-      const providers = useProviderStore.getState().providers;
-      const fallback = providers.find((p) => p.status === 'connected' && p.name !== currentProvider);
-      if (fallback) {
-        errorMsg += `\n\n💡 Switch to ${fallback.name} to continue.`;
-      }
-      get().addBotMessage(errorMsg, currentModel);
-      useProviderStore.getState().refreshStatus();
+      get().rollbackMessage(questionId);
+      get().setSendErrorFromException(
+        result.error,
+        message,
+        files,
+        currentProvider,
+        viewingSessionId,
+      );
       return;
     }
 
