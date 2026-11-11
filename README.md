@@ -1,136 +1,161 @@
-# Chat-App — веб-чат для локальных LLM (llama.cpp / Ollama)
+# Chat-App — Local Web Chat for Local LLMs (llama.cpp / Ollama)
 
-Локальная веб-оболочка для локальных языковых моделей: чат-интерфейс (React SPA) + сервер (Express 5 + SQLite + WebSocket), работающие целиком на вашей машине. Никаких внешних API — модель, файлы, транскрипция речи и статистика остаются локальными.
+> Documentation in Russian: [docs/README_RUS.md](docs/README_RUS.md)
 
-Ключевое в продукте:
+A local-first web shell for local language models: a React SPA front end plus an Express 5 + SQLite + WebSocket server, running entirely on your machine. No external APIs — the model, your files, speech transcription and usage statistics all stay local.
 
-- **Умное управление контекстом** — адаптивный бюджет истории по измеренной плотности токенов, пре-флайт-проверка переполнения до вызова модели, ручной выбор включаемых пар, LIFO-обрезка.
-- **Режим ПРОЕКТ** — привязка сессии к папке проекта: reference-файлы читаются с диска в актуальном состоянии при каждом запросе (см. отдельный раздел ниже).
-- **Реестр вложений** — документы (PDF/DOCX/XLSX/CSV) с извлечением текста, код до 50 файлов, картинки, веб-страницы по URL; файлы никогда не удаляются с диска.
-- **UX ошибок отправки** — структурированный баннер с реальными числами токенизатора, вопрос не теряется, плашка переживает F5, быстрые действия одним кликом.
-- **STT и AI-хелпер** — голосовой ввод через Whisper и оверлей записи встречи (микрофон + системный звук) с отправкой транскриптов в чат.
-- **Статистика** — токен-бар загрузки контекста, размер модели, TPS/TTFT, учёт кэш-ходов llama.cpp.
+Key ideas of the product:
 
-Стек: Node.js 20+ (Express 5, better-sqlite3), React 18 + TypeScript (strict) + Vite + Tailwind 4 + Zustand + Radix; провайдеры — llama.cpp (`llama-server`) и Ollama; STT — whisper.cpp.
+- **Smart context management** — adaptive history budget based on measured token density, pre-flight overflow check before the LLM call, manual selection of included pairs, LIFO trimming.
+- **PROJECT mode** — bind a session to a project folder: reference files are read from disk in their current state on every request (see its own section below).
+- **Attachment registry** — documents (PDF/DOCX/XLSX/CSV) with server-side text extraction, code (up to 50 files), images, web pages by URL; files are never deleted from disk.
+- **Send-error UX** — a structured banner with real tokenizer numbers; the question is never lost; the banner survives page reload; one-click quick actions.
+- **STT & AI Helper** — voice input via whisper.cpp and a floating meeting-capture overlay (microphone + system audio) with transcripts pushed into the chat.
+- **Statistics** — context-load token bar, model size, TPS/TTFT, llama.cpp cache-aware token counting.
 
 ---
 
-## Возможности
+## Tech Stack
 
-### Мульти-провайдерность
+| Layer | Technologies |
+|---|---|
+| Backend | Node.js 20+, Express 5, better-sqlite3 (SQLite), ws (WebSocket), multer, sharp |
+| Frontend | React 18, TypeScript (strict), Vite, Tailwind CSS 4, Zustand, Radix UI, react-markdown + highlight.js, Mermaid |
+| LLM providers | Ollama and llama.cpp (`llama-server`, GGUF); extensible via a common `BaseProvider` interface |
+| STT | whisper.cpp (two `whisper-server` instances) + Silero VAD v5 in the browser (WASM: `@ricky0123/vad-web` 0.0.30 + `onnxruntime-web` 1.22.0) |
+| Documents & URLs | pdfjs-dist (PDF), word-extractor (DOC/DOCX), xlsx (XLS/XLSX/CSV), Mozilla Readability + cheerio (web pages) |
+| Tooling | pnpm 10+, Vitest (frontend), `node --test` (backend), ESLint, Docker Compose (Ollama) |
 
-* Единый интерфейс провайдеров: **Ollama** (менеджмент моделей) и **llama.cpp** (GGUF через `llama-server`).
-* Переключение провайдера и выбор модели в выпадающем меню правой панели; выбор запоминается в `localStorage`.
-* Автоопределение статуса провайдеров (`connected`/`disconnected`/`error`) и доступных моделей.
-* Новый провайдер (vLLM, LocalAI и т.п.) добавляется классом `BaseProvider` + регистрация в `providerManager.js` и `config/providers.js` — контроллеры и сервисы не меняются.
+---
 
-### Управление контекстом
+## Features
 
-Промпт собирается детерминированно (`contextBuilder.js`):
+### Multi-provider
+
+* One provider interface: **Ollama** (model management) and **llama.cpp** (GGUF via `llama-server`).
+* Provider switch and model picker in the right panel dropdown; the choice is persisted in `localStorage`.
+* Live provider status detection (`connected`/`disconnected`/`error`) and available model lists.
+* A new provider (vLLM, LocalAI, etc.) is one `BaseProvider` subclass + registration in `providerManager.js` and `config/providers.js` — no controller or service changes.
+
+### Context management
+
+The prompt is assembled deterministically (`contextBuilder.js`):
 
 ```text
-РОВНО один system (sysprompt) + [Материалы] (текст вложений/URL/файлы проекта)
-+ [Ранее в этой сессии] (обрезанная история Q&A-пар) + [Вопрос] (текущее сообщение)
+EXACTLY one system (sysprompt) + [Materials] (attachment/URL/project file text)
++ [Earlier in this session] (trimmed Q&A-pair history) + [Question] (current message)
 ```
 
-**Два режима работы с историей:**
+**Two history modes:**
 
-1. **Стандартный** — в контекст автоматически включаются предыдущие Q&A-пар; при нехватке места старые пары обрезаются первыми (LIFO). Слайдер `retainPercent` задаёт долю бюджета истории, которую разрешено занимать прошлым парам.
-2. **Ручной** — вы сами отмечаете галочками, какие пары включить (`includeQuestionIds`); невыбранное в промпт не попадает.
+1. **Standard** — previous Q&A pairs are included automatically; when space runs out, the oldest pairs are trimmed first (LIFO). The `retainPercent` slider sets how much of the history budget past pairs may occupy.
+2. **Manual** — you tick which pairs to include (`includeQuestionIds`); anything unticked never reaches the prompt.
 
-**Адаптивный бюджет истории (PR #24).** Граница обрезки истории считается не по константе «4 символа = 1 токен», а по **измеренной плотности** сессии: `charsPerToken = promptChars / inputTokens` последнего текстового ответа (приложение знает и символы промпта, и фактический счётчик токенизатора). Бюджет: `maxChars = ctx × плотность × 0.9` (запас 10% на вариативность токенизатора). Плотность принимается только из достоверной полосы **[1.0; 5.0]**; если метрик ещё нет (первый ход) — фолбэк `4` без запаса, как раньше. На кириллице (реальная плотность ~1.3–2.5 симв/токен) бюджет истории автоматически ужмётся в 2–3 раза — переполнение уходит в корне. Текущие значения видны в ответе сервера (`contextInfo.charsPerToken`, `charsPerTokenSource`).
+**Adaptive history budget.** The trimming boundary is computed from the **measured density** of the session, not a constant "4 chars = 1 token": `charsPerToken = promptChars / inputTokens` of the last text answer (the app knows both the prompt character count and the real tokenizer count). Budget: `maxChars = ctx × density × 0.9` (10% margin for tokenizer variance). Density is accepted only from a trusted band **[1.0; 5.0]**; with no metrics yet (first turn) it falls back to `4` without margin. On Cyrillic (real density ~1.3–2.5 chars/token) the history budget automatically shrinks 2–3× — overflow is eliminated at the root. Current values are exposed in the server response (`contextInfo.charsPerToken`, `charsPerTokenSource`).
 
-**Прe-флайт переполнения (PR #22).** До вызова LLM сервер оценивает промпт на той же измеренной плотности; если он заведомо не влезает — мгновенный `400 {code:'context_overflow', estimatedTokens, contextLength}` без похода к модели. Жёсткий 400 от llama.cpp (`exceed_context_size_error`) парсится, и реальные числа токенизатора (`n_prompt_tokens`/`n_ctx`) пробрасываются на фронт.
+**Overflow pre-flight.** Before calling the LLM, the server estimates the prompt on the same measured density; if it clearly does not fit, it returns an instant `400 {code:'context_overflow', estimatedTokens, contextLength}` without touching the model. A hard 400 from llama.cpp (`exceed_context_size_error`) is parsed, and the real tokenizer numbers (`n_prompt_tokens`/`n_ctx`) are surfaced to the UI.
 
-**Кап на длину сообщения (PR #24).** Сообщение длиннее **64 000 символов** не отправляется: композер блокирует кнопку и Enter с подсказкой и счётчиком (появляется после 90% лимита); прямые запросы к API получают мгновенный `400 {code:'message_too_long', messageLength, maxMessageChars}` до обработки URL и вложений.
+**Message length cap.** A message longer than **64,000 characters** is not sent: the composer blocks the Send button and Enter with a hint and counter (shown above 90% of the cap); direct API calls get an instant `400 {code:'message_too_long', messageLength, maxMessageChars}` before URL/attachment processing.
 
-**Учёт кэша llama.cpp.** `inputTokens` в метриках — полный размер промпта (`usage.prompt_tokens`, фолбэк `timings.prompt_n + cache_n`): при слот-кэше llama.cpp токен-бар и накопительная статистика сессии не занижаются на кэш-ходах; в метриках также виден `cachedTokens`.
+**llama.cpp cache awareness.** `inputTokens` in the metrics is the full prompt size (`usage.prompt_tokens`, fallback `timings.prompt_n + cache_n`): with llama.cpp slot caching the token bar and per-session totals are not undercounted on cache hits; `cachedTokens` is also visible in the metrics.
 
-### UX ошибок отправки
+### Send-error UX
 
-* Провальная отправка не создаёт фейковой пары «вопрос-ошибка» в чате — показывается **баннер** с классификацией (переполнение контекста / провайдер недоступен / сеть / сервер), человекочитаемым текстом и компактными числами (`3.94M / 98K`).
-* Вопрос и вложения **возвращаются в поле ввода** — ничего не теряется; кнопка «Повторить» переотправляет исходный запрос.
-* **Персистентная плашка (PR #23):** сервер пишет снапшот провала в `sessions.last_send_error`, поэтому после F5 инцидент не исчезает — плашка с временем и именами вложений ждёт в сессии. Быстрые действия одним кликом: «Удалить пару с файлом» (находит последнюю пару, чьё вложение инжектится в каждый запрос), «Новая сессия», «Вернуть вопрос в поле ввода». Крестик или успешная отправка гасят плашку (dismiss-роут: `DELETE /api/sessions/:id/send-error`).
+* A failed send does not create a fake "question-error" pair in the chat — a **banner** is shown instead, with classification (context overflow / provider down / network / server), human-readable text and compact numbers (`3.94M / 98K`).
+* The question and attachments **return to the composer** — nothing is lost; the "Retry" button re-sends the original request.
+* **Persistent banner:** the server writes a failure snapshot into `sessions.last_send_error`, so the incident survives F5 — the banner with timestamp and attachment names waits in the session. One-click quick actions: "Delete pair with file" (finds the last pair whose attachment is injected into every request), "New session", "Restore question to composer". The cross icon or a successful send clears the banner (dismiss route: `DELETE /api/sessions/:id/send-error`).
 
-### Вложения и реестр (RESEARCH)
+### Attachments and registry
 
-* **Документы:** PDF, DOC/DOCX, XLS/XLSX/CSV — извлечение текста на сервере (`pdfjs`, `word-extractor`, `xlsx`); скан-PDF без текстового слоя даст пустой текст (OCR — отдельная тема).
-* **Код:** до 50 файлов разом, структурный разбор и рекомендации.
-* **Картинки:** анализ vision-моделями. Гарантирован для Ollama; у llama.cpp поле `images` в `/v1/chat/completions` не стандартизовано (см. BACKLOG).
-* **URL:** ссылки из текста автоматически извлекаются и превращаются в текст через Mozilla Readability.
-* Всё живёт в единой таблице `attachments` (`kind`: document/code/image/reference); файлы **никогда не удаляются** с диска — ни при удалении пары, ни при удалении сессии (сироты — под будущий File Manager). Удаление Q&A-пары каскадно чистит только строки реестра этой пары (FK ON DELETE CASCADE, PR #20).
+* **Documents:** PDF, DOC/DOCX, XLS/XLSX/CSV — server-side text extraction (`pdfjs`, `word-extractor`, `xlsx`); scanned PDFs without a text layer yield empty text (OCR is a separate topic).
+* **Code:** up to 50 files at once, structural parsing and recommendations.
+* **Images:** analyzed by vision models. Guaranteed for Ollama; llama.cpp's `images` field in `/v1/chat/completions` is not standardized (see BACKLOG).
+* **URLs:** links found in the message text are automatically extracted and turned into text via Mozilla Readability.
+* Everything lives in a single `attachments` table (`kind`: document/code/image/reference); files are **never deleted** from disk — not on pair deletion, not on session deletion (orphans are reserved for a future File Manager). Deleting a Q&A pair cascades only into that pair's registry rows (FK ON DELETE CASCADE).
 
-### STT и AI-хелпер
+### STT & AI Helper (speech-to-text, fully local)
 
-* **Голосовой ввод:** кнопка микрофона в композере — запись, транскрипция whisper-сервером, текст вставляется в поле ввода.
-* **AI-хелпер** (плавающий оверлей): запись микрофона и/или системного звука (голос собеседника), лента транскриптов в реальном времени, отправка выбранных транскриптов в чат одной командой. Серверы Whisper поднимаются скриптом (см. «Установка»).
+Two independent voice features share the same whisper.cpp backends:
 
-### Сессии и история
+* **Voice input (composer):** the mic button records audio, the browser converts it to 16 kHz WAV PCM16 and posts it to `POST /api/stt/transcribe`; the server forwards it to whisper.cpp and the recognized text is inserted into the input field (normalized to a single line).
+* **AI Helper overlay:** a floating overlay for live meeting capture with **two audio streams** — your microphone (`getUserMedia`) and system audio, i.e. the interlocutor's voice (`getDisplayMedia`). Browser-side **Silero VAD v5** (WebAssembly via `onnxruntime-web`) detects speech segments and filters out non-speech noise (keyboard, coughing, music, notifications). Segments are streamed over WebSocket `/ws/ai-helper` as base64 PCM16; the Node server wraps them into WAV and sends them to **two dedicated whisper.cpp instances in parallel** — port **8081** (user) and port **8082** (interlocutor). Transcripts stream back into the overlay in real time, are persisted to the DB, and selected excerpts can be pushed into the chat as a message. An LLM hint can be streamed on request (`hint_token`/`hint_done`).
 
-* Автосохранение текущей сессии (переживает перезагрузку страницы).
-* Сохранение именованных сессий с категориями, загрузка, возврат к текущей, дашборд управления, экспорт в JSON.
-* Markdown-рендер вопросов и ответов (код-блоки, таблицы), бейджи моделей, копирование вопроса/пары в Markdown, навигация «предыдущий/следующий вопрос», удаление пар.
+Key characteristics: 1–3 s speech-to-text latency; 16,000 Hz PCM16 mono; Russian recognition with correct capture of English terms; everything computed locally (models in the browser + local whisper servers). The server sends cross-origin isolation headers (`COOP: same-origin`, `COEP: credentialless`) so multi-threaded WASM/`SharedArrayBuffer` works for the VAD; VAD/ONNX assets are served from `/vad-assets`.
 
-### Статистика
+Start both whisper servers with one command:
 
-* Токен-бар загрузки контекста: единая формула для бара и диалога статистики — токены сессии (input + output) / окно модели, кап 100%.
-* Размер модели («Size: X.X GB») и размер окна — динамическое определение (у llama.cpp: `meta.size` → `fs.stat(model_path)`; для Ollama — из списка моделей).
-* Метрики ответа: TPS, скорость промпта, TTFT, время загрузки модели; токен-счётчики с учётом кэш-ходов.
+```bash
+cd server && pnpm run whisper
+```
 
-### Трёхпанельный интерфейс
+`scripts/whisper.sh` runs two `whisper-server` processes: port **8081** — microphone (user voice); port **8082** — system audio (interlocutor voice, for the AI Helper). Both use `models/ggml-medium.bin`, language `ru`, 12 threads. `Ctrl+C` stops both.
 
-* **Левая панель (~20%):** навигация по Q&A-парам, переключатель Стандартный/Ручной, выбор включаемых пар, слайдер `retainPercent`.
-* **Центр (~60%):** чат, баннер ошибок отправки, композер с вложениями, STT и контекст-баром.
-* **Правая панель (~20%):** провайдер/модель, System Prompt (сохраняется в БД, инжектится первым и защищён от обрезки), живая статистика, панель режима ПРОЕКТ.
+### Sessions and history
+
+* Autosave of the current session (survives page reload).
+* Named sessions with categories, loading, return to the current one, a management dashboard, JSON export.
+* Markdown rendering of questions and answers (code blocks, tables), model badges, copy question/pair to Markdown, previous/next question navigation, pair deletion.
+
+### Statistics
+
+* Context-load token bar: one formula for the bar and the stats dialog — session tokens (input + output) / model window, capped at 100%.
+* Model size ("Size: X.X GB") and context window — dynamic detection (llama.cpp: `meta.size` → `fs.stat(model_path)`; Ollama: from the model list).
+* Response metrics: TPS, prompt speed, TTFT, model load time; token counters with cache-hit awareness.
+
+### Three-panel interface
+
+* **Left panel (~20%):** Q&A pair navigation, Standard/Manual switcher, pair inclusion checkboxes, `retainPercent` slider.
+* **Center (~60%):** chat, send-error banner, composer with attachments, STT and the context bar.
+* **Right panel (~20%):** provider/model, System Prompt (persisted in the DB, injected first and protected from trimming), live statistics, PROJECT mode panel.
 
 ---
 
-## Режим ПРОЕКТ
+## PROJECT Mode
 
-Отдельный режим сессии для работы над кодовой базой или папкой документов. Задача — чтобы модель всегда видела **актуальное** состояние файлов, без перевложения и без устаревших снапшотов.
+A separate session mode for working on a codebase or a document folder. The goal: the model always sees the **current** state of files — no re-uploading, no stale snapshots.
 
-### Как это работает
+### How it works
 
-1. В правой панели переключите режим сессии **research → project** (переключение в живой сессии разрешено: старые Q&A остаются, `contextInfo.modeChangedAtQuestion` предупреждает о смене режима).
-2. Выберите папку проекта внутри `CONTEXT_BASE_DIR` (браузер файлов с поиском; `node_modules`, `.git`, `dist`, `build`, `.next`, `__pycache__`, `*.min.*`, `*.map` и мусорные файлы игнорируются). Сессия привязывается к проекту (`sessions.project_id`); один активный проект на сессию — смена проекта через новую сессию.
-3. Прикрепите reference-файлы в пул сессии (до **100 файлов**, каждый до **1 МБ** — `MAX_REFERENCE_FILE_SIZE`). Файлы **не копируются**: в реестре создаётся строка `kind='reference'` с путём относительно `CONTEXT_BASE_DIR`.
-4. При каждом запросе сервер читает прикреплённые файлы **с диска** и кладёт текущее содержимое в `[Материалы]` с пометкой «(актуальная версия)». mtime-кэш: если файл с прошлого хода не менялся — используется закэшированный текст, изменился — перечитывается.
+1. Switch the session mode **research → project** in the right panel (switching in a live session is allowed: old Q&A pairs remain; `contextInfo.modeChangedAtQuestion` warns about the switch).
+2. Pick a project folder inside `CONTEXT_BASE_DIR` (file browser with search; `node_modules`, `.git`, `dist`, `build`, `.next`, `__pycache__`, `*.min.*`, `*.map` and junk files are ignored). The session binds to the project (`sessions.project_id`); one active project per session — changing projects means a new session.
+3. Attach reference files to the session pool (up to **100 files**, each up to **1 MB** — `MAX_REFERENCE_FILE_SIZE`). Files are **not copied**: a `kind='reference'` registry row is created with a path relative to `CONTEXT_BASE_DIR`.
+4. On every request the server reads the attached files **from disk** and puts the current content into `[Materials]` marked "(current version)". mtime cache: if a file has not changed since the last turn, the cached text is reused; if it has, it is re-read.
 
 ### RESEARCH vs PROJECT
 
-| | RESEARCH (по умолчанию) | PROJECT |
+| | RESEARCH (default) | PROJECT |
 |---|---|---|
-| Вложения | multipart-загрузка (документ/код/картинки/URL) | reference-файлы из папки проекта; multipart отклоняется (`400`) |
-| Текст в `[Материалы]` | снапшот на момент отправки (`extracted_text`) | чтение с диска при каждом запросе, «(актуальная версия)» |
-| Изменение файла на диске | на прошлые запросы не влияет | учитывается со следующего запроса (mtime-кэш) |
-| Привязка к папке | нет | проект внутри `CONTEXT_BASE_DIR` обязателен |
-| Диагностика | `contextInfo` (включённые/исключённые пары) | + `mode`, `filesAttached`, `filesMissing`, `filesTooLarge` |
+| Attachments | multipart upload (documents/code/images/URLs) | reference files from the project folder; multipart is rejected (`400`) |
+| Text in `[Materials]` | snapshot at send time (`extracted_text`) | read from disk on every request, "(current version)" |
+| File changed on disk | does not affect past requests | taken into account from the next request (mtime cache) |
+| Folder binding | none | a project inside `CONTEXT_BASE_DIR` is required |
+| Diagnostics | `contextInfo` (included/excluded pairs) | + `mode`, `filesAttached`, `filesMissing`, `filesTooLarge` |
 
-### Безопасность и ограничения
+### Security and limits
 
-* Все пути резолвятся строго внутри `CONTEXT_BASE_DIR` — выход за базу (`..`) отклоняется (`400`).
-* Файлы проекта открываются **только на чтение** — приложение ничего не пишет и не удаляет в вашей папке.
-* Если прикреплённый файл удалён с диска или стал больше лимита — строка помечается бейджем `missing`/`stale`/`too-large` в списке прикреплённых (`GET /api/sessions/:id/attachments?kind=reference`), в промпт он не попадает.
-* `CONTEXT_BASE_DIR` не настроен → `GET /api/config` отдаёт `ok:false`, UI показывает красный баннер и блокирует Projects; RESEARCH-режим работает без него.
-* Отвязать проект: `DELETE /api/sessions/:id/project` (`project_id=NULL`, режим → `research`, строки reference отсоединяются; файлы на диске не трогаются).
+* All paths resolve strictly inside `CONTEXT_BASE_DIR` — escaping the base (`..`) is rejected (`400`).
+* Project files are opened **read-only** — the app never writes to or deletes anything in your folder.
+* If an attached file is deleted from disk or outgrows the limit, its row gets a `missing`/`stale`/`too-large` badge in the attached list (`GET /api/sessions/:id/attachments?kind=reference`) and is excluded from the prompt.
+* `CONTEXT_BASE_DIR` not configured → `GET /api/config` returns `ok:false`, the UI shows a red banner and blocks Projects; RESEARCH mode works without it.
+* Detach the project: `DELETE /api/sessions/:id/project` (`project_id=NULL`, mode → `research`, reference rows detached; files on disk untouched).
 
 ---
 
-## Установка
+## Installation
 
-### Вариант 1: Docker (Ollama)
+### Option 1: Docker (Ollama)
 
-Запуск Ollama в Docker через репозиторный `docker-compose.yml` (GPU через NVIDIA runtime, персистентный том, контекст 32k):
+Run Ollama in Docker via the repo's `docker-compose.yml` (GPU through the NVIDIA runtime, persistent volume, 32k context):
 
 ```bash
 docker compose up -d
 ```
 
-### Вариант 2: Локальная установка
+### Option 2: Local installation
 
-1. Установите [Ollama](https://ollama.com) или запустите `llama-server`.
-2. Скачайте модели: `ollama pull qwen2.5-coder`.
-3. Соберите фронт и запустите бэкенд (пакетный менеджер — pnpm, оба пакета с `pnpm-lock.yaml`):
+1. Install [Ollama](https://ollama.com) or run `llama-server`.
+2. Pull models: `ollama pull qwen2.5-coder`.
+3. Build the front end and start the backend (package manager — pnpm, both packages have `pnpm-lock.yaml`):
 
 ```bash
 cd server && pnpm install && cd ..
@@ -138,49 +163,42 @@ cd frontend && pnpm install && pnpm run build && cd ..
 cd server && pnpm start
 ```
 
-Откройте [http://localhost:3000](http://localhost:3000) — бэкенд раздаёт production-сборку из `frontend/dist` (SPA-fallback для глубоких роутов; API под `/api`, WebSocket под `/ws`, VAD-ассеты под `/vad-assets`).
+Open [http://localhost:3000](http://localhost:3000) — the backend serves the production build from `frontend/dist` (SPA fallback for deep routes; API under `/api`, WebSocket under `/ws`, VAD assets under `/vad-assets`).
 
-### Фронтенд (`frontend/`)
+### Frontend (`frontend/`)
 
 React 18 + Vite + Tailwind 4 SPA.
 
-* **Разработка:** `cd frontend && pnpm run dev` — Vite-сервер на **:5175**, проксирует `/api`, `/ws`, `/vad-assets` на бэкенд :3000.
-* **Production:** `pnpm run build` → `frontend/dist`, раздаётся бэкендом.
-* Легаси-статический фронт заархивирован read-only в `docs/reference/public-archive/` (не модифицировать).
+* **Development:** `cd frontend && pnpm run dev` — Vite server on **:5175**, proxying `/api`, `/ws`, `/vad-assets` to the backend on :3000.
+* **Production:** `pnpm run build` → `frontend/dist`, served by the backend.
+* The legacy static front end is archived read-only in `docs/reference/public-archive/` (do not modify).
 
-### Тесты и линт
+### Tests and lint
 
 ```bash
-# Фронтенд: юнит-тесты (vitest), линт, production-сборка
+# Frontend: unit tests (vitest), lint, production build
 cd frontend && pnpm run test:run && pnpm run lint && pnpm run build
 
-# Бэкенд: node --test
+# Backend: node --test
 cd server && pnpm run test:backend
 ```
 
 ### Whisper (STT)
 
-Два whisper-сервера одной командой:
+Both whisper servers with a single command — see the "STT & AI Helper" section above:
 
 ```bash
 cd server && pnpm run whisper
 ```
 
-`scripts/whisper.sh` запускает два процесса `whisper-server`:
-
-- Порт **8081** — микрофон (голос пользователя);
-- Порт **8082** — системный звук (голос собеседника, для AI-хелпера).
-
-Оба используют `models/ggml-medium.bin`, язык `ru`, 12 потоков. Остановка — `Ctrl+C`.
-
 ---
 
-## Конфигурация
+## Configuration
 
-Конфигурация через переменные окружения. Создайте `server/.env` (скопируйте из `server/.env.example`; файл грузится относительно модуля бэкенда — рабочая директория не важна; легаси-`.env` в корне репо тоже подхватывается, но `server/.env` приоритетнее) или передайте переменные при старте:
+Configuration is done via environment variables. Create `server/.env` (copy from `server/.env.example`; the file is loaded relative to the backend module — the working directory does not matter; a legacy `.env` in the repo root is also picked up, but `server/.env` takes priority) or pass variables at startup:
 
 ```env
-# Провайдер по умолчанию (ollama | llama_cpp)
+# Default provider (ollama | llama_cpp)
 DEFAULT_PROVIDER=ollama
 
 # Ollama
@@ -191,127 +209,138 @@ OLLAMA_ENABLED=true
 LLAMA_CPP_URL=http://localhost:8080
 LLAMA_CPP_ENABLED=false
 
-# Сервер
+# Server
 PORT=3000
 
-# Базовая директория для файлов по относительному пути (ОБЯЗАТЕЛЬНА для режима ПРОЕКТ).
-# Проекты и reference-файлы (attachments с path_base='context') резолвятся внутри неё;
-# выход за пределы отклоняется. RESEARCH работает без неё.
-# CONTEXT_BASE_DIR=/home/selub/Documents/progs
+# Base directory for relative-path files (REQUIRED for PROJECT mode).
+# Projects and reference files (attachments with path_base='context') resolve
+# inside it; escaping it is rejected. RESEARCH works without it.
+# CONTEXT_BASE_DIR=/home/user/Documents/progs
 
-# Максимальный размер одного reference-файла в режиме ПРОЕКТ (байт, по умолчанию 1048576 = 1 МБ)
+# Max size of a single reference file in PROJECT mode (bytes, default 1048576 = 1 MB)
 # MAX_REFERENCE_FILE_SIZE=1048576
 ```
+
+STT-related variables (optional, defaults shown): `WHISPER_USER_URL=http://127.0.0.1:8081/inference`, `WHISPER_INTERLOCUTOR_URL=http://127.0.0.1:8082/inference`.
 
 ---
 
 ## API
 
-### Провайдеры и модели
+### Providers and models
 
-* `GET /api/providers` — список настроенных провайдеров.
-* `GET /api/providers/status` — статус всех провайдеров в реальном времени.
-* `GET /api/models` — модели активного провайдера (заголовок `X-Provider`).
-* `POST /api/show` — детали модели, включая размер контекстного окна.
+* `GET /api/providers` — configured providers.
+* `GET /api/providers/status` — real-time status of all providers.
+* `GET /api/models` — models of the active provider (`X-Provider` header).
+* `POST /api/show` — model details, including the context window size.
 
-### Сессии и контекст
+### Sessions and context
 
-* `POST /api/sessions` — создать сессию (по умолчанию `mode='research'`).
-* `GET /api/sessions/:id` — метаданные сессии (`sysprompt`, `mode`, `project_id`, `last_send_error`).
-* `PATCH /api/sessions/:id` — обновить метаданные (в т.ч. `sysprompt`, переключение `mode` между `research`/`project`; прочие значения → `400`).
-* `GET /api/sessions/:id/messages` — история сообщений (группировка Q&A-парами).
-* `GET /api/sessions/:id/context-config` — конфигурация контекста (`mode`, `retainPercent`).
-* `PATCH /api/sessions/:id/context-config` — обновить конфигурацию контекста.
-* `DELETE /api/sessions/:id/messages/:questionId` — удалить Q&A-пару.
-* `DELETE /api/sessions/:id/send-error` — dismiss персистентной плашки провальной отправки.
-* `GET /api/sessions/:id/attachments?kind=reference` — reference-файлы сессии с бейджами `missing`/`mtimeStale`.
-* `DELETE /api/sessions/:id/project` — отвязать проект (`project_id=NULL`, `mode='research'`, авто-отсоединение reference-строк; файлы на диске остаются).
+* `POST /api/sessions` — create a session (defaults to `mode='research'`).
+* `GET /api/sessions/:id` — session metadata (`sysprompt`, `mode`, `project_id`, `last_send_error`).
+* `PATCH /api/sessions/:id` — update metadata (incl. `sysprompt`, switching `mode` between `research`/`project`; other values → `400`).
+* `GET /api/sessions/:id/messages` — message history (grouped into Q&A pairs).
+* `GET|PATCH /api/sessions/:id/context-config` — context configuration (`mode`, `retainPercent`).
+* `DELETE /api/sessions/:id/messages/:questionId` — delete a Q&A pair.
+* `DELETE /api/sessions/:id/send-error` — dismiss the persistent send-error banner.
+* `GET /api/sessions/:id/attachments?kind=reference` — session reference files with `missing`/`mtimeStale` badges.
+* `DELETE /api/sessions/:id/project` — detach the project (`project_id=NULL`, `mode='research'`, reference rows detached; disk files untouched).
 
-### Конфигурация
+### Configuration
 
-* `GET /api/config` — статус `CONTEXT_BASE_DIR`: `{ contextBaseDir: { ok, path, error } }` (проверяется на каждый запрос; при `ok:false` фронт показывает красный баннер и блокирует Projects).
+* `GET /api/config` — `CONTEXT_BASE_DIR` status: `{ contextBaseDir: { ok, path, error } }` (checked on every request; `ok:false` → red banner, Projects blocked).
 
-### Проекты (режим ПРОЕКТ)
+### Projects (PROJECT mode)
 
-* `POST /api/projects` — зарегистрировать (или найти, идемпотентно по `path`) проект `{ sessionId, relativePath }` относительно `CONTEXT_BASE_DIR`; привязывает `sessions.project_id`, ставит `mode='project'`, считает файлы (без `node_modules/.git/dist/build/.next/__pycache__/*.min.*/*.map/.DS_Store/Thumbs.db`). Traversal / нет директории / не задана база → `400`.
-* `GET /api/projects/:id` — информация о проекте (`id`, `name`, `path`).
-* `GET /api/projects/:id/files?filter=<подстрока>` — рекурсивный список файлов для браузера (регистронезависимый фильтр, первые 500, флаг `truncated`; только размеры, содержимое не читается).
-* `POST /api/projects/:id/attach` — прикрепить reference-файлы `{ sessionId, relativePaths }`: строки в `attachments` (`kind='reference'`, `path_base='context'`, `extracted_text=''`); файлы не копируются. Идемпотентно по `session_id+file_path`; слишком большие (> `MAX_REFERENCE_FILE_SIZE`) / traversal / отсутствующие → `errors` по каждому пути. Максимум 100 reference-файлов на сессию.
+* `POST /api/projects` — register (or find, idempotent by `path`) a project `{ sessionId, relativePath }` relative to `CONTEXT_BASE_DIR`; binds `sessions.project_id`, sets `mode='project'`, counts files (excluding `node_modules/.git/dist/build/.next/__pycache__/*.min.*/*.map/.DS_Store/Thumbs.db`). Traversal / missing directory / no base → `400`.
+* `GET /api/projects/:id` — project info (`id`, `name`, `path`).
+* `GET /api/projects/:id/files?filter=<substring>` — recursive file list for the browser (case-insensitive filter, first 500, `truncated` flag; sizes only, content is not read).
+* `POST /api/projects/:id/attach` — attach reference files `{ sessionId, relativePaths }`: rows in `attachments` (`kind='reference'`, `path_base='context'`, `extracted_text=''`); files are not copied. Idempotent by `session_id+file_path`; oversized (> `MAX_REFERENCE_FILE_SIZE`) / traversal / missing → per-path `errors`. Max 100 reference files per session.
 
-### Чат
+### Chat
 
-* `POST /api/chat` — отправить сообщение выбранной модели (multipart/form-data, заголовок `X-Provider`).
-  *Принимает:* `sessionId`, `message`, `model`, `contextLength`, `retainPercent`, `includeQuestionIds` (для Ручного режима), `file` (один документ **или** картинка), `codeFiles` (до 50) — всё можно комбинировать.
-  *Ограничения:* `message` длиннее 64 000 символов → мгновенный `400 {code:'message_too_long'}` (до обработки URL и вложений); промпт, заведомо не влезающий в контекст, → `400 {code:'context_overflow', estimatedTokens, contextLength}` (пре-флайт, до вызова LLM).
-  *RESEARCH* собирает `[Материалы]` документ → код → текст пользователя через единый реестр; *PROJECT* игнорирует multipart-вложения (передача `file`/`codeFiles`/картинок → `400`) и читает текущий пул reference-файлов с диска с mtime-кэшем (`(актуальная версия)` в `[Материалы]`, `contextInfo.mode/filesAttached/filesMissing/filesTooLarge`).
+* `POST /api/chat` — send a message to the selected model (multipart/form-data, `X-Provider` header).
+  *Accepts:* `sessionId`, `message`, `model`, `contextLength`, `retainPercent`, `includeQuestionIds` (for Manual mode), `file` (one document **or** image), `codeFiles` (up to 50) — all combinable.
+  *Limits:* `message` longer than 64,000 characters → instant `400 {code:'message_too_long'}` (before URL/attachment processing); a prompt that clearly does not fit the context → `400 {code:'context_overflow', estimatedTokens, contextLength}` (pre-flight, before the LLM call).
+  *RESEARCH* assembles `[Materials]` document → code → user text via the single registry; *PROJECT* ignores multipart attachments (passing `file`/`codeFiles`/images → `400`) and reads the current pool of reference files from disk with an mtime cache ("(current version)" in `[Materials]`, `contextInfo.mode/filesAttached/filesMissing/filesTooLarge`).
 
-### Вложения
+### Speech-to-text
 
-* `GET /api/attachments/:fileId` — метаданные (строка реестра).
-* `GET /api/attachments/:fileId/raw` — отдать оригинальный файл (`path_base='data'` → `server/data/uploads`, `path_base='context'` → `CONTEXT_BASE_DIR`; traversal → `400`).
-* `GET /api/attachments/:fileId/thumb` — миниатюра 150×150 (только картинки).
-* `DELETE /api/attachments/:fileId` — отсоединить: удаляется **только** строка реестра; файл на диске не трогается (`attachments_meta` прошлых сообщений остаётся неизменным снапшотом).
+* `POST /api/stt/transcribe` — multipart audio file (`audio` field) → whisper.cpp → `{ text }`.
+* `WS /ws/ai-helper` — AI Helper protocol: `audio_chunk` (role `user`|`interlocutor`, PCM16 base64) in, `transcript` / streaming LLM hints (`hint_token`/`hint_done`) out.
 
-Картинки живут в едином реестре `attachments` (`kind='image'`, `path_base='data'`, файл под `server/data/uploads/`); превью в истории строятся из `attachments_meta`. Файлы **никогда** не удаляются при удалении Q&A-пар или сессий (сироты — под будущий File Manager).
+### Attachments
+
+* `GET /api/attachments/:fileId` — metadata (registry row).
+* `GET /api/attachments/:fileId/raw` — the original file (`path_base='data'` → `server/data/uploads`, `path_base='context'` → `CONTEXT_BASE_DIR`; traversal → `400`).
+* `GET /api/attachments/:fileId/thumb` — 150×150 thumbnail (images only).
+* `DELETE /api/attachments/:fileId` — detach: only the registry row is removed; the file on disk is untouched (`attachments_meta` of past messages remains an immutable snapshot).
+
+Images live in the unified `attachments` registry (`kind='image'`, `path_base='data'`, file under `server/data/uploads/`); previews in history are built from `attachments_meta`. Files are **never** deleted when Q&A pairs or sessions are removed (orphans are reserved for a future File Manager).
 
 ---
 
-## Структура проекта
+## Project Structure
 
 ```text
 chat-app/
- ├── server/                         # Бэкенд (Express 5 + better-sqlite3 + WS), порт :3000
+ ├── server/                         # Backend (Express 5 + better-sqlite3 + WS), port :3000
  │   ├── src/
  │   │   ├── controllers/
- │   │   │   └── chatController.js   # [Вопрос] (vision — + images), реестр, кап message, пре-флайт, персистентный снапшот ошибок
+ │   │   │   ├── chatController.js   # [Question] (vision — + images), registry, message cap, pre-flight, persistent error snapshots
+ │   │   │   └── sttController.js    # Voice input: multipart audio → whisper.cpp → text
  │   │   ├── services/
- │   │   │   ├── contextBuilder.js   # Сборка промпта: один system + [Материалы]/[Ранее]; адаптивный бюджет, LIFO-обрезка
- │   │   │   ├── metricsService.js   # Метрики ответов; inputTokens = полный промпт (usage → prompt_n+cache_n → prompt_n)
- │   │   │   ├── projectService.js   # Режим ПРОЕКТ: регистрация проекта, браузер файлов, reference-attach
- │   │   │   ├── sessionService.js   # Сессии и сообщения (+ last_send_error)
- │   │   │   ├── attachmentService.js # Реестр вложений: хранение + извлечение текста
- │   │   │   └── webService.js       # Извлечение контента по URL
+ │   │   │   ├── contextBuilder.js   # Prompt assembly: one system + [Materials]/[Earlier]; adaptive budget, LIFO trimming
+ │   │   │   ├── metricsService.js   # Response metrics; inputTokens = full prompt (usage → prompt_n+cache_n → prompt_n)
+ │   │   │   ├── projectService.js   # PROJECT mode: project registration, file browser, reference attach
+ │   │   │   ├── sessionService.js   # Sessions and messages (+ last_send_error)
+ │   │   │   ├── attachmentService.js # Attachment registry: storage + text extraction
+ │   │   │   └── webService.js       # URL content extraction
+ │   │   ├── ws/
+ │   │   │   └── aiHelperWs.js       # AI Helper WebSocket: audio chunks → whisper → transcripts
  │   │   ├── utils/
- │   │   │   └── docExtract.js       # Извлечение текста по расширениям (pdfjs/word-extractor/xlsx; иначе utf-8)
+ │   │   │   └── docExtract.js       # Text extraction by extension (pdfjs/word-extractor/xlsx; otherwise utf-8)
  │   │   ├── providers/
  │   │   │   ├── OllamaProvider.js
- │   │   │   └── LlamaCppProvider.js # Парсинг 400 (exceed_context_size_error → n_prompt_tokens/n_ctx), размер модели
+ │   │   │   └── LlamaCppProvider.js # 400 parsing (exceed_context_size_error → n_prompt_tokens/n_ctx), model size
  │   │   └── routes/
- │   ├── tests/                      # Тесты бэкенда (node --test)
- │   ├── public/vad-assets/          # VAD/ORT ассеты, раздаются с COOP/COEP
- │   └── data/                       # Runtime, gitignored: SQLite (chat.db) + uploads/ (картинки и миниатюры)
- ├── frontend/                       # Фронтенд: React 18 + Vite + Tailwind 4
+ │   ├── scripts/whisper.sh          # Starts both whisper-server instances (:8081, :8082)
+ │   ├── tests/                      # Backend tests (node --test)
+ │   ├── public/vad-assets/          # VAD/ORT assets, served with COOP/COEP
+ │   └── data/                       # Runtime, gitignored: SQLite (chat.db) + uploads/ (images and thumbnails)
+ ├── frontend/                       # Frontend: React 18 + Vite + Tailwind 4
  │   ├── src/
  │   │   ├── features/               # chat / questions / models / sessions / stt / ai-helper / dashboard
- │   │   ├── lib/                    # Чистые хелперы: apiGateway, stats, sendError, messageCap, audio, export…
+ │   │   ├── lib/                    # Pure helpers: apiGateway, stats, sendError, messageCap, audio, export…
  │   │   ├── stores/                 # Zustand: session, provider, project, ui, aiHelper
  │   │   └── shared/                 # Sidebar, TopBar, command palette
- │   └── dist/                       # Production-сборка (gitignored), раздаётся бэкендом
- ├── BACKLOG.md                      # Отложенные задачи (в корне, 2026-11-11)
-└── docs/                            # WORKLOG/WORKFLOW + plans/ + reference/ (легаси-архивы)
+ │   └── dist/                       # Production build (gitignored), served by the backend
+ ├── BACKLOG.md                      # Deferred tasks (repo root)
+└── docs/                            # WORKLOG/WORKFLOW + plans/ + STT_SYSTEM.md + reference/ (legacy archives)
 ```
 
 ---
 
-## Добавление нового провайдера
+## Adding a New Provider
 
-Чтобы добавить третий провайдер (например, vLLM, LocalAI):
+To add a third provider (e.g. vLLM, LocalAI):
 
-1. Создайте класс, наследующий `BaseProvider`, в `server/src/providers/`.
-2. Зарегистрируйте его в `server/src/providers/providerManager.js`.
-3. Добавьте конфигурацию в `server/src/config/providers.js`.
+1. Create a class extending `BaseProvider` in `server/src/providers/`.
+2. Register it in `server/src/providers/providerManager.js`.
+3. Add its configuration to `server/src/config/providers.js`.
 
-*Контроллеры, сервисы и роуты менять не нужно.*
+*Controllers, services and routes stay untouched.*
 
 ---
 
-## Требования
+## Requirements
 
-* Node.js 18+
-* pnpm 10+ — пакетный менеджер по умолчанию (`server/` и `frontend/` используют `pnpm-lock.yaml`)
-* Ollama установлена и запущена, **или**
-* llama.cpp сервер (`llama-server`) с загруженной GGUF-моделью.
+* Node.js 20+
+* pnpm 10+ — the default package manager (`server/` and `frontend/` use `pnpm-lock.yaml`)
+* Ollama installed and running, **or**
+* a llama.cpp server (`llama-server`) with a loaded GGUF model
+* (optional, for STT) [whisper.cpp](https://github.com/ggml-org/whisper.cpp) built with `whisper-server` and a `ggml-medium.bin` model — see `server/scripts/whisper.sh`
 
-## Лицензия
+## License
 
 MIT
