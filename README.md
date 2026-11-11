@@ -1,5 +1,7 @@
 # Chat-App — Local Web Chat for Local LLMs (llama.cpp / Ollama)
 
+> Documentation in Russian: [docs/README_RUS.md](docs/README_RUS.md)
+
 A local-first web shell for local language models: a React SPA front end plus an Express 5 + SQLite + WebSocket server, running entirely on your machine. No external APIs — the model, your files, speech transcription and usage statistics all stay local.
 
 Key ideas of the product:
