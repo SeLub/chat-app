@@ -18,14 +18,10 @@
 > не реализован); каскад — на уровне БД. ТЗ `docs/plans/attachment-cascade-cleanup.md`.
 >
 > **2026-11-11, ночь/утро:** stats-size исполнен (PR #21), context-overflow-ux №1+2
-> исполнен (PR #22) — оба смержены владельцем; трек продолжен №3+4
-> (send-error-persist-actions).
+> исполнен (PR #22), send-error-persist-actions исполнен (PR #23, «утро») — все
+> смержены владельцем. Реальные №3+4 из восстановленного списка владельца
+> (адаптивный бюджет + кап message) — трек adaptive-context-budget, в работе.
 
-## В работе (текущий трек — send-error-persist-actions)
-
-| # | Источник | Задача |
-|---|----------|--------|
-| send-error-persist-actions | Вердикт владельца 2026-11-11 «делаем №3+4» (после merge PR #22) + ТЗ `docs/plans/send-error-persist-actions.md` | **Персистентная плашка провальной отправки + быстрые действия.** №3: `sessions.last_send_error` (JSON-снапшот провала: kind/failedText/fileNames/числа токенов/at; CREATE + guarded ALTER) — пишется chatController'ом во все провальные точки (пре-флайт, catch chat/vision, outer), чистится на успехе и по dismiss (`DELETE /api/sessions/:id/send-error`); переживает F5 (провальная отправка не пишет в messages/attachments). Фронт: `persistedSendError` собирается во всех 4 точках открытия сессии, приглушённая плашка при отсутствии транзитного баннера. №4: кнопки одним кликом — «Удалить пару с файлом» (только context_overflow и пара есть: `findLatestFileQAPairId`, document/code — image/reference исключены), «Новая сессия» (clearChat), «Вернуть вопрос в поле ввода» (только персистентная — File-объекты F5 не переживают). **Исполнено в ветке `feat/send-error-persist-actions` (backend 203/203, vitest 153/153); после merge перенести в «Закрыто». №5 (авто-тримминг [Материалы]) — отдельное решение владельца** |
 
 ## Отложенные (в работу — по ТЗ владельца)
 
@@ -45,7 +41,6 @@
 
 | # | Что | Итог |
 |---|-----|------|
-| context-overflow-ux (№1+2) | UX переполнения контекста: пре-флайт + баннер вместо пары-ошибки («Не терять вопрос») | **Исполнено**: PR #22 (`feat/context-overflow-ux`, смержен 18e6e3c) — серверный пре-флайт ДО вызова LLM (chars/4, `400 {code:'context_overflow'}`, cleanup реестра), проброс чисел 400 llama.cpp (`parseLlamaCppErrorResponse` → details → фронт), транзитная пара демонтирована: `sendError`-баннер с «Повторить» и возвратом вопроса/вложений в композер. Продолжение трека — №3+4 (`send-error-persist-actions`, «В работе») |
 | stats-size | Футер «Size: – GB» + расхождение бар/диалог (12% vs 38%) | **Исполнено**: PR #21 (`fix/stats-size-context-load`, смержен) — `frontend/src/lib/stats.ts`: `computeContextLoadPct` (единая токеновая формула, кап 100) и `formatSizeGb` (цепочка `modelDetail.size → details.size → models.find(name).size`); `LlamaCppProvider.resolveModelSize` (`meta.size → fs.stat(props.model_path)`). 180/180, vitest 119/119 |
 | cascade | Каскадная очистка реестра attachments (Вариант B + FK на уровне БД) | **Исполнено**: PR #20 (`tz/attachment-cascade`) — `attachments.message_id` FK ON DELETE CASCADE (fresh CREATE + guarded ALTER); миграция legacy-БД (backfill по meta живых сообщений + очистка балласта); claim строк после успешного addMessage, cleanup незаклеймлённых при провале LLM; deletedAttachments — реальный count; reference не каскадится; файлы на диске не удаляются (File Manager); мёртвый POST /api/attachments/extract демонтирован; 174/174, red-first |
 | 6 | Восстановить извлечение текста из документов (утрачено в PR #16) | **Исполнено**: PR #19 (`tz/doc-extraction`) — `extractText(buffer, filename)` (pdfjs/word-extractor/xlsx) в extractFromPaths + buildLLMContext, без новых зависимостей; 162/162, red-first. Ограничения: .docx — смоук на реальном файле за владельцем; скан-PDF без текстового слоя → пустой текст (OCR — отдельная тема) |
@@ -53,3 +48,16 @@
 | 3 | «Таблица `attachments` пуста после сообщения с вложением» (Фаза B) | **Устарело**: PR #16 демонтировал инлайн-документы — файлы всегда идут через реестр attachments; владелец 2026-11-11: не подтверждается |
 | 4 | Демонтаж правой панели `SettingsPanel` | **Устарело**: панель — живой UI Project mode (PR #17); владелец 2026-11-11: не подтверждается |
 | 5 | Удаление `public/`, переезд vad-assets → `server/public/` | **Исполнено**: `frontend/public/` отсутствует, `server/public/vad-assets/` на месте; владелец 2026-11-11: сделано |
+
+## В работе (текущий трек — adaptive-context-budget)
+
+| # | Источник | Задача |
+|---|----------|--------|
+| adaptive-context-budget (№3+4 из восстановленного списка владельца) | Восстановленный владельцем нумерованный список (2026-11-11, процитирован в чате) + вердикт «делаем №3+4» + ТЗ `docs/plans/adaptive-context-budget.md` | **Адаптивный бюджет истории + кап на message.** №3: бюджет истории по ИЗМЕРЕННОЙ плотности chars/токен (`resolveCharsPerToken` — metrics последнего текстового ответа: promptChars, пишется chatController'ом, / inputTokens — полный промпт, usage.prompt_tokens; полоса [1.0; 5.0], фолбэк 4 без запаса) → `maxChars = ctx * density * 0.9`; на кириллице бюджет сам ужмётся в ~2–3 раза; пре-флайт №1 считает на той же плотности; inputTokens llama.cpp — полный промпт (timings.prompt_n — только обработанное, кэш-хиты в cache_n) → бар #21 не недосчитывает кэш-ходы. №4: кап message 64000 симв — сервер мгновенный 400 `message_too_long` (до URL/реестра), композер блокирует раньше + счётчик/подсказка (>90% — пометка), баннер с числами. **Исполнено в ветке `feat/adaptive-context-budget` (с merge main: backend 220/220, vitest 159/159); после merge перенести в «Закрыто». №5 (авто-retry/авто-тримминг [Материалы]) — отдельное решение владельца** |
+## В работе (текущий трек — send-error-persist-actions)
+
+| # | Источник | Задача |
+|---|----------|--------|
+| send-error-persist-actions (реконструкция «№3+4») | Персистентная плашка провальной отправки + быстрые действия | **Исполнено**: PR #23 (`feat/send-error-persist-actions`, смержен da936b2) — `sessions.last_send_error` (CREATE + guarded ALTER), снапшот провала во всех точках chatController (пре-флайт/catch chat/vision/outer), clear на успехе, dismiss `DELETE /api/sessions/:id/send-error`; фронт: `persistedSendError` в 4 точках открытия сессии, приглушённая плашка (переживает F5), кнопки «Удалить пару с файлом»/«Новая сессия»/«Вернуть вопрос». 203/203, vitest 153/153. Нумерация: под «№3+4» здесь другая пара (реконструкция внутренней нумерации ТЗ context-overflow-ux); реальные №3+4 списка владельца — `adaptive-context-budget` |
+| context-overflow-ux (№1+2) | UX переполнения контекста: пре-флайт + баннер вместо пары-ошибки («Не терять вопрос») | **Исполнено**: PR #22 (`feat/context-overflow-ux`, смержен 18e6e3c) — серверный пре-флайт ДО вызова LLM, проброс чисел 400 llama.cpp, транзитная пара демонтирована: `sendError`-баннер с «Повторить» и возвратом вопроса/вложений в композер. Продолжение трека: №3+4 из списка владельца → `adaptive-context-budget` (в работе) |
+| context-overflow-ux (№1+2) | UX переполнения контекста: пре-флайт + баннер вместо пары-ошибки («Не терять вопрос») | **Исполнено**: PR #22 (`feat/context-overflow-ux`, смержен 18e6e3c) — серверный пре-флайт ДО вызова LLM (chars/4, `400 {code:'context_overflow'}`, cleanup реестра), проброс чисел 400 llama.cpp (`parseLlamaCppErrorResponse` → details → фронт), транзитная пара демонтирована: `sendError`-баннер с «Повторить» и возвратом вопроса/вложений в композер. Продолжение трека — №3+4 (`send-error-persist-actions`, «В работе») |

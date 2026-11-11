@@ -1,4 +1,7 @@
 import { ApiError } from './apiGateway';
+// ТЗ adaptive-context-budget (№4): числа капа в баннере (formatChars —
+// детерминированная группировка без Intl)
+import { formatChars } from './messageCap';
 
 // ТЗ context-overflow-ux (№2): структурированная ошибка отправки вместо
 // транзитной пары «вопрос-ошибка» в чате. Баннер в ChatArea рендерит
@@ -97,6 +100,23 @@ export function buildSendErrorInfo(e: unknown, ctx: BuildSendErrorCtx): SendErro
           'Удали Q&A-пару с большим файлом (Delete под вопросом) или начни новую сессию.',
         estimatedTokens: promptTok,
         contextLength: nCtxTok,
+      };
+    }
+
+    // №4 adaptive-context-budget: кап длины message (путь прямых запросов —
+    // композер блокирует раньше). kind 'server': это не переполнение
+    // контекста модели, «Повторить» без правок снова упрётся в кап.
+    if (code === 'message_too_long') {
+      const len = typeof d.messageLength === 'number' ? d.messageLength : undefined;
+      const max = typeof d.maxMessageChars === 'number' ? d.maxMessageChars : undefined;
+      return {
+        ...base,
+        kind: 'server',
+        title: 'Слишком длинный ввод',
+        detail:
+          len != null && max != null
+            ? `Сообщение ${formatChars(len)} символов превышает лимит ${formatChars(max)} — сократи текст или вынеси часть в файл.`
+            : 'Сообщение превышает лимит длины — сократи текст или вынеси часть в файл.',
       };
     }
 

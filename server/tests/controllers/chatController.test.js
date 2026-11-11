@@ -5,7 +5,9 @@ import path from 'path';
 import os from 'os';
 import { getDb, setDbPath, closeDb } from '../../src/db/init.js';
 import * as sessionRepo from '../../src/db/sessionRepo.js';
-import { chatHandler } from '../../src/controllers/chatController.js';
+import * as messageRepo from '../../src/db/messageRepo.js';
+import { chatHandler, MAX_MESSAGE_CHARS } from '../../src/controllers/chatController.js';
+import { DEFAULT_SYSPROMPT } from '../../src/services/contextBuilder.js';
 import { UPLOADS_DIR, THUMBS_DIR } from '../../src/config/paths.js';
 
 // 1×1 PNG (валидный вход для sharp в addImageAttachment)
@@ -1026,5 +1028,142 @@ describe('chatHandler: ТЗ context-overflow-ux — пре-флайт переп
         assert.equal(stored.kind, 'server');
         assert.match(stored.message, /ECONNREFUSED/);
         assert.equal(stored.providerName, 'llama_cpp');
+    });
+});
+
+// ============================================================
+// ТЗ adaptive-context-budget: №4 (кап на message) + №3 (promptChars
+// в metrics assistant-сообщения, пре-флайт на измеренной плотности)
+// ============================================================
+describe('chatHandler: ТЗ adaptive-context-budget', () => {
+    let sessionId;
+    let tempDir;
+
+    before(async () => {
+        setDbPath(':memory:');
+        getDb();
+        tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'adaptive-budget-test-'));
+    });
+
+    after(async () => {
+        closeDb();
+        await fs.rm(tempDir, { recursive: true, force: true });
+    });
+
+    beforeEach(() => {
+        getDb().exec('DELETE FROM attachments');
+        getDb().exec('DELETE FROM messages');
+        getDb().exec('DELETE FROM sessions');
+        sessionId = sessionRepo.createSession('Adaptive Budget Test').id;
+    });
+
+    function makeCountingProvider(modelType = 'chat', response = 'mock answer') {
+        const calls = [];
+        return {
+            calls,
+            name: 'mock-adaptive',
+            detectModelType: () => modelType,
+            chat: async (payload) => {
+                calls.push(payload);
+                return { response, metrics: { prompt_tokens: 100, completion_tokens: 10 } };
+            },
+        };
+    }
+
+    // --- №4: кап на message ---
+
+    it('message 64001 симв → 400 code=message_too_long ДО URL-обработки, LLM и реестр не задеты', async () => {
+        const provider = makeCountingProvider();
+        const req = {
+            body: { message: 'x'.repeat(MAX_MESSAGE_CHARS + 1), model: 'test-model', sessionId, questionId: 'q_cap_1' },
+            files: {},
+            provider,
+            providerName: 'mock',
+        };
+        const res = makeRes();
+        await chatHandler(req, res);
+
+        assert.equal(res.statusCode, 400, `expected 400, got ${res.statusCode}: ${JSON.stringify(res.body)}`);
+        assert.equal(res.body.code, 'message_too_long');
+        assert.equal(res.body.messageLength, MAX_MESSAGE_CHARS + 1);
+        assert.equal(res.body.maxMessageChars, MAX_MESSAGE_CHARS);
+        assert.match(res.body.error, /too long/);
+        assert.equal(provider.calls.length, 0, 'LLM не должен вызываться');
+        const rows = getDb().prepare('SELECT * FROM attachments WHERE session_id = ?').all(sessionId);
+        assert.equal(rows.length, 0, 'строки реестра ещё не создаются при капе');
+    });
+
+    it('граница снизу: ровно 64000 симв проходит кап (200, LLM вызван)', async () => {
+        const provider = makeCountingProvider();
+        const req = {
+            body: { message: 'x'.repeat(MAX_MESSAGE_CHARS), model: 'test-model', sessionId, questionId: 'q_cap_2' },
+            files: {},
+            provider,
+            providerName: 'mock',
+        };
+        const res = makeRes();
+        await chatHandler(req, res);
+
+        assert.equal(res.statusCode, 200, `handler failed: ${JSON.stringify(res.body)}`);
+        assert.equal(provider.calls.length, 1);
+    });
+
+    // --- №3: promptChars в metrics + пре-флайт на измеренной плотности ---
+
+    it('успешный ход пишет promptChars в metrics assistant-сообщения (числитель будущей плотности)', async () => {
+        const provider = makeCountingProvider();
+        const req = {
+            body: { message: 'Вопрос', model: 'test-model', sessionId, questionId: 'q_ad_1', contextLength: '65536' },
+            files: {},
+            provider,
+            providerName: 'mock',
+        };
+        const res = makeRes();
+        await chatHandler(req, res);
+
+        assert.equal(res.statusCode, 200, `handler failed: ${JSON.stringify(res.body)}`);
+
+        const assistantMsg = getDb()
+            .prepare("SELECT metrics FROM messages WHERE session_id = ? AND role = 'assistant'")
+            .get(sessionId);
+        const metrics = JSON.parse(assistantMsg.metrics);
+        // fixedChars = DEFAULT_SYSPROMPT (сессия без своего sysprompt), истории нет,
+        // questionChars = '[Вопрос]\nВопрос' (15), обвязка 64
+        const expectedPromptChars = DEFAULT_SYSPROMPT.length + 0 + 15 + 64;
+        assert.equal(metrics.promptChars, expectedPromptChars);
+        assert.equal(metrics.prompt_tokens, 100, 'исходные метрики провайдера сохранены');
+    });
+
+    it('пре-флайт использует измеренную плотность: промпт, проходящий chars/4, отклоняется при плотности 1.5', async () => {
+        // Кириллическая пара (история), последний ответ — metrics плотности 1.5
+        // (6000 симв / 4000 ток). Файл 30К симв: fixed ≈ 30.9К, оценка при 1.5 —
+        // ~20.6К ток > ctx 10000 → 400; при старой chars/4 было бы ~7.7К < 10000 (прошёл бы).
+        messageRepo.addMessage(sessionId, {
+            role: 'user', content: 'в'.repeat(500), model: 'test-model', questionId: 'q_hist',
+        });
+        messageRepo.addMessage(sessionId, {
+            role: 'assistant', content: 'о'.repeat(500), model: 'test-model', questionId: 'q_hist',
+            metrics: { promptChars: 6000, inputTokens: 4000 }, // плотность 1.5 (repo стрингифицирует сам)
+        });
+
+        const csvPath = path.join(tempDir, 'big.csv');
+        await fs.writeFile(csvPath, 'z'.repeat(30000), 'utf-8');
+
+        const provider = makeCountingProvider();
+        const req = {
+            body: { message: 'Вопрос', model: 'test-model', sessionId, questionId: 'q_ad_2', contextLength: '10000' },
+            files: {
+                file: [{ path: csvPath, originalname: 'big.csv', mimetype: 'text/csv', size: 30000 }],
+            },
+            provider,
+            providerName: 'mock',
+        };
+        const res = makeRes();
+        await chatHandler(req, res);
+
+        assert.equal(res.statusCode, 400, `expected 400, got ${res.statusCode}: ${JSON.stringify(res.body)}`);
+        assert.equal(res.body.code, 'context_overflow');
+        assert.ok(res.body.estimatedTokens > 10000, 'оценка при плотности 1.5 должна превышать ctx 10000');
+        assert.equal(provider.calls.length, 0, 'LLM не вызывается при пре-флайт отказе');
     });
 });
