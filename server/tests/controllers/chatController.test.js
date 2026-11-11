@@ -921,4 +921,110 @@ describe('chatHandler: ТЗ context-overflow-ux — пре-флайт переп
         assert.equal(res.body.n_prompt_tokens, 3937667);
         assert.equal(res.body.n_ctx, 98304);
     });
+
+    // ТЗ send-error-persist (№3 context-overflow-ux): провальная отправка не пишет
+    // ничего в messages/attachments — персистентная плашка (sessions.last_send_error)
+    // единственный след инцидента, переживает F5. Успех её гасит.
+    it('пре-флайт 400 → last_send_error записан (kind/failedText/fileNames/числа/at)', async () => {
+        const csvPath = path.join(tempDir, 'persist.csv');
+        await fs.writeFile(csvPath, 'x'.repeat(20000), 'utf-8');
+
+        const provider = makeCountingProvider();
+        const req = {
+            body: { message: 'Вопрос по отчёту', model: 'test-model', sessionId, questionId: 'q_pf_5', contextLength: '100' },
+            files: {
+                file: [{ path: csvPath, originalname: 'persist.csv', mimetype: 'text/csv', size: 20000 }],
+            },
+            provider,
+            providerName: 'llama_cpp',
+        };
+        const res = makeRes();
+        await chatHandler(req, res);
+        assert.equal(res.statusCode, 400);
+
+        const stored = sessionRepo.getSendError(sessionId);
+        assert.ok(stored, 'плашка персистится при пре-флайт отказе');
+        assert.equal(stored.kind, 'context_overflow');
+        assert.equal(stored.failedText, 'Вопрос по отчёту');
+        assert.deepEqual(stored.fileNames, ['persist.csv']);
+        assert.equal(stored.estimatedTokens, res.body.estimatedTokens);
+        assert.equal(stored.contextLength, 100);
+        assert.equal(stored.providerName, 'llama_cpp');
+        assert.ok(stored.at, 'ISO-временная метка проставлена');
+    });
+
+    it('успешная отправка гасит существующую плашку (clear on success)', async () => {
+        sessionRepo.setSendError(sessionId, { kind: 'server', failedText: 'старый провал' });
+
+        const provider = makeCountingProvider();
+        const req = {
+            body: { message: 'Простой вопрос', model: 'test-model', sessionId, questionId: 'q_pf_6', contextLength: '65536' },
+            files: {},
+            provider,
+            providerName: 'mock',
+        };
+        const res = makeRes();
+        await chatHandler(req, res);
+
+        assert.equal(res.statusCode, 200, `handler failed: ${JSON.stringify(res.body)}`);
+        assert.equal(sessionRepo.getSendError(sessionId), null, 'успех чистит sessions.last_send_error');
+    });
+
+    it('жёсткий 400 llama.cpp → last_send_error kind=context_overflow с реальными числами токенизатора', async () => {
+        const provider = {
+            name: 'mock-overflow',
+            detectModelType: () => 'chat',
+            chat: async () => {
+                const err = new Error('request exceeds the available context size');
+                err.details = {
+                    message: err.message,
+                    type: 'exceed_context_size_error',
+                    n_prompt_tokens: 3937667,
+                    n_ctx: 98304,
+                };
+                throw err;
+            },
+        };
+        const req = {
+            body: { message: 'Вопрос', model: 'test-model', sessionId, questionId: 'q_pf_7' },
+            files: {},
+            provider,
+            providerName: 'llama_cpp',
+        };
+        const res = makeRes();
+        await chatHandler(req, res);
+        assert.equal(res.statusCode, 500);
+
+        const stored = sessionRepo.getSendError(sessionId);
+        assert.ok(stored, 'плашка персистится при жёстком 400 от провайдера');
+        assert.equal(stored.kind, 'context_overflow');
+        assert.equal(stored.nPromptTokens, 3937667);
+        assert.equal(stored.nCtxTokens, 98304);
+        assert.equal(stored.failedText, 'Вопрос');
+    });
+
+    it('провайдер упал без details (ECONNREFUSED) → last_send_error kind=server', async () => {
+        const provider = {
+            name: 'mock-down',
+            detectModelType: () => 'chat',
+            chat: async () => {
+                throw new Error('connect ECONNREFUSED 127.0.0.1:8080');
+            },
+        };
+        const req = {
+            body: { message: 'Вопрос', model: 'test-model', sessionId, questionId: 'q_pf_8' },
+            files: {},
+            provider,
+            providerName: 'llama_cpp',
+        };
+        const res = makeRes();
+        await chatHandler(req, res);
+        assert.equal(res.statusCode, 500);
+
+        const stored = sessionRepo.getSendError(sessionId);
+        assert.ok(stored, 'плашка персистится при падении провайдера');
+        assert.equal(stored.kind, 'server');
+        assert.match(stored.message, /ECONNREFUSED/);
+        assert.equal(stored.providerName, 'llama_cpp');
+    });
 });

@@ -16,12 +16,16 @@
 > трогать (картинки — для будущего File Manager); принцип реиспользования
 > extracted_text по fileId/path **отменяется** (историческая причина orphan-политики,
 > не реализован); каскад — на уровне БД. ТЗ `docs/plans/attachment-cascade-cleanup.md`.
+>
+> **2026-11-11, ночь/утро:** stats-size исполнен (PR #21), context-overflow-ux №1+2
+> исполнен (PR #22) — оба смержены владельцем; трек продолжен №3+4
+> (send-error-persist-actions).
 
-## В работе (текущий трек — context-overflow-ux)
+## В работе (текущий трек — send-error-persist-actions)
 
 | # | Источник | Задача |
 |---|----------|--------|
-| context-overflow-ux | Отчёт владельца 2026-11-11 (400 `exceed_context_size_error`, PDF 5.4 MB → 3.9M токенов) + вердикт «Делаем №1+2. Не терять вопрос. На фейле возвращать текст в поле ввода» + ТЗ `docs/plans/context-overflow-ux.md` | **UX переполнения контекста.** Корень аномалии: `[Материалы]` (извлечённый текст вложений) инжектится в промпт целиком без обрезки и в RESEARCH реинжектится каждый запрос (история бюджетом режется, файлы — нет). №1: серверный пре-флайт ДО вызова LLM (та же chars/4) → `400 {code:'context_overflow', estimatedTokens, contextLength}` + cleanup реестра; жёсткий 400 llama.cpp парсится (`parseLlamaCppErrorResponse`) и числа пробрасываются на фронт. №2: транзитная пара «вопрос-ошибка» демонтирована — `sendError`-баннер над композером (kind, деталь, `≈N/M tok`, «Повторить» исходного текста с файлами, крестик), вопрос и вложения возвращаются в поле ввода (F5 больше не «способ убрать ошибку»). **Исполнено в ветке `feat/context-overflow-ux` (backend 189/189, vitest 134/134); после merge перенести в «Закрыто»** |
+| send-error-persist-actions | Вердикт владельца 2026-11-11 «делаем №3+4» (после merge PR #22) + ТЗ `docs/plans/send-error-persist-actions.md` | **Персистентная плашка провальной отправки + быстрые действия.** №3: `sessions.last_send_error` (JSON-снапшот провала: kind/failedText/fileNames/числа токенов/at; CREATE + guarded ALTER) — пишется chatController'ом во все провальные точки (пре-флайт, catch chat/vision, outer), чистится на успехе и по dismiss (`DELETE /api/sessions/:id/send-error`); переживает F5 (провальная отправка не пишет в messages/attachments). Фронт: `persistedSendError` собирается во всех 4 точках открытия сессии, приглушённая плашка при отсутствии транзитного баннера. №4: кнопки одним кликом — «Удалить пару с файлом» (только context_overflow и пара есть: `findLatestFileQAPairId`, document/code — image/reference исключены), «Новая сессия» (clearChat), «Вернуть вопрос в поле ввода» (только персистентная — File-объекты F5 не переживают). **Исполнено в ветке `feat/send-error-persist-actions` (backend 203/203, vitest 153/153); после merge перенести в «Закрыто». №5 (авто-тримминг [Материалы]) — отдельное решение владельца** |
 
 ## Отложенные (в работу — по ТЗ владельца)
 
@@ -41,6 +45,7 @@
 
 | # | Что | Итог |
 |---|-----|------|
+| context-overflow-ux (№1+2) | UX переполнения контекста: пре-флайт + баннер вместо пары-ошибки («Не терять вопрос») | **Исполнено**: PR #22 (`feat/context-overflow-ux`, смержен 18e6e3c) — серверный пре-флайт ДО вызова LLM (chars/4, `400 {code:'context_overflow'}`, cleanup реестра), проброс чисел 400 llama.cpp (`parseLlamaCppErrorResponse` → details → фронт), транзитная пара демонтирована: `sendError`-баннер с «Повторить» и возвратом вопроса/вложений в композер. Продолжение трека — №3+4 (`send-error-persist-actions`, «В работе») |
 | stats-size | Футер «Size: – GB» + расхождение бар/диалог (12% vs 38%) | **Исполнено**: PR #21 (`fix/stats-size-context-load`, смержен) — `frontend/src/lib/stats.ts`: `computeContextLoadPct` (единая токеновая формула, кап 100) и `formatSizeGb` (цепочка `modelDetail.size → details.size → models.find(name).size`); `LlamaCppProvider.resolveModelSize` (`meta.size → fs.stat(props.model_path)`). 180/180, vitest 119/119 |
 | cascade | Каскадная очистка реестра attachments (Вариант B + FK на уровне БД) | **Исполнено**: PR #20 (`tz/attachment-cascade`) — `attachments.message_id` FK ON DELETE CASCADE (fresh CREATE + guarded ALTER); миграция legacy-БД (backfill по meta живых сообщений + очистка балласта); claim строк после успешного addMessage, cleanup незаклеймлённых при провале LLM; deletedAttachments — реальный count; reference не каскадится; файлы на диске не удаляются (File Manager); мёртвый POST /api/attachments/extract демонтирован; 174/174, red-first |
 | 6 | Восстановить извлечение текста из документов (утрачено в PR #16) | **Исполнено**: PR #19 (`tz/doc-extraction`) — `extractText(buffer, filename)` (pdfjs/word-extractor/xlsx) в extractFromPaths + buildLLMContext, без новых зависимостей; 162/162, red-first. Ограничения: .docx — смоук на реальном файле за владельцем; скан-PDF без текстового слоя → пустой текст (OCR — отдельная тема) |
