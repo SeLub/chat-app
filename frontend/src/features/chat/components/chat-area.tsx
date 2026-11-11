@@ -27,13 +27,13 @@ import {
 import { useSessionStore } from '@/stores/sessionStore';
 import { useProviderStore } from '@/stores/providerStore';
 import { useUIStore } from '@/stores/uiStore';
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { useNavigate } from 'react-router-dom';
 import { remarkPlugins, rehypePlugins } from '@/lib/chatRender';
 import { cn, scrollToQuestion, formatSize, shortModel } from '@/lib/utils';
 import { computeContextLoadPct, formatSizeGb } from '@/lib/stats';
-import { formatTokensCompact } from '@/lib/sendError';
+import { formatTokensCompact, findLatestFileQAPairId, formatSendErrorTime } from '@/lib/sendError';
 // ТЗ adaptive-context-budget (№4): кап длины message — мягкий кап в UI:
 // композер блокирует отправку раньше сервера (messageCap — дубликат
 // серверной константы, менять ОБА места)
@@ -220,6 +220,8 @@ export function ChatArea({ className }: { className?: string }) {
   const deleteMessage = useSessionStore((s) => s.deleteMessage);
   const sendError = useSessionStore((s) => s.sendError);
   const dismissSendError = useSessionStore((s) => s.dismissSendError);
+  const persistedSendError = useSessionStore((s) => s.persistedSendError);
+  const dismissPersistedSendError = useSessionStore((s) => s.dismissPersistedSendError);
 
   const [inputValue, setInputValue] = useState('');
   const [isSending, setIsSending] = useState(false);
@@ -241,6 +243,22 @@ export function ChatArea({ className }: { className?: string }) {
   // где произошла провальная отправка (не «переезжает» при переключении).
   const activeSendError =
     sendError && sendError.sessionId === viewingSessionId ? sendError : null;
+
+  // ТЗ send-error-persist (№4): последняя user-пара, чьи вложения инжектятся
+  // в [Материалы] (document/code — их текст входит в каждый запрос). null →
+  // кнопка «Удалить пару с файлом» скрыта (например, после F5, когда провал
+  // не оставил пары, или файлы только в композере).
+  const filePairQuestionId = useMemo(() => findLatestFileQAPairId(messages), [messages]);
+
+  // ТЗ send-error-persist (№4): быстрое разрешение переполнения — удалить
+  // offending-пару прямо из плашки (раньше — ручной поиск + Delete под вопросом).
+  const handleDeleteFilePair = useCallback(async () => {
+    const id = useSessionStore.getState().messages.length > 0
+      ? findLatestFileQAPairId(useSessionStore.getState().messages)
+      : null;
+    if (!id) return;
+    await deleteMessage(id);
+  }, [deleteMessage]);
 
   useEffect(() => {
     const el = messagesContainerRef.current;
@@ -983,7 +1001,7 @@ export function ChatArea({ className }: { className?: string }) {
         <div ref={messagesEndRef} />
       </div>
 
-      {/* ── Send Error Banner (ТЗ context-overflow-ux №2) ── */}
+      {/* ── Send Error Banner (ТЗ context-overflow-ux №2 + send-error-persist №4) ── */}
       {activeSendError && (
         <div
           className="mx-4 mb-2 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 flex items-start gap-2 flex-shrink-0"
@@ -998,6 +1016,30 @@ export function ChatArea({ className }: { className?: string }) {
                 ≈{formatTokensCompact(activeSendError.estimatedTokens)} / {formatTokensCompact(activeSendError.contextLength)} tok
               </div>
             )}
+            {/* ТЗ send-error-persist (№4): быстрые разрешения переполнения — один клик
+                вместо ручного поиска пары (текстовая подсказка осталась в detail) */}
+            <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
+              {activeSendError.kind === 'context_overflow' && filePairQuestionId && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 px-2 text-[11px] text-destructive hover:text-destructive"
+                  disabled={isSending}
+                  onClick={() => void handleDeleteFilePair()}
+                >
+                  Удалить пару с файлом
+                </Button>
+              )}
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 px-2 text-[11px]"
+                disabled={isSending}
+                onClick={() => void clearChat()}
+              >
+                Новая сессия
+              </Button>
+            </div>
           </div>
           <div className="flex items-center gap-1 flex-shrink-0">
             <Button
@@ -1014,6 +1056,76 @@ export function ChatArea({ className }: { className?: string }) {
               size="icon-sm"
               onClick={() => dismissSendError()}
               aria-label="Dismiss error"
+            >
+              <X className="w-3.5 h-3.5" />
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Persistent Send Error Plashka (ТЗ send-error-persist №3) ──
+          Последняя провальная отправка сессии из sessions.last_send_error —
+          переживает F5 (транзитный баннер выше — «живая» ошибка текущей
+          страницы, у неё приоритет). Вложение файлов в композер невозможно
+          (File-объекты не переживают F5) — вопрос возвращается кнопкой. */}
+      {!activeSendError && persistedSendError && (
+        <div
+          className="mx-4 mb-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 flex items-start gap-2 flex-shrink-0"
+          role="alert"
+        >
+          <AlertTriangle className="w-4 h-4 text-destructive/80 flex-shrink-0 mt-0.5" />
+          <div className="flex-1 min-w-0">
+            <div className="text-xs font-semibold text-destructive">
+              {persistedSendError.title}
+              {formatSendErrorTime(persistedSendError.at) && (
+                <span className="ml-1.5 font-normal text-muted-foreground">
+                  · {formatSendErrorTime(persistedSendError.at)}
+                </span>
+              )}
+            </div>
+            <div className="text-xs text-muted-foreground mt-0.5">{persistedSendError.detail}</div>
+            {persistedSendError.estimatedTokens != null && persistedSendError.contextLength != null && (
+              <div className="font-mono text-[11px] mt-1 text-foreground">
+                ≈{formatTokensCompact(persistedSendError.estimatedTokens)} / {formatTokensCompact(persistedSendError.contextLength)} tok
+              </div>
+            )}
+            <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
+              {persistedSendError.failedText && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-6 px-2 text-[11px]"
+                  onClick={() => setInputValue(persistedSendError.failedText)}
+                >
+                  Вернуть вопрос в поле ввода
+                </Button>
+              )}
+              {persistedSendError.kind === 'context_overflow' && filePairQuestionId && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 px-2 text-[11px] text-destructive hover:text-destructive"
+                  onClick={() => void handleDeleteFilePair()}
+                >
+                  Удалить пару с файлом
+                </Button>
+              )}
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 px-2 text-[11px]"
+                onClick={() => void clearChat()}
+              >
+                Новая сессия
+              </Button>
+            </div>
+          </div>
+          <div className="flex items-center flex-shrink-0">
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              onClick={() => void dismissPersistedSendError()}
+              aria-label="Dismiss send error"
             >
               <X className="w-3.5 h-3.5" />
             </Button>
