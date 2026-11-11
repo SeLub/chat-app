@@ -24,6 +24,7 @@ const mocked = vi.hoisted(() => ({
       delete: vi.fn(),
       list: vi.fn(),
       deleteQAPair: vi.fn(),
+      clearSendError: vi.fn(),
     },
     chat: { send: vi.fn() },
     models: { list: vi.fn(), show: vi.fn() },
@@ -69,6 +70,7 @@ function getSessionsMock() {
     delete: FnMock;
     list: FnMock;
     deleteQAPair: FnMock;
+    clearSendError: FnMock;
   };
 }
 
@@ -707,6 +709,178 @@ describe('sessionStore — sendMessage lifecycle', () => {
     expect(lastMsg.role).toBe('assistant');
     expect(lastMsg.content).toBe('ok answer');
     expect(state.sendError).toBeNull();
+  });
+});
+
+// ============================================================
+// ТЗ send-error-persist (№3): персистентная плашка sessions.last_send_error —
+// переживает F5 (транзитный sendError — нет).
+// ============================================================
+describe('sessionStore — persistedSendError (ТЗ send-error-persist)', () => {
+  function sessionRow(lastSendError?: string) {
+    return {
+      id: 'a1',
+      title: 'T',
+      category: '',
+      sysprompt: '',
+      message_count: 0,
+      created_at: '',
+      updated_at: '',
+      ...(lastSendError !== undefined ? { last_send_error: lastSendError } : {}),
+    };
+  }
+
+  it('15. switchToViewing: last_send_error → persistedSendError с числами и failedText', async () => {
+    s().get.mockResolvedValue(
+      sessionRow(
+        JSON.stringify({
+          kind: 'context_overflow',
+          failedText: 'Проанализируй отчёт',
+          fileNames: ['report.pdf'],
+          estimatedTokens: 3937667,
+          contextLength: 98304,
+          at: '2026-11-11T09:30:00.000Z',
+        }),
+      ),
+    );
+    s().getMessages.mockResolvedValue([]);
+
+    await useSessionStore.getState().switchToViewing('a1');
+
+    const state = useSessionStore.getState();
+    expect(state.persistedSendError).not.toBeNull();
+    expect(state.persistedSendError?.kind).toBe('context_overflow');
+    expect(state.persistedSendError?.title).toBe('Контекст переполнен');
+    expect(state.persistedSendError?.failedText).toBe('Проанализируй отчёт');
+    expect(state.persistedSendError?.failedFileNames).toEqual(['report.pdf']);
+    expect(state.persistedSendError?.estimatedTokens).toBe(3937667);
+    expect(state.persistedSendError?.contextLength).toBe(98304);
+    expect(state.persistedSendError?.at).toBe('2026-11-11T09:30:00.000Z');
+  });
+
+  it('16. switchToViewing: сессия без last_send_error → persistedSendError null (не переезжает со старой сессии)', async () => {
+    // stale плашка от предыдущей сессии — не должна дожить до новой
+    useSessionStore.setState({
+      persistedSendError: {
+        sessionId: 'old',
+        kind: 'server',
+        title: 'Отправка не удалась',
+        detail: 'старый инцидент',
+        failedText: 'старый вопрос',
+      },
+    });
+
+    s().get.mockResolvedValue(sessionRow());
+    s().getMessages.mockResolvedValue([]);
+
+    await useSessionStore.getState().switchToViewing('a1');
+
+    expect(useSessionStore.getState().persistedSendError).toBeNull();
+  });
+
+  it('17. switchToViewing: мусор в столбце (не-JSON) → persistedSendError null, сессия открывается', async () => {
+    s().get.mockResolvedValue(sessionRow('{broken'));
+    s().getMessages.mockResolvedValue([]);
+
+    await useSessionStore.getState().switchToViewing('a1');
+
+    expect(useSessionStore.getState().persistedSendError).toBeNull();
+    expect(useSessionStore.getState().viewingSessionId).toBe('a1');
+  });
+
+  it('18. успешная отправка гасит persistedSendError (сервер чистит в той же точке)', async () => {
+    const store = useSessionStore.getState();
+    store.activeSessionId = 'a1';
+    store.viewingSessionId = 'a1';
+    store.messages = [];
+    store.questionCounter = 0;
+    store.contextMode = 'standard';
+    store.selectedQuestionIds = [];
+
+    useSessionStore.setState({
+      persistedSendError: {
+        sessionId: 'a1',
+        kind: 'context_overflow',
+        title: 'Контекст переполнен',
+        detail: 'старый провал',
+        failedText: 'Q',
+        estimatedTokens: 3937667,
+        contextLength: 98304,
+      },
+    });
+
+    (apiGateway.chat.send as FnMock).mockResolvedValue({
+      response: 'ok answer',
+      model: 'test-model',
+      metrics: { inputTokens: 10, outputTokens: 5 },
+    });
+
+    await store.sendMessage('Q');
+
+    expect(useSessionStore.getState().persistedSendError).toBeNull();
+    expect(useSessionStore.getState().sendError).toBeNull();
+  });
+
+  it('19. dismissPersistedSendError: локальная очистка + DELETE на бэк, провал запроса не возвращает плашку', async () => {
+    useSessionStore.setState({ viewingSessionId: 'a1' });
+    useSessionStore.setState({
+      persistedSendError: {
+        sessionId: 'a1',
+        kind: 'server',
+        title: 'Отправка не удалась',
+        detail: 'x',
+        failedText: 'Q',
+      },
+    });
+
+    s().clearSendError.mockRejectedValue(new mocked.ApiError(500, 'boom'));
+
+    await useSessionStore.getState().dismissPersistedSendError();
+
+    expect(s().clearSendError).toHaveBeenCalledWith('a1');
+    expect(useSessionStore.getState().persistedSendError).toBeNull();
+  });
+
+  it('20. dismissPersistedSendError без сессии: локальная очистка, запрос не делается', async () => {
+    useSessionStore.setState({ viewingSessionId: null });
+    useSessionStore.setState({
+      persistedSendError: {
+        sessionId: null,
+        kind: 'server',
+        title: 'Отправка не удалась',
+        detail: 'x',
+        failedText: '',
+      },
+    });
+
+    await useSessionStore.getState().dismissPersistedSendError();
+
+    expect(s().clearSendError).not.toHaveBeenCalled();
+    expect(useSessionStore.getState().persistedSendError).toBeNull();
+  });
+
+  it('21. init(): last_send_error из снапшота активной сессии тоже попадает в плашку', async () => {
+    localStorage.setItem('activeSessionId', 's1');
+    localStorage.setItem('viewingSessionId', 's1');
+
+    s().get.mockResolvedValue(
+      sessionRow(
+        JSON.stringify({
+          kind: 'server',
+          failedText: 'Вопрос после F5',
+          message: 'connect ECONNREFUSED',
+        }),
+      ),
+    );
+    s().getMessages.mockResolvedValue([]);
+
+    await useSessionStore.getState().init();
+
+    const state = useSessionStore.getState();
+    expect(state.persistedSendError?.kind).toBe('server');
+    expect(state.persistedSendError?.title).toBe('Отправка не удалась');
+    expect(state.persistedSendError?.failedText).toBe('Вопрос после F5');
+    expect(state.persistedSendError?.detail).toContain('ECONNREFUSED');
   });
 });
 
