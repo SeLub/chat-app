@@ -6,7 +6,7 @@ import os from 'os';
 import { getDb, setDbPath, closeDb } from '../../src/db/init.js';
 import * as sessionRepo from '../../src/db/sessionRepo.js';
 import * as messageRepo from '../../src/db/messageRepo.js';
-import { chatHandler, MAX_MESSAGE_CHARS } from '../../src/controllers/chatController.js';
+import { chatHandler, MAX_MESSAGE_CHARS, composeAssistantAnswer, REASONING_PREVIEW_CHARS } from '../../src/controllers/chatController.js';
 import { DEFAULT_SYSPROMPT } from '../../src/services/contextBuilder.js';
 import { UPLOADS_DIR, THUMBS_DIR } from '../../src/config/paths.js';
 
@@ -1165,5 +1165,207 @@ describe('chatHandler: ТЗ adaptive-context-budget', () => {
         assert.equal(res.body.code, 'context_overflow');
         assert.ok(res.body.estimatedTokens > 10000, 'оценка при плотности 1.5 должна превышать ctx 10000');
         assert.equal(provider.calls.length, 0, 'LLM не вызывается при пре-флайт отказе');
+    });
+});
+
+// ============================================================
+// ТЗ answer-loss-diagnostics (2026-11-12): reasoning-only и truncated ходы.
+// Инцидент: Qwen3.8 потратила 9901 токен на reasoning, llama.cpp вернул
+// reasoning_content с пустым content и finish_reason=length — приложение
+// сохраняло пустой ответ без объяснений («ответ не дошёл и логов нет»).
+// ============================================================
+describe('composeAssistantAnswer: сборка статусного ответа (answer-loss-diagnostics)', () => {
+    it('content есть, finish_reason=stop → ответ как есть, без маркеров', () => {
+        const { answer, reasoningSaved } = composeAssistantAnswer({
+            content: 'Обычный ответ',
+            reasoning: '',
+            finishReason: 'stop',
+            metrics: { inputTokens: 100, outputTokens: 50 },
+            contextLength: 16384,
+        });
+        assert.equal(answer, 'Обычный ответ');
+        assert.equal(reasoningSaved, false);
+    });
+
+    it('content есть, finish_reason=length → ответ + маркер обрыва с числами', () => {
+        const { answer } = composeAssistantAnswer({
+            content: 'Частичный ответ',
+            reasoning: '',
+            finishReason: 'length',
+            metrics: { inputTokens: 6482, outputTokens: 9901 },
+            contextLength: 16384,
+        });
+        assert.ok(answer.startsWith('Частичный ответ'), 'контент не теряется');
+        assert.ok(answer.includes('[Ответ оборван лимитом контекста'));
+        assert.ok(answer.includes('промпт 6482 + ответ 9901 из 16384'));
+        assert.ok(answer.includes('--n-predict'), 'в маркере — подсказка что крутить');
+    });
+
+    it('metrics.truncated=true (без finishReason) тоже добавляет маркер', () => {
+        const { answer } = composeAssistantAnswer({
+            content: 'Текст',
+            finishReason: null,
+            metrics: { inputTokens: 10, outputTokens: 20, truncated: true },
+            contextLength: 100,
+        });
+        assert.ok(answer.includes('[Ответ оборван лимитом контекста'));
+    });
+
+    it('content пуст, есть reasoning → статусный маркер + preview размышлений', () => {
+        const reasoning = 'Пусть рассматриваю реализацию: сначала проверю валидацию…';
+        const { answer, reasoningSaved } = composeAssistantAnswer({
+            content: '',
+            reasoning,
+            finishReason: 'length',
+            metrics: { inputTokens: 6482, outputTokens: 9901 },
+            contextLength: 16384,
+        });
+        assert.equal(reasoningSaved, true);
+        assert.ok(answer.includes('[Ответ не сформирован]'));
+        assert.ok(answer.includes('9901 токенов на внутренние размышления'));
+        assert.ok(answer.includes('контекст (16384 токенов)'));
+        assert.ok(answer.includes('Пусть рассматриваю реализацию'), 'preview размышлений сохранён');
+    });
+
+    it('reasoning длиннее REASONING_PREVIEW_CHARS — preview сокращается с пометкой', () => {
+        const { answer } = composeAssistantAnswer({
+            content: '',
+            reasoning: 'д'.repeat(REASONING_PREVIEW_CHARS + 500),
+            finishReason: 'length',
+            metrics: { inputTokens: 1000, outputTokens: 2000 },
+            contextLength: 4096,
+        });
+        assert.ok(answer.length < REASONING_PREVIEW_CHARS + 600, 'preview не тащит весь reasoning в messages');
+        assert.ok(answer.includes('сокращено: всего 1700 символов размышлений'));
+    });
+
+    it('content и reasoning пусты → маркер пустого ответа', () => {
+        const { answer, reasoningSaved } = composeAssistantAnswer({
+            content: '',
+            reasoning: '',
+            finishReason: null,
+            metrics: { outputTokens: 0 },
+            contextLength: 16384,
+        });
+        assert.equal(reasoningSaved, false);
+        assert.ok(answer.includes('[Пустой ответ модели]'));
+    });
+});
+
+describe('chatHandler: reasoning-only и truncated ходы (answer-loss-diagnostics)', () => {
+    let sessionId;
+    let tempDir;
+
+    before(async () => {
+        setDbPath(':memory:');
+        getDb();
+        tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'answer-loss-test-'));
+    });
+
+    after(async () => {
+        closeDb();
+        await fs.rm(tempDir, { recursive: true, force: true });
+    });
+
+    beforeEach(() => {
+        getDb().exec('DELETE FROM attachments');
+        getDb().exec('DELETE FROM messages');
+        getDb().exec('DELETE FROM sessions');
+        sessionId = sessionRepo.createSession('Answer Loss Test').id;
+    });
+
+    it('reasoning-only ход: в чат и в БД пишется статусный маркер, reasoning — в метрики', async () => {
+        const provider = {
+            name: 'mock-reasoning',
+            detectModelType: () => 'chat',
+            chat: async () => ({
+                response: '',
+                reasoning: 'Модель размышляла о реализации: ' + 'мысль '.repeat(50),
+                finishReason: 'length',
+                metrics: {
+                    inputTokens: 6482,
+                    outputTokens: 9901,
+                    truncated: true,
+                    tps: 19.28,
+                    ttft: 59.56,
+                },
+            }),
+        };
+        const req = {
+            body: { message: 'Оцени реализацию', model: 'test-model', sessionId, questionId: 'q_al_1', contextLength: '16384' },
+            files: {},
+            provider,
+            providerName: 'mock',
+        };
+        const res = makeRes();
+        await chatHandler(req, res);
+
+        assert.equal(res.statusCode, 200, `handler failed: ${JSON.stringify(res.body)}`);
+        // фронт получает не пустоту, а статусный ответ
+        assert.ok(res.body.response.includes('[Ответ не сформирован]'), 'response содержит маркер');
+        assert.ok(res.body.response.includes('9901 токенов'));
+
+        // в БД — тот же маркер (переживает F5, виден в Copy Q&A)
+        const assistantMsg = getDb()
+            .prepare("SELECT content, metrics FROM messages WHERE session_id = ? AND role = 'assistant'")
+            .get(sessionId);
+        assert.ok(assistantMsg.content.includes('[Ответ не сформирован]'));
+        const metrics = JSON.parse(assistantMsg.metrics);
+        assert.equal(metrics.reasoningChars > 0, true, 'reasoningChars в метриках');
+        assert.ok(metrics.reasoningPreview.length <= 1000, 'reasoningPreview — не весь текст размышлений');
+        assert.equal(metrics.promptChars > 0, true, 'плотность следующего хода не потеряна');
+    });
+
+    it('truncated ход с непустым контентом: контент сохраняется + маркер обрыва', async () => {
+        const provider = {
+            name: 'mock-truncated',
+            detectModelType: () => 'chat',
+            chat: async () => ({
+                response: 'Начало хорошего ответа…',
+                reasoning: '',
+                finishReason: 'length',
+                metrics: { inputTokens: 6482, outputTokens: 9901, truncated: true },
+            }),
+        };
+        const req = {
+            body: { message: 'Вопрос', model: 'test-model', sessionId, questionId: 'q_al_2', contextLength: '16384' },
+            files: {},
+            provider,
+            providerName: 'mock',
+        };
+        const res = makeRes();
+        await chatHandler(req, res);
+
+        assert.equal(res.statusCode, 200);
+        assert.ok(res.body.response.startsWith('Начало хорошего ответа…'), 'контент не потерян');
+        assert.ok(res.body.response.includes('[Ответ оборван лимитом контекста'));
+
+        const assistantMsg = getDb()
+            .prepare("SELECT content FROM messages WHERE session_id = ? AND role = 'assistant'")
+            .get(sessionId);
+        assert.ok(assistantMsg.content.includes('Начало хорошего ответа…'));
+        assert.ok(assistantMsg.content.includes('[Ответ оборван лимитом контекста'));
+    });
+
+    it('обычный ход (stop, контент есть) — ответ БЕЗ маркеров (обратная совместимость моков)', async () => {
+        const provider = {
+            name: 'mock-plain',
+            detectModelType: () => 'chat',
+            chat: async () => ({
+                response: 'Чистый ответ',
+                metrics: { inputTokens: 100, outputTokens: 10 },
+            }),
+        };
+        const req = {
+            body: { message: 'Вопрос', model: 'test-model', sessionId, questionId: 'q_al_3' },
+            files: {},
+            provider,
+            providerName: 'mock',
+        };
+        const res = makeRes();
+        await chatHandler(req, res);
+
+        assert.equal(res.statusCode, 200);
+        assert.equal(res.body.response, 'Чистый ответ', 'без reasoning/finishReason — ничего не добавляется');
     });
 });

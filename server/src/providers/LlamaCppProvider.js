@@ -277,12 +277,17 @@ export class LlamaCppProvider extends BaseProvider {
             const controller = new AbortController();
             const timeout = setTimeout(() => controller.abort(), 900000); // 15min timeout
 
+            // ТЗ answer-loss-diagnostics (2026-11-12): n_predict: -1 БОЛЬШЕ НЕ
+            // ШЛЁТСЯ — он перекрывал --n-predict llama-server и позволял
+            // генерации заполнить контекст до отказа (promпт 6482 + ответ
+            // 9901 = 16383 из 16384, truncated=1). Не шлём поле вовсе —
+            // действует серверный --n-predict; промпт не занижаем, а бюджет
+            // ответа решает владелец llama-server, не приложение.
             const response = await fetch(`${this.url}/completion`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     prompt,
-                    n_predict: -1,
                     stream,
                     temperature: 0.7,
                 }),
@@ -304,7 +309,7 @@ export class LlamaCppProvider extends BaseProvider {
             };
         } catch (error) {
             if (error.name === 'AbortError') {
-                throw new Error('Request to llama.cpp timed out after 5 minutes');
+                throw new Error('Request to llama.cpp timed out after 15 minutes');
             }
             if (error.code === 'ECONNREFUSED') {
                 throw new Error(`Cannot connect to llama.cpp at ${this.url}. Is the server running?`);
@@ -321,23 +326,38 @@ export class LlamaCppProvider extends BaseProvider {
      * конкретный сервер llama.cpp может игнорировать неизвестные поля → vision
      * через llama.cpp не гарантирован. По ТЗ — не блокер, оставлено как есть.
      */
-    async chat({ model, messages, stream = false }) {
+    async chat({ model, messages, stream = false, maxTokens, cache_prompt, n_keep } = {}) {
         try {
-            log.info('Sending chat request to llama.cpp', { model });
+            log.info('Sending chat request to llama.cpp', {
+                model,
+                maxTokens: Number.isFinite(maxTokens) && maxTokens > 0 ? maxTokens : 'server default (--n-predict)'
+            });
 
             const controller = new AbortController();
-            const timeout = setTimeout(() => controller.abort(), 900000); // 5min timeout
+            const timeout = setTimeout(() => controller.abort(), 900000); // 15min timeout
+
+            // ТЗ answer-loss-diagnostics (2026-11-12): max_tokens: -1 снят.
+            // Он перекрывал серверный --n-predict (пользователь выставил 8192,
+            // приложение молча расширило до «до заполнения контекста») —
+            // генерация шла до края ctx и гарантированно обрывалась
+            // (truncated=1) на каждом reasoning-ответе. Теперь поле не шлётся:
+            // действует --n-predict llama-server. maxTokens — явный override
+            // от вызывающего (опционально), cache_prompt/n_keep — прокидывание
+            // параметров chatController (раньше игнорировались молча).
+            const body = {
+                model: model,
+                messages: mergeSystemMessages(messages),
+                stream: stream,
+                temperature: 0.7,
+            };
+            if (Number.isFinite(maxTokens) && maxTokens > 0) body.max_tokens = maxTokens;
+            if (cache_prompt !== undefined) body.cache_prompt = Boolean(cache_prompt);
+            if (n_keep !== undefined) body.n_keep = n_keep;
 
             const response = await fetch(`${this.url}/v1/chat/completions`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    model: model,
-                    messages: mergeSystemMessages(messages),
-                    stream: stream,
-                    temperature: 0.7,
-                    max_tokens: -1
-                }),
+                body: JSON.stringify(body),
                 signal: controller.signal
             });
 
@@ -356,10 +376,23 @@ export class LlamaCppProvider extends BaseProvider {
             }
 
             if (stream && response.body) {
+                // ТЗ answer-loss-diagnostics (2026-11-12): парсер SSE переписан.
+                // (а) Буферизация строк: раньше chunk.split('\n') выбрасывал
+                //     событие, разрезанное границей чанка TCP — JSON.parse
+                //     падал, и контент ТИХО терялся (log.debug). Теперь хвост
+                //     без '\n' дожидается следующего чанка.
+                // (б) reasoning_content: reasoning-модели (Qwen3.8 и т.п.)
+                //     отдают размышления в delta.reasoning_content — раньше
+                //     они выбрасывались молча.
+                // (в) finish_reason: у финального usage-чанка choices пуст,
+                //     он приходит в отдельном чанке — запоминаем последний.
                 const reader = response.body.getReader();
                 const decoder = new TextDecoder();
                 let done = false;
+                let buffer = '';
                 let fullResponse = '';
+                let fullReasoning = '';
+                let finishReason = null;
                 let lastMetrics = null;
 
                 while (!done) {
@@ -367,43 +400,98 @@ export class LlamaCppProvider extends BaseProvider {
                     done = readDone;
 
                     if (value) {
-                        const chunk = decoder.decode(value, { stream: true });
-                        const lines = chunk.split('\n').filter(l => l.startsWith('data: ') && l !== 'data: [DONE]');
+                        buffer += decoder.decode(value, { stream: true });
+                    }
+                    if (!value && buffer === '') continue;
 
-                        for (const line of lines) {
-                            try {
-                                const dataStr = line.slice(6);
-                                const data = JSON.parse(dataStr);
-                                const delta = data.choices?.[0]?.delta?.content;
-                                if (delta) {
-                                    fullResponse += delta;
-                                }
-                                if (data.usage) {
-                                    lastMetrics = extractLlamaCppMetrics(data);
-                                }
-                            } catch (e) {
-                                log.debug('Failed to parse SSE chunk', { line });
+                    const lines = buffer.split('\n');
+                    buffer = lines.pop() ?? '';
+                    if (done && buffer !== '') {
+                        lines.push(buffer); // финальная строка без завершающего \n
+                        buffer = '';
+                    }
+
+                    for (const rawLine of lines) {
+                        const line = rawLine.trim();
+                        if (!line.startsWith('data: ') || line === 'data: [DONE]') continue;
+                        try {
+                            const data = JSON.parse(line.slice(6));
+                            const delta = data.choices?.[0]?.delta || {};
+                            if (delta.content) {
+                                fullResponse += delta.content;
                             }
+                            if (delta.reasoning_content) {
+                                fullReasoning += delta.reasoning_content;
+                            }
+                            if (data.choices?.[0]?.finish_reason) {
+                                finishReason = data.choices[0].finish_reason;
+                            }
+                            if (data.usage) {
+                                lastMetrics = extractLlamaCppMetrics(data, { finishReason });
+                            }
+                        } catch (e) {
+                            log.debug('Failed to parse SSE chunk', { line: line.slice(0, 120) });
                         }
                     }
                 }
 
+                if (fullResponse === '' && fullReasoning) {
+                    log.warn('llama.cpp stream: reasoning_content received, content empty', {
+                        finishReason,
+                        reasoningChars: fullReasoning.length,
+                        reasoningPreview: fullReasoning.slice(0, 400),
+                    });
+                }
+
+                const metrics = lastMetrics || { finishReason, truncated: finishReason === 'length' };
                 return {
                     response: fullResponse,
-                    metrics: lastMetrics || {}
+                    reasoning: fullReasoning,
+                    finishReason,
+                    metrics
                 };
             }
 
+            // ТЗ answer-loss-diagnostics (2026-11-12): раньше читался ТОЛЬКО
+            // message.content. У reasoning-модели весь ход может уйти в
+            // reasoning_content (llama.cpp кладёт размышления туда), а при
+            // исчерпании контекста — content вообще пуст: приложение
+            // сохраняло пустой ответ без объяснений (инцидент 2026-11-12:
+            // промпт 6482 + 9901 токенов размышлений = 16383 из 16384,
+            // в чате — тишина). Теперь reasoning и finish_reason возвращаются
+            // вызывающему (chatController строит статусный ответ).
             const data = await response.json();
-            const content = data.choices?.[0]?.message?.content || '';
+            const choice = data.choices?.[0] || {};
+            const message = choice.message || {};
+            const content = message.content || '';
+            const reasoning = message.reasoning_content || message.reasoning || '';
+            const finishReason = choice.finish_reason || null;
+
+            if (content === '' && reasoning) {
+                log.warn('llama.cpp: reasoning_content received, content empty', {
+                    finishReason,
+                    reasoningChars: reasoning.length,
+                    reasoningPreview: reasoning.slice(0, 400),
+                });
+            }
+            if (finishReason === 'length') {
+                log.warn('llama.cpp: response truncated by context limit (finish_reason=length)', {
+                    contentChars: content.length,
+                    reasoningChars: reasoning.length,
+                    inputTokens: data.usage?.prompt_tokens,
+                    outputTokens: data.usage?.completion_tokens,
+                });
+            }
 
             return {
                 response: content,
+                reasoning,
+                finishReason,
                 metrics: extractLlamaCppMetrics(data)
             };
         } catch (error) {
             if (error.name === 'AbortError') {
-                throw new Error('Request to llama.cpp timed out after 5 minutes');
+                throw new Error('Request to llama.cpp timed out after 15 minutes');
             }
             if (error.code === 'ECONNREFUSED') {
                 throw new Error(`Cannot connect to llama.cpp at ${this.url}. Is the server running?`);
