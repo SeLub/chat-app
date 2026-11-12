@@ -137,6 +137,28 @@ export async function chatHandler(req, res) {
     // Это единственное разрешённое удаление — пользовательские файлы реестра не удаляются никогда.
     const tmpFilePaths = [file?.path, ...codeFiles.map((cf) => cf?.path)].filter(Boolean);
 
+    // ТЗ answer-loss-diagnostics (доп. изучение 2026-11-12): в логе llama.cpp
+    // владельца первая задача отменялась («stop: cancel task» = разрыв
+    // HTTP-соединения КЛИЕНТОМ этой задачи), а приложение обрыв со своей
+    // стороны не логировало вовсе — инцидент было невозможно расследовать
+    // («нет никаких логов почему»). req 'close' до отправки ответа = клиент
+    // ушёл (F5, повторная отправка, смерть соединения) — теперь это видно
+    // с таймкодом. 'close' у Node 18+ срабатывает и после нормального
+    // завершения — фильтруем по res.writableEnded. Guard typeof: в тестах
+    // req мокается плоским объектом без EventEmitter-методов.
+    if (typeof req.on === 'function') {
+        req.on('close', () => {
+            if (!res.writableEnded) {
+                log.warn('Client disconnected before the response was sent', {
+                    sessionId: sessionId?.slice(0, 8),
+                    questionId,
+                    hasFile: !!file,
+                    codeFiles: codeFiles.length
+                });
+            }
+        });
+    }
+
     // ТЗ attachment-cascade: fileIds строк реестра, созданных ЭТОЙ отправкой (RESEARCH).
     // PROJECT-ветка строки не создаёт (reference — пул сессии): claim/cleanup к ней неприменимы.
     let sentFileIds = [];
