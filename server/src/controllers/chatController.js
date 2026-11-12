@@ -73,6 +73,51 @@ function classifyProviderError(details) {
     return { isOverflow, promptTok, nCtxTok };
 }
 
+// ============================================================
+// ТЗ answer-loss-diagnostics (2026-11-12)
+// ============================================================
+// Инцидент: reasoning-модель (Qwen3.8) потратила 9901 токен на размышления,
+// контекст (16384) кончился до видимого ответа; llama.cpp вернул
+// reasoning_content с пустым content и finish_reason=length. Приложение
+// читало только content → в чате и в БД — пустой ответ без единого
+// объяснения («ответ не дошёл, логов нет»). Чистая функция сборки итогового
+// текста ответа:
+//   content есть → он и есть ответ (+ маркер обрыва при length);
+//   content пуст + есть reasoning → статусный маркер + НАЧАЛО размышлений
+//     (полные — в логах сервера; писать 35 КБ размышлений в messages —
+//     раздувать будущие промпты [Ранее в этой сессии]);
+//   оба пусты → маркер пустого ответа.
+// Маркеры пишутся В content: они попадают в чат, в Copy Q&A и в БД —
+// причина инцидента видна сразу и переживает F5.
+export const REASONING_PREVIEW_CHARS = 1200;
+
+export function composeAssistantAnswer({ content, reasoning, finishReason, metrics, contextLength } = {}) {
+    const text = typeof content === 'string' ? content : '';
+    const reasoningText = typeof reasoning === 'string' ? reasoning : '';
+    const truncated = finishReason === 'length' || metrics?.truncated === true;
+
+    // 1. Ответ есть — маркер обрыва добавляется только при length
+    if (text !== '') {
+        if (!truncated) return { answer: text, reasoningSaved: false };
+        const note = `[Ответ оборван лимитом контекста: промпт ${metrics?.inputTokens ?? '?'} + ответ ${metrics?.outputTokens ?? '?'} из ${contextLength ?? '?'} токенов, finish_reason=length. Увеличьте --ctx-size llama-server или ограничьте длину ответа (--n-predict).]`;
+        return { answer: `${text}\n\n---\n${note}`, reasoningSaved: false };
+    }
+
+    // 2. Модель «думала» и не дошла до ответа
+    if (reasoningText.length > 0) {
+        const preview = reasoningText.trimEnd().slice(0, REASONING_PREVIEW_CHARS);
+        const moreNote = reasoningText.length > REASONING_PREVIEW_CHARS
+            ? `\n…(сокращено: всего ${reasoningText.length} символов размышлений — полные в логах сервера)`
+            : '';
+        const note = `[Ответ не сформирован] Модель потратила ${metrics?.outputTokens ?? '?'} токенов на внутренние размышления (reasoning), но контекст (${contextLength ?? '?'} токенов) закончился до начала видимого ответа.\n\nНачало размышлений:\n${preview}${moreNote}\n\n[Что делать: увеличьте --ctx-size llama-server, отключите размышления модели или ограничьте их.]`;
+        return { answer: note, reasoningSaved: true };
+    }
+
+    // 3. Ноль от модели (и content, и reasoning пусты)
+    const note = `[Пустой ответ модели] finish_reason=${finishReason ?? 'unknown'}, токенов ответа: ${metrics?.outputTokens ?? 0}. Подробности в логах сервера.`;
+    return { answer: note, reasoningSaved: false };
+}
+
 export async function chatHandler(req, res) {
     let { message, model, sessionId, questionId, contextLength, retainPercent, includeQuestionIds } = req.body;
 
@@ -91,6 +136,28 @@ export async function chatHandler(req, res) {
     // TZ-B.3: временные файлы (diskStorage, uploads/tmp) удаляются после обработки в любом исходе.
     // Это единственное разрешённое удаление — пользовательские файлы реестра не удаляются никогда.
     const tmpFilePaths = [file?.path, ...codeFiles.map((cf) => cf?.path)].filter(Boolean);
+
+    // ТЗ answer-loss-diagnostics (доп. изучение 2026-11-12): в логе llama.cpp
+    // владельца первая задача отменялась («stop: cancel task» = разрыв
+    // HTTP-соединения КЛИЕНТОМ этой задачи), а приложение обрыв со своей
+    // стороны не логировало вовсе — инцидент было невозможно расследовать
+    // («нет никаких логов почему»). req 'close' до отправки ответа = клиент
+    // ушёл (F5, повторная отправка, смерть соединения) — теперь это видно
+    // с таймкодом. 'close' у Node 18+ срабатывает и после нормального
+    // завершения — фильтруем по res.writableEnded. Guard typeof: в тестах
+    // req мокается плоским объектом без EventEmitter-методов.
+    if (typeof req.on === 'function') {
+        req.on('close', () => {
+            if (!res.writableEnded) {
+                log.warn('Client disconnected before the response was sent', {
+                    sessionId: sessionId?.slice(0, 8),
+                    questionId,
+                    hasFile: !!file,
+                    codeFiles: codeFiles.length
+                });
+            }
+        });
+    }
 
     // ТЗ attachment-cascade: fileIds строк реестра, созданных ЭТОЙ отправкой (RESEARCH).
     // PROJECT-ветка строки не создаёт (reference — пул сессии): claim/cleanup к ней неприменимы.
@@ -414,6 +481,26 @@ export async function chatHandler(req, res) {
                 n_keep: isManualMode ? 0 : undefined
             });
 
+            // ТЗ answer-loss-diagnostics: честная фиксация исхода хода в логе
+            // (раньше «LLM response received» не было вовсе — инцидент «ответ
+            // не дошёл и логов нет» невозможно было расследовать постфактум).
+            log.info('LLM response received', {
+                finishReason: result.finishReason ?? null,
+                truncated: result.metrics?.truncated === true,
+                contentChars: (result.response || '').length,
+                reasoningChars: (result.reasoning || '').length,
+                inputTokens: result.metrics?.inputTokens ?? null,
+                outputTokens: result.metrics?.outputTokens ?? null
+            });
+
+            const { answer, reasoningSaved } = composeAssistantAnswer({
+                content: result.response,
+                reasoning: result.reasoning,
+                finishReason: result.finishReason,
+                metrics: result.metrics,
+                contextLength
+            });
+
             const finalQuestionId = questionId || `q_${Date.now()}`;
             const userMsgId = sessionService.addMessage(sessionId, {
                 role: 'user',
@@ -426,21 +513,32 @@ export async function chatHandler(req, res) {
             attachmentService.claimAttachments(sentFileIds, userMsgId);
             sessionService.addMessage(sessionId, {
                 role: 'assistant',
-                content: result.response,
+                content: answer,
                 model,
                 questionId: finalQuestionId,
                 // ТЗ adaptive-context-budget (№3): promptChars — символы промпта
                 // ЭТОГО хода; вместе с inputTokens (полный промпт, см.
                 // metricsService) — измеренная плотность следующего хода.
                 // Vision-ветка promptChars не пишет (mmproj, char-плотность неприменима).
-                metrics: { ...(result.metrics || {}), promptChars }
+                // ТЗ answer-loss-diagnostics: при reasoning-only ходе в метрики
+                // пишутся reasoningChars/reasoningPreview (диагностика в Copy Q&A).
+                metrics: {
+                    ...(result.metrics || {}),
+                    promptChars,
+                    ...(reasoningSaved
+                        ? {
+                            reasoningChars: (result.reasoning || '').length,
+                            reasoningPreview: (result.reasoning || '').slice(0, 1000),
+                        }
+                        : {})
+                }
             });
 
             // ТЗ send-error-persist (№3): успешная отправка гасит персистентную плашку.
             clearSendErrorSafe(sessionId);
 
             res.json({
-                response: result.response,
+                response: answer,
                 model,
                 metrics: result.metrics,
                 questionId: finalQuestionId,

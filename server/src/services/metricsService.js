@@ -41,7 +41,7 @@ export function extractMetrics(data) {
  *   "usage": { "prompt_tokens": ..., "completion_tokens": ... }  // OpenAI-совместимый
  * }
  */
-export function extractLlamaCppMetrics(data) {
+export function extractLlamaCppMetrics(data, extra = {}) {
   const timings = data.timings || {};
 
   // Конвертируем миллисекунды в секунды
@@ -81,14 +81,31 @@ export function extractLlamaCppMetrics(data) {
 
   const cachedTokens = Number.isFinite(cacheN) && cacheN > 0 ? cacheN : 0;
 
+  // ТЗ answer-loss-diagnostics (2026-11-12): finish_reason/truncated — раньше
+  // терялись, и «оборванный лимитом контекста» ответ сохранялся в чате без
+  // всякого признака обрыва. Источники:
+  //   1) choices[0].finish_reason — OAI-ответ (length = стоп по контексту);
+  //   2) extra.finishReason — streaming: у финального usage-чанка choices
+  //      пуст, finish_reason приходил РАНЬШЕ в отдельном чанке (провайдер
+  //      передаёт его через extra);
+  //   3) /completion (generate): stopped_limit/stop_type='limit' — стоп по
+  //      контексту в нативном формате llama.cpp.
+  const finishReason = data.choices?.[0]?.finish_reason
+    || extra.finishReason
+    || (data.stopped_limit === true || data.stop_type === 'limit' ? 'length' : null)
+    || null;
+
   return {
     tps: parseFloat(tps.toFixed(2)),                    // Скорость генерации (tok/s)
     promptTps: parseFloat(promptTps.toFixed(2)),        // Скорость чтения промпта (tok/s)
     inputTokens,                                        // Токенов во входе (ПОЛНЫЙ промпт)
     cachedTokens,                                       // Токенов, переиспользованных из KV-кэша
-    outputTokens: timings.predicted_n || 0,             // Токенов на выходе
+    // Фолбэк usage.completion_tokens: сборки без timings.predicted_n
+    outputTokens: timings.predicted_n || data.usage?.completion_tokens || 0, // Токенов на выходе
     totalTime: parseFloat(totalTime.toFixed(2)),        // Общее время (сек)
     ttft: parseFloat(promptSec.toFixed(2)),             // Время до первого слова (сек)
-    loadTime: 0                                          // llama.cpp не возвращает время загрузки
+    loadTime: 0,                                        // llama.cpp не возвращает время загрузки
+    finishReason,                                       // 'stop' | 'length' | null
+    truncated: finishReason === 'length'                // оборвано лимитом контекста
   };
 }
