@@ -87,3 +87,81 @@ describe('extractMetrics (Ollama): контракт не изменён', () => 
         assert.equal(m.cachedTokens, undefined, 'у Ollama нет cache_n — поле не добавляется');
     });
 });
+
+// ============================================================
+// ТЗ answer-loss-diagnostics (2026-11-12): finish_reason/truncated.
+// Инцидент: промпт 6482 + 9901 токенов reasoning = 16383 из 16384,
+// finish_reason=length терялся — приложение сохраняло пустой ответ
+// без признака обрыва.
+// ============================================================
+describe('extractLlamaCppMetrics: finish_reason / truncated (answer-loss-diagnostics)', () => {
+    it('OAI-ответ с finish_reason=length → truncated=true (обрыв по контексту)', () => {
+        const m = extractLlamaCppMetrics({
+            choices: [{ finish_reason: 'length' }],
+            usage: { prompt_tokens: 6482, completion_tokens: 9901 },
+            timings: { prompt_n: 6482, prompt_ms: 59560, predicted_n: 9901, predicted_ms: 513631 },
+        });
+        assert.equal(m.finishReason, 'length');
+        assert.equal(m.truncated, true);
+        assert.equal(m.inputTokens, 6482);
+        assert.equal(m.outputTokens, 9901);
+    });
+
+    it('finish_reason=stop → truncated=false', () => {
+        const m = extractLlamaCppMetrics({
+            choices: [{ finish_reason: 'stop' }],
+            usage: { prompt_tokens: 100, completion_tokens: 50 },
+            timings: { prompt_n: 100, prompt_ms: 100, predicted_n: 50, predicted_ms: 500 },
+        });
+        assert.equal(m.finishReason, 'stop');
+        assert.equal(m.truncated, false);
+    });
+
+    it('streaming: у финального usage-чанка choices пуст → finishReason приходит через extra', () => {
+        // OpenAI-протокол: finish_reason уходит в предпоследнем чанке, usage —
+        // в финальном с choices: []; провайдер передаёт его как extra.finishReason
+        const m = extractLlamaCppMetrics(
+            {
+                choices: [],
+                usage: { prompt_tokens: 6482, completion_tokens: 9901 },
+                timings: { prompt_n: 6482, prompt_ms: 59560, predicted_n: 9901, predicted_ms: 513631 },
+            },
+            { finishReason: 'length' },
+        );
+        assert.equal(m.finishReason, 'length');
+        assert.equal(m.truncated, true);
+    });
+
+    it('нативный /completion: stopped_limit=true → length; stop_type="end_of_text" → не обрыв', () => {
+        const truncated = extractLlamaCppMetrics({ stopped_limit: true, timings: { prompt_n: 10, predicted_n: 5 } });
+        assert.equal(truncated.finishReason, 'length');
+        assert.equal(truncated.truncated, true);
+
+        const eos = extractLlamaCppMetrics({ stop_type: 'end_of_text', timings: { prompt_n: 10, predicted_n: 5 } });
+        assert.equal(eos.finishReason, null);
+        assert.equal(eos.truncated, false);
+    });
+
+    it('нет finish_reason ни в теле, ни в extra → finishReason=null, truncated=false (обратная совместимость)', () => {
+        const m = extractLlamaCppMetrics({ usage: { prompt_tokens: 10, completion_tokens: 5 }, timings: {} });
+        assert.equal(m.finishReason, null);
+        assert.equal(m.truncated, false);
+    });
+
+    it('outputTokens: нет timings.predicted_n → фолбэк usage.completion_tokens', () => {
+        const m = extractLlamaCppMetrics({
+            choices: [{ finish_reason: 'stop' }],
+            usage: { prompt_tokens: 100, completion_tokens: 777 },
+            timings: { prompt_n: 100, prompt_ms: 100 },
+        });
+        assert.equal(m.outputTokens, 777);
+    });
+
+    it('пустой ответ → finishReason=null, truncated=false, нули (старые ассерты не ломаются)', () => {
+        const m = extractLlamaCppMetrics({});
+        assert.equal(m.inputTokens, 0);
+        assert.equal(m.outputTokens, 0);
+        assert.equal(m.finishReason, null);
+        assert.equal(m.truncated, false);
+    });
+});
