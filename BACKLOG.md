@@ -38,6 +38,7 @@
 | Отложенное создание сессии в БД | ТЗ `docs/plans/1784201363408-deferred-session-creation.md` (pending-сессия: UUID в localStorage, запись в БД при первом сообщении; указано владельцем в кластере PROJECT-расширений) |
 | Multi-project | ТЗ Project mode A (вариант A — один проект на сессию) |
 | Git-интеграция | ТЗ Project mode A (вне скоупа) |
+| Reasoning-модели: UI для reasoning_content + подсказки AI-helper | ТЗ answer-loss-diagnostics (2026-11-12, ветка `fix/answer-loss-diagnostics`): collapsible-панель размышлений в чате (сейчас preview 1200 симв в content), отключение/ограничение мышления per-request (`chat_template_kwargs`, не проверено на сборке владельца); `generateHint` AI-helper ходит в llama.cpp без max_tokens — подсказка ждёт окончания reasoning (инцидент: 2301 токен вместо 1–3 предложений) |
 
 ## Закрыто / устарело
 
