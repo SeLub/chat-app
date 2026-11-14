@@ -94,6 +94,9 @@ interface SessionStore {
   selectedQuestionIds: string[];
   retainPercent: number;
   contextInfo?: { contextSize: number; totalChars: number; includedQAPairs: number; totalQAPairs: number };
+  // Transient composer text for SelectedPromptsModal preview (not persisted)
+  inputValue: string;
+  setInputValue: (v: string) => void;
   // ТЗ Project mode A (§4): режим АКТИВНОЙ сессии; не дублируется в projectStore.
   // legacy 'chat' с бэка нормализуется в 'research'.
   mode: SessionMode;
@@ -204,7 +207,7 @@ function loadSelectedIds(sessionId: string): string[] | null {
 
 const normalizeMode = (raw?: string | null): SessionMode => (raw === 'project' ? 'project' : 'research');
 
-export const initialSessionState: Omit<SessionStore, 'init' | 'switchToViewing' | 'returnToCurrent' | 'addMessage' | 'addBotMessage' | 'updateSysprompt' | 'setSysprompt' | 'setMode' | 'deleteMessage' | 'clearChat' | 'exportConversation' | 'loadViewingSession' | 'saveConversation' | 'sendMessage' | 'setSendErrorFromException' | 'dismissSendError' | 'rollbackMessage' | 'setPersistedSendErrorFromSession' | 'dismissPersistedSendError' | 'saveContextState' | 'loadContextState' | 'resetContextState' | 'toggleContextMode' | 'toggleQuestionSelection' | 'selectAllQuestions' | 'deselectAllQuestions' | 'setRetainPercent' | 'purgeSessionKeys' | 'startFreshAfterDelete' | 'deleteSession'> = {
+export const initialSessionState: Omit<SessionStore, 'init' | 'switchToViewing' | 'returnToCurrent' | 'addMessage' | 'addBotMessage' | 'updateSysprompt' | 'setSysprompt' | 'setMode' | 'deleteMessage' | 'clearChat' | 'exportConversation' | 'loadViewingSession' | 'saveConversation' | 'sendMessage' | 'setSendErrorFromException' | 'dismissSendError' | 'rollbackMessage' | 'setPersistedSendErrorFromSession' | 'dismissPersistedSendError' | 'saveContextState' | 'loadContextState' | 'resetContextState' | 'toggleContextMode' | 'toggleQuestionSelection' | 'selectAllQuestions' | 'deselectAllQuestions' | 'setInputValue' | 'setRetainPercent' | 'purgeSessionKeys' | 'startFreshAfterDelete' | 'deleteSession'> = {
   activeSessionId: null,
   viewingSessionId: null,
   currentSessionTitle: '',
@@ -216,6 +219,7 @@ export const initialSessionState: Omit<SessionStore, 'init' | 'switchToViewing' 
   selectedQuestionIds: [],
   retainPercent: 80,
   contextInfo: undefined,
+  inputValue: '',
   sendError: null,
   persistedSendError: null,
   mode: 'research',
@@ -873,6 +877,10 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     if (get().contextMode === 'standard') return;
     set({ selectedQuestionIds: [] });
     get().saveContextState();
+  },
+
+  setInputValue: (v: string) => {
+    set({ inputValue: v });
   },
 
   setRetainPercent: (v: number) => {

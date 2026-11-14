@@ -3,6 +3,9 @@
  */
 import * as promptRepo from '../db/promptRepo.js';
 
+const MAX_NAME_LENGTH = 200;
+const MAX_CONTENT_LENGTH = 100_000;
+
 export function listPrompts(req, res) {
   try {
     const prompts = promptRepo.getAllPrompts();
@@ -33,11 +36,17 @@ export function createPrompt(req, res) {
     if (!name || typeof name !== 'string' || !name.trim()) {
       return res.status(400).json({ error: 'name is required' });
     }
+    if (name.length > MAX_NAME_LENGTH) {
+      return res.status(400).json({ error: `name must be at most ${MAX_NAME_LENGTH} characters` });
+    }
     if (type !== 'system' && type !== 'user_template') {
       return res.status(400).json({ error: "type must be 'system' or 'user_template'" });
     }
     if (!content || typeof content !== 'string' || !content.trim()) {
       return res.status(400).json({ error: 'content is required' });
+    }
+    if (content.length > MAX_CONTENT_LENGTH) {
+      return res.status(400).json({ error: `content must be at most ${MAX_CONTENT_LENGTH} characters` });
     }
 
     const prompt = promptRepo.createPrompt({
@@ -55,19 +64,23 @@ export function createPrompt(req, res) {
 
 export function updatePrompt(req, res) {
   try {
-    const { name, type, content, is_default } = req.body;
+    const { name, content, is_default } = req.body;
+    // type is immutable — intentionally not accepted
 
-    if (type !== undefined && type !== 'system' && type !== 'user_template') {
-      return res.status(400).json({ error: "type must be 'system' or 'user_template'" });
-    }
     if (name !== undefined && (!name || typeof name !== 'string' || !name.trim())) {
       return res.status(400).json({ error: 'name cannot be empty' });
+    }
+    if (name !== undefined && name.length > MAX_NAME_LENGTH) {
+      return res.status(400).json({ error: `name must be at most ${MAX_NAME_LENGTH} characters` });
     }
     if (content !== undefined && (!content || typeof content !== 'string' || !content.trim())) {
       return res.status(400).json({ error: 'content cannot be empty' });
     }
+    if (content !== undefined && content.length > MAX_CONTENT_LENGTH) {
+      return res.status(400).json({ error: `content must be at most ${MAX_CONTENT_LENGTH} characters` });
+    }
 
-    const prompt = promptRepo.updatePrompt(req.params.id, { name, type, content, is_default });
+    const prompt = promptRepo.updatePrompt(req.params.id, { name, content, is_default });
     if (!prompt) {
       return res.status(404).json({ error: 'Prompt not found' });
     }

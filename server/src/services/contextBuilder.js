@@ -205,10 +205,10 @@ export async function buildLLMContext(sessionId, currentAttachments = [], contex
     if (promptSelection?.selectedTemplateIds?.length > 0) {
         const placeholders = promptSelection.selectedTemplateIds.map(() => '?').join(',');
         const templates = db.prepare(
-            `SELECT * FROM prompts WHERE id IN (${placeholders}) AND type = 'user_template'`
+            `SELECT * FROM prompts WHERE id IN (${placeholders}) AND type = 'user_template' ORDER BY created_at ASC`
         ).all(...promptSelection.selectedTemplateIds);
         if (templates.length > 0) {
-            instructionsBlock = '[Инструкции]\n\n' + templates.map(t => t.content).join('\n\n') + '\n\n';
+            instructionsBlock = '[Инструкции]\n\n' + templates.map(t => `--- TEMPLATE: ${t.name} ---\n${t.content}`).join('\n\n') + '\n\n';
         }
     }
 

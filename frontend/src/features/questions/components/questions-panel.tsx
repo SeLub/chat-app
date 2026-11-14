@@ -37,6 +37,7 @@ export function QuestionsPanel({ className }: { className?: string }) {
   const viewingSessionId = useSessionStore((s) => s.viewingSessionId);
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
   const isViewing = viewingSessionId !== activeSessionId;
+  const inputValue = useSessionStore((s) => s.inputValue);
 
   const retainPercent = useSessionStore((s) => s.retainPercent);
   const setRetainPercent = useSessionStore((s) => s.setRetainPercent);
@@ -157,7 +158,7 @@ export function QuestionsPanel({ className }: { className?: string }) {
             ))}
           </div>
         ) : (
-          <PromptsTab />
+          <PromptsTab questionPreview={inputValue} />
         )}
       </div>
 
