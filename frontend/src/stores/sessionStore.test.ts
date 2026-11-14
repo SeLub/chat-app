@@ -232,8 +232,6 @@ describe('sessionStore — normalization and init', () => {
     expect(state.viewingSessionId).toBe('new1');
     expect(localStorage.getItem('activeSessionId')).toBe('new1');
     expect(localStorage.getItem('viewingSessionId')).toBe('new1');
-    // sysprompt = DEFAULT_SYSPROMPT (non-empty)
-    expect(state.sysprompt.length).toBeGreaterThan(0);
   });
 
   it('3. init with broken active (get throws ApiError) → keys cleared, new session created', async () => {
@@ -515,34 +513,6 @@ describe('sessionStore — sendMessage lifecycle', () => {
     const callArgs = (apiGateway.chat.send as FnMock).mock.calls[0];
     const requestData = callArgs[0] as { includeQuestionIds: string[] };
     expect(requestData.includeQuestionIds).toEqual([]);
-  });
-
-  it('9. sendMessage: syspromptDirty=true → sessions.update called BEFORE chat.send', async () => {
-    const store = useSessionStore.getState();
-    store.activeSessionId = 'a1';
-    store.viewingSessionId = 'a1';
-    store.syspromptDirty = true;
-    store.messages = [];
-    store.questionCounter = 0;
-    store.totalInputTokens = 0;
-    store.totalOutputTokens = 0;
-    store.contextMode = 'standard';
-    store.selectedQuestionIds = [];
-    store.sysprompt = 'custom prompt';
-
-    s().create.mockResolvedValue({ id: 'a1' });
-    s().update.mockResolvedValue({ id: 'a1' });
-
-    (apiGateway.chat.send as FnMock).mockResolvedValue({ response: 'OK' });
-
-    await store.sendMessage('Q');
-
-    const updateCall = s().update.mock.invocationCallOrder[0];
-    const sendCall = (apiGateway.chat.send as FnMock).mock.invocationCallOrder[0];
-    expect(updateCall).toBeDefined();
-    expect(sendCall).toBeDefined();
-    expect(updateCall).toBeLessThan(sendCall);
-    expect(useSessionStore.getState().syspromptDirty).toBe(false);
   });
 
   it('10. ТЗ context-overflow-ux: ApiError 503 → sendError kind=provider_unavailable, пары в чате нет, refreshStatus вызван', async () => {

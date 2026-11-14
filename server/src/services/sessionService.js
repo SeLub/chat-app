@@ -76,8 +76,8 @@ export function deleteMessagesByQuestionId(questionId) {
  *                                      нормализуется в chatController до вызова)
  * @returns {Promise<{ conversation: Array, contextSize: number, retainPercent: number, info: Object }>}
  */
-export async function buildContext(sessionId, currentAttachments = [], contextSize = 65536, retainPercent = 80, includeQuestionIds = null, mode = 'research') {
-    return await buildLLMContext(sessionId, currentAttachments, contextSize, retainPercent, includeQuestionIds, mode);
+export async function buildContext(sessionId, currentAttachments = [], contextSize = 65536, retainPercent = 80, includeQuestionIds = null, mode = 'research', promptSelection = null) {
+    return await buildLLMContext(sessionId, currentAttachments, contextSize, retainPercent, includeQuestionIds, mode, promptSelection);
 }
 
 export function getQAPairsForSession(sessionId) {

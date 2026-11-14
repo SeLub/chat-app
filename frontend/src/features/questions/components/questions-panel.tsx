@@ -9,6 +9,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
+import { PromptsTab } from '@/features/prompts/components/prompts-tab';
 
 function deriveQuestions(messages: Array<{ role: string; questionId: string; content: string; model: string }>): Array<{ id: string; text: string; model: string; number: number }> {
   return messages
@@ -37,18 +38,10 @@ export function QuestionsPanel({ className }: { className?: string }) {
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
   const isViewing = viewingSessionId !== activeSessionId;
 
-  const sysprompt = useSessionStore((s) => s.sysprompt);
-  const setSysprompt = useSessionStore((s) => s.setSysprompt);
-  const updateSysprompt = useSessionStore((s) => s.updateSysprompt);
   const retainPercent = useSessionStore((s) => s.retainPercent);
   const setRetainPercent = useSessionStore((s) => s.setRetainPercent);
 
-  const [syspromptInput, setSyspromptInput] = useState(sysprompt);
   const [retainInput, setRetainInput] = useState(retainPercent);
-
-  useEffect(() => {
-    setSyspromptInput(sysprompt);
-  }, [sysprompt]);
 
   useEffect(() => {
     setRetainInput(retainPercent);
@@ -58,15 +51,6 @@ export function QuestionsPanel({ className }: { className?: string }) {
 
   const total = questions.length;
   const selected = contextMode === 'standard' ? total : selectedQuestionIds.length;
-
-  const handleSyspromptChange = (val: string) => {
-    setSyspromptInput(val);
-    setSysprompt(val);
-  };
-
-  const handleSyspromptBlur = async () => {
-    await updateSysprompt(syspromptInput);
-  };
 
   const handleRetainChange = (val: number) => {
     setRetainInput(val);
@@ -173,39 +157,7 @@ export function QuestionsPanel({ className }: { className?: string }) {
             ))}
           </div>
         ) : (
-          <div className="p-4 space-y-4">
-            {/* Retain */}
-            <div>
-              <label className="text-xs text-muted-foreground mb-1 block">
-                Retain: {retainInput}%
-              </label>
-              <input
-                type="range"
-                min={10}
-                max={100}
-                value={retainInput}
-                onChange={(e) => handleRetainChange(Number(e.target.value))}
-                className="w-full accent-primary"
-              />
-            </div>
-
-            {/* System Prompt */}
-            <div>
-              <label className="text-xs text-muted-foreground mb-1 block">System Prompt</label>
-              <textarea
-                value={syspromptInput}
-                onChange={(e) => handleSyspromptChange(e.target.value)}
-                onBlur={handleSyspromptBlur}
-                className="w-full h-32 px-4 py-2.5 text-[13px] leading-relaxed bg-secondary border border-border rounded-md resize-none focus:outline-none focus:ring-1 focus:ring-primary"
-                placeholder="Enter system prompt..."
-              />
-            </div>
-
-            {/* Prompt library placeholder */}
-            <div className="border border-dashed border-border rounded-lg p-4 h-[120px] flex items-center justify-center">
-              <span className="text-xs text-muted-foreground italic">Prompt library — coming soon</span>
-            </div>
-          </div>
+          <PromptsTab />
         )}
       </div>
 

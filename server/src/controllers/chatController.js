@@ -120,7 +120,19 @@ export function composeAssistantAnswer({ content, reasoning, finishReason, metri
 }
 
 export async function chatHandler(req, res) {
-    let { message, model, sessionId, questionId, contextLength, retainPercent, includeQuestionIds } = req.body;
+    let { message, model, sessionId, questionId, contextLength, retainPercent, includeQuestionIds, syspromptId } = req.body;
+
+    // P0.2: selectedTemplateIds — JSON array in a single FormData field
+    let selectedTemplateIds = [];
+    if (req.body.selectedTemplateIds) {
+        try {
+            const parsed = typeof req.body.selectedTemplateIds === 'string'
+                ? JSON.parse(req.body.selectedTemplateIds)
+                : req.body.selectedTemplateIds;
+            if (Array.isArray(parsed)) selectedTemplateIds = parsed;
+        } catch { /* malformed JSON → empty */ }
+    }
+    const promptSelection = { syspromptId: syspromptId || null, selectedTemplateIds };
 
     const file = req.files?.file?.[0];
     const codeFiles = req.files?.codeFiles || [];
@@ -346,7 +358,8 @@ export async function chatHandler(req, res) {
                     contextLength,
                     retainPercent,
                     parsedIncludeIds,
-                    mode
+                    mode,
+                    promptSelection
                 );
 
                 // system + [Материалы]? + [Ранее]? + history + user[Вопрос] с images;
@@ -373,7 +386,8 @@ export async function chatHandler(req, res) {
                     content: message || 'What is in this image?',
                     model,
                     questionId: visionQuestionId,
-                    attachmentsMeta: currentAttachments
+                    attachmentsMeta: currentAttachments,
+                    syspromptId: promptSelection.syspromptId
                 });
                 // ТЗ attachment-cascade: строки реестра принадлежат сообщению —
                 // удаление Q&A чистит их каскадом БД (файлы на диске остаются — File Manager).
@@ -434,7 +448,8 @@ export async function chatHandler(req, res) {
                 contextLength,
                 retainPercent,
                 parsedIncludeIds,
-                mode
+                mode,
+                promptSelection
             );
 
             // ТЗ one-system: последнее user-сообщение — [Вопрос] с чистым текстом
@@ -536,7 +551,8 @@ export async function chatHandler(req, res) {
                 content: message,
                 model,
                 questionId: finalQuestionId,
-                attachmentsMeta: currentAttachments
+                attachmentsMeta: currentAttachments,
+                syspromptId: promptSelection.syspromptId
             });
             // ТЗ attachment-cascade: строки реестра принадлежат сообщению (см. vision-ветку)
             attachmentService.claimAttachments(sentFileIds, userMsgId);
