@@ -3,6 +3,7 @@ import { Routes, Route } from 'react-router-dom';
 import { useProviderStore } from '@/stores/providerStore';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useProjectStore } from '@/stores/projectStore';
+import { usePromptStore } from '@/stores/promptStore';
 import { ChatArea } from '@/features/chat/components/chat-area';
 import { SettingsPanel } from '@/features/models/components/settings-panel';
 import { QuestionsPanel } from '@/features/questions/components/questions-panel';
@@ -18,6 +19,7 @@ export default function App() {
 
   useEffect(() => {
     useProviderStore.getState().init();
+    usePromptStore.getState().loadPrompts();
     // polling removed from UI (TZ-4.5), keep for now
     // ТЗ Project mode A: projectStore.init после восстановления активной сессии
     initSession().finally(() => {

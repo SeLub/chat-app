@@ -16,6 +16,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { apiGateway } from '@/lib/apiGateway';
 import { isGroupOpen } from '@/lib/utils';
 import { useUIStore } from '@/stores/uiStore';
+import { usePromptStore } from '@/stores/promptStore';
 import type { Prompt } from '@/types';
 import { Button } from '@/components/ui/button';
 import {
@@ -44,6 +45,7 @@ export function PromptManager() {
     try {
       const data = await apiGateway.prompts.list();
       if (data) setPrompts(data);
+      usePromptStore.getState().loadPrompts();
     } catch (e) {
       console.error('Failed to load prompts', e);
     } finally {

@@ -6,6 +6,7 @@ import type { Prompt } from '@/types';
 interface PromptState {
   prompts: Prompt[];
   loading: boolean;
+  loaded: boolean;
   error: string | null;
   // P0.2: selected template IDs (persisted in localStorage)
   selectedTemplateIds: string[];
@@ -25,6 +26,7 @@ export const usePromptStore = create<PromptState>()(
     (set, get) => ({
       prompts: [],
       loading: false,
+      loaded: false,
       error: null,
       selectedTemplateIds: [],
       syspromptId: null,
@@ -33,9 +35,9 @@ export const usePromptStore = create<PromptState>()(
         set({ loading: true, error: null });
         try {
           const prompts = await apiGateway.prompts.list();
-          set({ prompts: prompts || [], loading: false });
+          set({ prompts: prompts || [], loading: false, loaded: true });
         } catch (e) {
-          set({ error: e instanceof Error ? e.message : 'Failed to load prompts', loading: false });
+          set({ error: e instanceof Error ? e.message : 'Failed to load prompts', loading: false, loaded: true });
         }
       },
 
