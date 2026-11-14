@@ -25,6 +25,7 @@
 import fs from 'fs';
 import { processUrlsFromText } from '../services/webService.js';
 import { createLogger } from '../utils/logger.js';
+import { parseGenerationParams } from '../utils/generationParams.js';
 import * as sessionService from '../services/sessionService.js';
 import * as attachmentService from '../services/attachmentService.js';
 import { getContextConfig } from '../services/contextBuilder.js';
@@ -130,7 +131,11 @@ export async function chatHandler(req, res) {
         provider: req.providerName,
         hasFile: !!file,
         codeFiles: codeFiles.length,
-        questionId
+        questionId,
+        // P0.1: какие generation params пришли (пустые поля = server default).
+        generationParams: Object.keys(req.body).filter((k) =>
+            ['temperature', 'top_p', 'top_k', 'min_p', 'n_predict', 'presence_penalty', 'repeat_penalty'].includes(k)
+        ).reduce((acc, k) => ({ ...acc, [k]: req.body[k] }), {})
     });
 
     // TZ-B.3: временные файлы (diskStorage, uploads/tmp) удаляются после обработки в любом исходе.
@@ -190,6 +195,26 @@ export async function chatHandler(req, res) {
         for (const cf of codeFiles) {
             if (cf?.path) cf.buffer = await fs.promises.readFile(cf.path);
         }
+
+        // === Валидация динамических generation params (P0.1) ===
+        // Контракт: «не прислано — не передаём» — absent/'' поля просто не
+        // уходят в провайдера. Валидация ДО URL-обработки/реестра (семейство
+        // прочих 400-валидаций handler'а, без persist — строки реестра ещё не
+        // созданы, вопрос фронт откатывает в поле ввода).
+        const genParamsResult = parseGenerationParams(req.body);
+        if (!genParamsResult.ok) {
+            const { field, value, min, max, message: paramError } = genParamsResult.error;
+            log.warn('Invalid generation params, rejecting', { field, value, sessionId: sessionId?.slice(0, 8) });
+            return res.status(400).json({
+                error: paramError,
+                code: 'invalid_generation_param',
+                field,
+                value,
+                min,
+                max
+            });
+        }
+        const generationParams = genParamsResult.params;
 
         // === Обработка URL ===
         const { processedText } = await processUrlsFromText(message);
@@ -339,6 +364,8 @@ export async function chatHandler(req, res) {
                     model,
                     messages: contextMessages,
                     stream: false,
+                    // P0.1: динамические generation params (best effort на vision-ветке).
+                    generationParams
                 });
 
                 const userMsgId = sessionService.addMessage(sessionId, {
@@ -478,7 +505,9 @@ export async function chatHandler(req, res) {
                 messages: contextMessages,
                 stream: false,
                 cache_prompt: !isManualMode,
-                n_keep: isManualMode ? 0 : undefined
+                n_keep: isManualMode ? 0 : undefined,
+                // P0.1: динамические generation params (пустые = server default).
+                generationParams
             });
 
             // ТЗ answer-loss-diagnostics: честная фиксация исхода хода в логе

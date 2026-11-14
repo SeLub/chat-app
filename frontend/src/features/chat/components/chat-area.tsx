@@ -27,6 +27,8 @@ import {
 import { useSessionStore } from '@/stores/sessionStore';
 import { useProviderStore } from '@/stores/providerStore';
 import { useUIStore } from '@/stores/uiStore';
+import { useGenerationParamsStore } from '@/stores/generationParamsStore';
+import { GenerationParamsModal } from '@/features/chat/components/generation-params-modal';
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { useNavigate } from 'react-router-dom';
@@ -126,7 +128,18 @@ function StatFooter({
   userMsgCount: number;
 }) {
   const [open, setOpen] = useState(false);
+  const [paramsOpen, setParamsOpen] = useState(false);
   const models = useProviderStore((s) => s.models);
+  const genParams = useGenerationParamsStore((s) => s.params);
+  const activePreset = useGenerationParamsStore((s) => s.activePreset);
+
+  // П0.1: бейдж пресета внутри кнопки
+  const presetBadge =
+    Object.keys(genParams).length === 0
+      ? ''
+      : activePreset
+        ? ` · ${activePreset === 'deep_reasoning' ? 'Deep' : activePreset.charAt(0).toUpperCase() + activePreset.slice(1)}`
+        : ' · Custom';
 
   // ТЗ stats-size: цепочка источников размера модели — см. formatSizeGb.
   // modelDetail.details.size не существует ни у одного провайдера (llama.cpp
@@ -191,6 +204,15 @@ function StatFooter({
           </div>
         </DialogContent>
       </Dialog>
+      <Button
+        variant="ghost"
+        size="sm"
+        className="h-6 px-2 text-xs font-mono"
+        onClick={() => setParamsOpen(true)}
+      >
+        ⚙ Params{presetBadge}
+      </Button>
+      <GenerationParamsModal open={paramsOpen} onOpenChange={setParamsOpen} />
     </div>
   );
 }

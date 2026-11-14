@@ -1,9 +1,11 @@
 import { create } from 'zustand';
 import type { ChatMessage, ResponseMetrics, SessionMode } from '@/types';
-import { apiGateway } from '@/lib/apiGateway';
+import { apiGateway, ApiError } from '@/lib/apiGateway';
 import { buildSendErrorInfo, buildPersistedSendErrorInfo, type SendErrorInfo } from '@/lib/sendError';
 import { useProviderStore } from './providerStore';
 import { useUIStore } from './uiStore';
+import { useGenerationParamsStore } from './generationParamsStore';
+import type { GenerationParamKey } from '@/lib/generationParams';
 
 // Дефолтный sysprompt для новых сессий. ТЗ one-system: объясняет модели структуру
 // промпта ([Материалы] / [Ранее в этой сессии] / [Вопрос]). Бэкенд держит
@@ -732,6 +734,9 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       includeQuestionIds = [...get().selectedQuestionIds];
     }
 
+    // П0.1: динамические параметры генерации из стора (только переданные)
+    const { params: genParams } = useGenerationParamsStore.getState();
+
     // Call API
     let result: Awaited<ReturnType<typeof apiGateway.chat.send>>;
     try {
@@ -744,11 +749,21 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
           contextLength: useProviderStore.getState().currentContextLength ?? undefined,
           retainPercent: get().retainPercent,
           includeQuestionIds,
+          generationParams: Object.keys(genParams).length > 0 ? genParams : undefined,
         },
         currentProvider,
         files,
       );
     } catch (e) {
+      // П0.1: 400 invalid_generation_param — тост + fieldError + rethrow
+      // (ChatArea вернёт текст/файлы в композер через общий catch).
+      if (e instanceof ApiError && e.status === 400 && (e.details as any)?.code === 'invalid_generation_param') {
+        const field = (e.details as any).field as GenerationParamKey | undefined;
+        if (field) useGenerationParamsStore.getState().setFieldError(field);
+        useUIStore.getState().addToast(e.message, 'error');
+        get().rollbackMessage(questionId);
+        throw e;
+      }
       // ТЗ context-overflow-ux (№2): никакого сообщения-пары в чате — откат
       // оптимистичного вопроса + баннер (sendError). Вопрос не теряется:
       // ChatArea вернёт failedText в поле ввода и failedFiles в композер.
