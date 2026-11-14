@@ -1,8 +1,13 @@
 // src/providers/OllamaProvider.js
+//
+// P0.1: chat() — динамические generation params (temperature/top_p/top_k/
+// min_p/n_predict→num_predict/presence_penalty/repeat_penalty). Контракт:
+// «не прислано — не передаём» — только присутствующие ключи в body.options.
 import fetch from 'node-fetch';
 import { BaseProvider } from './BaseProvider.js';
 import { extractMetrics } from '../services/metricsService.js';
 import { createLogger } from '../utils/logger.js';
+import { GENERATION_PARAM_KEYS } from '../utils/generationParams.js';
 
 const log = createLogger('OllamaProvider');
 
@@ -131,27 +136,43 @@ export class OllamaProvider extends BaseProvider {
         }
     }
 
-    async chat({ model, messages, stream = false }) {
+    async chat({ model, messages, stream = false, generationParams = {} } = {}) {
         try {
-            log.info('Sending chat request to Ollama', { model });
+            // P0.1: generationParams — динамические параметры генерации.
+            // Контракт: «не прислано — не передаём» — только присутствующие
+            // ключи попадают в body.options; остальные использует default
+            // Ollama. n_predict маппится в num_predict (native имя Ollama).
+            const OLLAMA_NAME_MAP = {
+                temperature: 'temperature',
+                top_p: 'top_p',
+                top_k: 'top_k',
+                min_p: 'min_p',
+                n_predict: 'num_predict',
+                presence_penalty: 'presence_penalty',
+                repeat_penalty: 'repeat_penalty'
+            };
+            const options = {};
+            for (const key of GENERATION_PARAM_KEYS) {
+                const value = generationParams[key];
+                if (value !== undefined) options[OLLAMA_NAME_MAP[key]] = value;
+            }
+
+            log.info('Sending chat request to Ollama', { model, generationParams });
 
             const controller = new AbortController();
             const timeout = setTimeout(() => controller.abort(), 120000);
 
+            const body = {
+                model,
+                messages,
+                stream,
+            };
+            if (Object.keys(options).length > 0) body.options = options;
+
             const response = await fetch(`${this.url}/api/chat`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    model,
-                    messages,
-                    stream,
-                    options: {
-                        temperature: 0.7,
-                        top_k: 40,
-                        top_p: 0.95,
-                        repeat_penalty: 1.1
-                    }
-                }),
+                body: JSON.stringify(body),
                 signal: controller.signal
             });
 

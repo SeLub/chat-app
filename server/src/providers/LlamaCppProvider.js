@@ -1,11 +1,16 @@
 // src/providers/LlamaCppProvider.js
 // Реализация провайдера llama.cpp
+//
+// P0.1: chat() — динамические generation params (temperature/top_p/top_k/
+// min_p/n_predict→max_tokens/presence_penalty/repeat_penalty). Контракт:
+// «не прислано — не передаём» — только присутствующие ключи в body.
 
 import fetch from 'node-fetch';
 import { stat } from 'node:fs/promises';
 import { BaseProvider } from './BaseProvider.js';
 import { extractLlamaCppMetrics } from '../services/metricsService.js';
 import { createLogger } from '../utils/logger.js';
+import { GENERATION_PARAM_KEYS } from '../utils/generationParams.js';
 
 const log = createLogger('LlamaCppProvider');
 
@@ -283,6 +288,8 @@ export class LlamaCppProvider extends BaseProvider {
             // 9901 = 16383 из 16384, truncated=1). Не шлём поле вовсе —
             // действует серверный --n-predict; промпт не занижаем, а бюджет
             // ответа решает владелец llama-server, не приложение.
+            // P0.1: generate() вне scope — dynamic generation params не
+            // применяются к /completion (только chat()).
             const response = await fetch(`${this.url}/completion`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -326,11 +333,22 @@ export class LlamaCppProvider extends BaseProvider {
      * конкретный сервер llama.cpp может игнорировать неизвестные поля → vision
      * через llama.cpp не гарантирован. По ТЗ — не блокер, оставлено как есть.
      */
-    async chat({ model, messages, stream = false, maxTokens, cache_prompt, n_keep } = {}) {
+    async chat({ model, messages, stream = false, maxTokens, cache_prompt, n_keep, generationParams = {} } = {}) {
         try {
+            // P0.1: generationParams — динамические параметры генерации.
+            // Контракт: «не прислано — не передаём» — только присутствующие
+            // ключи попадают в body; остальные использует default llama-server
+            // (из bash-скрипта). n_predict маппится в max_tokens (native имя
+            // llama.cpp) и имеет приоритет над legacy-аргументом maxTokens.
+            const effectiveMaxTokens = Number.isFinite(generationParams.n_predict)
+                ? generationParams.n_predict
+                : (Number.isFinite(maxTokens) && maxTokens > 0 ? maxTokens : null);
+
             log.info('Sending chat request to llama.cpp', {
                 model,
-                maxTokens: Number.isFinite(maxTokens) && maxTokens > 0 ? maxTokens : 'server default (--n-predict)'
+                maxTokens: effectiveMaxTokens ?? 'server default (--n-predict)',
+                // P0.1: какие generation params уходят в body (пустые = server default).
+                generationParams
             });
 
             const controller = new AbortController();
@@ -344,15 +362,24 @@ export class LlamaCppProvider extends BaseProvider {
             // действует --n-predict llama-server. maxTokens — явный override
             // от вызывающего (опционально), cache_prompt/n_keep — прокидывание
             // параметров chatController (раньше игнорировались молча).
+            //
+            // P0.1: temperature: 0.7 УБРАН — только generationParams.temperature
+            // (если прислан) попадает в body; иначе default llama-server.
             const body = {
                 model: model,
                 messages: mergeSystemMessages(messages),
                 stream: stream,
-                temperature: 0.7,
             };
-            if (Number.isFinite(maxTokens) && maxTokens > 0) body.max_tokens = maxTokens;
+            if (effectiveMaxTokens !== null) body.max_tokens = effectiveMaxTokens;
             if (cache_prompt !== undefined) body.cache_prompt = Boolean(cache_prompt);
             if (n_keep !== undefined) body.n_keep = n_keep;
+
+            // P0.1: динамические generation params — только присутствующие ключи.
+            for (const key of GENERATION_PARAM_KEYS) {
+                if (key === 'n_predict') continue; // уже обработан как max_tokens выше
+                const value = generationParams[key];
+                if (value !== undefined) body[key] = value;
+            }
 
             const response = await fetch(`${this.url}/v1/chat/completions`, {
                 method: 'POST',

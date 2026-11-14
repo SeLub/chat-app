@@ -32,6 +32,7 @@ export interface ChatRequestData {
   contextLength?: number;
   retainPercent: number;
   includeQuestionIds: string[];
+  generationParams?: import('@/lib/generationParams').GenerationParams;
 }
 
 export interface ChatResponse {
