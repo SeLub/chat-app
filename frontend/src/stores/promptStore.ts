@@ -35,7 +35,16 @@ export const usePromptStore = create<PromptState>()(
         set({ loading: true, error: null });
         try {
           const prompts = await apiGateway.prompts.list();
-          set({ prompts: prompts || [], loading: false, loaded: true });
+          const list = prompts || [];
+          const currentId = get().syspromptId;
+          // Fallback: if no valid syspromptId, pick the default (or first) system prompt
+          let syspromptId = currentId;
+          if (!syspromptId || !list.find((p) => p.id === syspromptId)) {
+            syspromptId = list.find((p) => p.type === 'system' && p.is_default === 1)?.id
+              ?? list.find((p) => p.type === 'system')?.id
+              ?? null;
+          }
+          set({ prompts: list, syspromptId, loading: false, loaded: true });
         } catch (e) {
           set({ error: e instanceof Error ? e.message : 'Failed to load prompts', loading: false, loaded: true });
         }
