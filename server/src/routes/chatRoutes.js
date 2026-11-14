@@ -54,7 +54,10 @@ router.post('/',
         { name: 'min_p', maxCount: 1 },
         { name: 'n_predict', maxCount: 1 },
         { name: 'presence_penalty', maxCount: 1 },
-        { name: 'repeat_penalty', maxCount: 1 }
+        { name: 'repeat_penalty', maxCount: 1 },
+        // P0.2: prompt selection
+        { name: 'syspromptId', maxCount: 1 },
+        { name: 'selectedTemplateIds', maxCount: 1 }
     ]),
     chatHandler
 );

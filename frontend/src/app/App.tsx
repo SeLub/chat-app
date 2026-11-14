@@ -3,6 +3,7 @@ import { Routes, Route } from 'react-router-dom';
 import { useProviderStore } from '@/stores/providerStore';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useProjectStore } from '@/stores/projectStore';
+import { usePromptStore } from '@/stores/promptStore';
 import { ChatArea } from '@/features/chat/components/chat-area';
 import { SettingsPanel } from '@/features/models/components/settings-panel';
 import { QuestionsPanel } from '@/features/questions/components/questions-panel';
@@ -11,12 +12,14 @@ import { CommandPalette } from '@/shared/components/command-palette';
 import { SaveModal } from '@/features/sessions/components/save-modal';
 import { LoadModal } from '@/features/sessions/components/load-modal';
 import { Dashboard } from '@/features/dashboard/components/dashboard';
+import { PromptManager } from '@/features/prompts/components/prompt-manager';
 
 export default function App() {
   const initSession = useSessionStore((s: { init: () => Promise<void> }) => s.init);
 
   useEffect(() => {
     useProviderStore.getState().init();
+    usePromptStore.getState().loadPrompts();
     // polling removed from UI (TZ-4.5), keep for now
     // ТЗ Project mode A: projectStore.init после восстановления активной сессии
     initSession().finally(() => {
@@ -42,6 +45,12 @@ export default function App() {
           path="/dashboard"
           element={
             <Dashboard />
+          }
+        />
+        <Route
+          path="/templatemanager"
+          element={
+            <PromptManager />
           }
         />
       </Routes>

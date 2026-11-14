@@ -314,6 +314,7 @@ export function ChatArea({ className }: { className?: string }) {
       textareaRef.current.style.height = 'auto';
       textareaRef.current.style.height = Math.min(textareaRef.current.scrollHeight, 200) + 'px';
     }
+    useSessionStore.getState().setInputValue(inputValue);
   }, [inputValue]);
 
   const clearAttachments = useCallback(() => {
