@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useRef, useState, useEffect } from 'react';
 import { useUIStore } from '@/stores/uiStore';
 import { useAiHelperStore } from '@/stores/aiHelperStore';
 import { Mic, MicOff, X, Minimize2, Maximize2, Sparkles } from 'lucide-react';
@@ -21,8 +21,19 @@ export function AiHelperOverlay() {
   const [isDragging, setIsDragging] = useState(false);
   const [position, setPosition] = useState({ x: 20, y: 100 });
   const [minimized, setMinimized] = useState(false);
+  const [resized, setResized] = useState(false);
 
   const dragStartRef = useRef({ x: 0, y: 0 });
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!containerRef.current) return;
+    const observer = new ResizeObserver(() => {
+      setResized(true);
+    });
+    observer.observe(containerRef.current);
+    return () => observer.disconnect();
+  }, []);
 
   const handleMouseDown = (e: React.MouseEvent) => {
     if (e.button !== 0) return;
@@ -49,13 +60,22 @@ export function AiHelperOverlay() {
 
   return (
     <div
+      ref={containerRef}
       style={{
         position: 'fixed',
         left: position.x,
         top: position.y,
         zIndex: 100,
+        width: resized ? undefined : 'min(80vw, 1200px)',
+        height: resized ? undefined : 'min(80vh, 900px)',
+        minWidth: 320,
+        minHeight: 240,
+        maxWidth: '95vw',
+        maxHeight: '95vh',
+        resize: 'both',
+        overflow: 'auto',
       }}
-      className="w-80 glass-strong border border-border rounded-xl shadow-xl overflow-hidden"
+      className="glass-strong border border-border rounded-xl shadow-xl"
       onMouseMove={handleMouseMove}
       onMouseUp={handleMouseUp}
     >

@@ -11,6 +11,7 @@ import { CommandPalette } from '@/shared/components/command-palette';
 import { SaveModal } from '@/features/sessions/components/save-modal';
 import { LoadModal } from '@/features/sessions/components/load-modal';
 import { Dashboard } from '@/features/dashboard/components/dashboard';
+import { PromptManager } from '@/features/prompts/components/prompt-manager';
 
 export default function App() {
   const initSession = useSessionStore((s: { init: () => Promise<void> }) => s.init);
@@ -42,6 +43,12 @@ export default function App() {
           path="/dashboard"
           element={
             <Dashboard />
+          }
+        />
+        <Route
+          path="/templatemanager"
+          element={
+            <PromptManager />
           }
         />
       </Routes>

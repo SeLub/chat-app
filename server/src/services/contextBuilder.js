@@ -186,14 +186,31 @@ export function cutContext(qaHistory, targetChars, includeQuestionIds = null) {
 // ============================================================
 // === Build LLM Context (основная функция) ===
 // ============================================================
-export async function buildLLMContext(sessionId, currentAttachments = [], contextSize = 65536, retainPercent = 80, includeQuestionIds = null, mode = 'research') {
+export async function buildLLMContext(sessionId, currentAttachments = [], contextSize = 65536, retainPercent = 80, includeQuestionIds = null, mode = 'research', promptSelection = null) {
     const db = getDb();
-    
-    // 1. Получаем системный промпт
-    const session = db.prepare('SELECT sysprompt FROM sessions WHERE id = ?').get(sessionId);
-    const sysprompt = (session?.sysprompt && session.sysprompt.trim() !== '') 
-        ? session.sysprompt.trim() 
-        : DEFAULT_SYSPROMPT;
+
+    // 1. P0.2: Получаем системный промпт из prompts table (fallback: DEFAULT_SYSPROMPT)
+    let sysprompt = DEFAULT_SYSPROMPT;
+    let syspromptId = null;
+    if (promptSelection?.syspromptId) {
+        const sp = db.prepare("SELECT * FROM prompts WHERE id = ? AND type = 'system'").get(promptSelection.syspromptId);
+        if (sp) {
+            sysprompt = sp.content;
+            syspromptId = sp.id;
+        }
+    }
+
+    // P0.2: [Инструкции] — user_template промпты из selectedTemplateIds
+    let instructionsBlock = '';
+    if (promptSelection?.selectedTemplateIds?.length > 0) {
+        const placeholders = promptSelection.selectedTemplateIds.map(() => '?').join(',');
+        const templates = db.prepare(
+            `SELECT * FROM prompts WHERE id IN (${placeholders}) AND type = 'user_template'`
+        ).all(...promptSelection.selectedTemplateIds);
+        if (templates.length > 0) {
+            instructionsBlock = '[Инструкции]\n\n' + templates.map(t => t.content).join('\n\n') + '\n\n';
+        }
+    }
 
     // 2. Получаем историю из БД (только user и assistant; metrics — для №3,
     //    измеренной плотности последнего текстового ответа)
@@ -291,7 +308,7 @@ export async function buildLLMContext(sessionId, currentAttachments = [], contex
     //    плотность — с запасом BUDGET_HEADROOM (0.9); фолбэк 4 — без запаса
     //    (поведение до ТЗ, сохранено для сессий без метрик).
     const { charsPerToken, source: charsPerTokenSource } = resolveCharsPerToken(messages);
-    const fixedChars = sysprompt.length + filesContext.length;
+    const fixedChars = sysprompt.length + instructionsBlock.length + filesContext.length;
     const maxChars = charsPerTokenSource === 'measured'
         ? Math.floor(contextSize * charsPerToken * BUDGET_HEADROOM)
         : Math.floor(contextSize * charsPerToken);
@@ -309,6 +326,11 @@ export async function buildLLMContext(sessionId, currentAttachments = [], contex
     // Текущий вопрос добавляется в chatController как user[Вопрос] ПОСЛЕ этой функции.
     const finalConversation = [];
     finalConversation.push({ role: 'system', content: sysprompt });
+
+    // P0.2: [Инструкции] — user_template промпты (Model A: из БД, не из composer)
+    if (instructionsBlock) {
+        finalConversation.push({ role: 'user', content: instructionsBlock.trim() });
+    }
 
     if (filesContext) {
         finalConversation.push({ role: 'user', content: `[Материалы]\n${filesContext}` });
@@ -333,7 +355,8 @@ export async function buildLLMContext(sessionId, currentAttachments = [], contex
             charsPerTokenSource,
             mode,
             filesMissing,
-            filesTooLarge
+            filesTooLarge,
+            syspromptId,
         }
     };
 }

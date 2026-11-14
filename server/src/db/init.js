@@ -3,6 +3,7 @@ import Database from 'better-sqlite3';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
+import { insertPromptSeeds } from './promptSeeds.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -32,6 +33,18 @@ export function getDb(customPath = null) {
 
 export function initializeSchema(database) {
     database.exec(`
+        /* P0.2: таблица промптов (system + user_template) */
+        CREATE TABLE IF NOT EXISTS prompts (
+            id              TEXT PRIMARY KEY,
+            name            TEXT NOT NULL,
+            type            TEXT NOT NULL CHECK (type IN ('system', 'user_template')),
+            content         TEXT NOT NULL,
+            is_default      INTEGER NOT NULL DEFAULT 0,
+            created_at      TEXT DEFAULT (datetime('now')),
+            updated_at      TEXT DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_prompts_type ON prompts(type, created_at);
+
         CREATE TABLE IF NOT EXISTS sessions (
             id              TEXT PRIMARY KEY,
             title           TEXT DEFAULT 'unsavedSession 1',
@@ -40,7 +53,6 @@ export function initializeSchema(database) {
             project_id      TEXT REFERENCES projects(id),
             model           TEXT,
             provider        TEXT DEFAULT 'ollama',
-            sysprompt       TEXT, /* === НОВОЕ: Системный промпт сессии === */
             /* ТЗ send-error-persist (№3 context-overflow-ux): JSON последней
                провальной отправки {kind, failedText, fileNames, estimatedTokens,
                contextLength, message, providerName, at} или NULL. Пишется сервером
@@ -66,6 +78,8 @@ export function initializeSchema(database) {
             attachments_meta TEXT DEFAULT '[]',
             metrics         TEXT DEFAULT '{}',
             sort_order      INTEGER NOT NULL,
+            /* P0.2: ссылка на system-промпт из prompts (NULL = fallback) */
+            sysprompt_id    TEXT REFERENCES prompts(id) ON DELETE SET NULL,
             created_at      TEXT DEFAULT (datetime('now'))
         );
 
@@ -145,6 +159,9 @@ export function initializeSchema(database) {
     database.exec(
         'CREATE INDEX IF NOT EXISTS idx_attachments_message ON attachments(message_id)'
     );
+
+    // P0.2: seed prompts (идемпотентно — INSERT OR IGNORE)
+    insertPromptSeeds(database);
 }
 
 /**
@@ -160,6 +177,31 @@ function ensureColumns(database) {
     const sessionCols = columnNames('sessions');
     if (sessionCols.length > 0 && !sessionCols.includes('last_send_error')) {
         database.exec('ALTER TABLE sessions ADD COLUMN last_send_error TEXT');
+    }
+
+    /* P0.2: DROP sessions.sysprompt (заменено на prompts table).
+       SQLite ≥ 3.35 поддерживает DROP COLUMN. better-sqlite3 бандлит свой SQLite (≥3.35). */
+    if (sessionCols.length > 0 && sessionCols.includes('sysprompt')) {
+        try {
+            const version = database.prepare("SELECT sqlite_version() AS v").get().v;
+            const [major, minor] = version.split('.').map(Number);
+            if (major > 3 || (major === 3 && minor >= 35)) {
+                database.exec('ALTER TABLE sessions DROP COLUMN sysprompt');
+                console.log('[db] Dropped sessions.sysprompt (P0.2: replaced by prompts table)');
+            } else {
+                console.warn('[db] SQLite < 3.35: cannot DROP sessions.sysprompt. Column remains but is unused.');
+            }
+        } catch (e) {
+            console.warn('[db] Failed to drop sessions.sysprompt:', e.message);
+        }
+    }
+
+    /* P0.2: messages.sysprompt_id (FK → prompts.id, ON DELETE SET NULL).
+       Guarded ALTER для legacy-БД. SQLite не проверяет существующие строки на FK
+       при ADD COLUMN — legacy-сообщения получат NULL (default). */
+    const msgCols = columnNames('messages');
+    if (msgCols.length > 0 && !msgCols.includes('sysprompt_id')) {
+        database.exec('ALTER TABLE messages ADD COLUMN sysprompt_id TEXT REFERENCES prompts(id) ON DELETE SET NULL');
     }
 
     const attachmentCols = columnNames('attachments');

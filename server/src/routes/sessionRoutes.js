@@ -160,8 +160,7 @@ router.patch('/:id', (req, res) => {
         if (req.body.category !== undefined) updates.category = req.body.category;
         if (req.body.model !== undefined) updates.model = req.body.model;
         if (req.body.provider !== undefined) updates.provider = req.body.provider;
-        // === НОВОЕ: Разрешаем обновление sysprompt ===
-        if (req.body.sysprompt !== undefined) updates.sysprompt = req.body.sysprompt;
+        // P0.2: sysprompt removed — replaced by prompts table
         // ТЗ Project mode A (§3.2): переключение режима сессии.
         // project_id НЕ сбрасывается ни в одну из сторон (пользователь может
         // вернуться в research и обратно — правило §3.2).

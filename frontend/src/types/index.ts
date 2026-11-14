@@ -33,6 +33,19 @@ export interface ChatRequestData {
   retainPercent: number;
   includeQuestionIds: string[];
   generationParams?: import('@/lib/generationParams').GenerationParams;
+  syspromptId?: string | null;
+  selectedTemplateIds?: string[];
+}
+
+// P0.2: Prompt library types
+export interface Prompt {
+  id: string;
+  name: string;
+  type: 'system' | 'user_template';
+  content: string;
+  is_default: number;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface ChatResponse {
@@ -103,7 +116,6 @@ export interface Session {
   category: string;
   model?: string;
   provider?: string;
-  sysprompt: string;
   message_count: number;
   created_at: string;
   updated_at: string;
