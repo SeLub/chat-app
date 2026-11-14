@@ -153,6 +153,13 @@ export const chatApi = {
 
     formData.append('includeQuestionIds', JSON.stringify(data.includeQuestionIds));
 
+    if (data.generationParams) {
+      for (const [key, value] of Object.entries(data.generationParams)) {
+        if (value === undefined || value === null) continue;
+        formData.append(key, String(value));
+      }
+    }
+
     if (files?.file) {
       formData.append('file', files.file);
     }

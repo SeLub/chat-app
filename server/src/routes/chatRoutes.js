@@ -45,7 +45,16 @@ router.post('/',
         { name: 'sessionId', maxCount: 1 },   // ID сессии
         { name: 'questionId', maxCount: 1 },  // ID вопроса
         { name: 'contextLength', maxCount: 1 }, // контекст модели
-        { name: 'retainPercent', maxCount: 1 } // % истории
+        { name: 'retainPercent', maxCount: 1 }, // % истории
+        // Dynamic generation params (P0.1) — text fields, maxCount 1 each.
+        // Absent/empty → "use server default" (not forwarded to provider).
+        { name: 'temperature', maxCount: 1 },
+        { name: 'top_p', maxCount: 1 },
+        { name: 'top_k', maxCount: 1 },
+        { name: 'min_p', maxCount: 1 },
+        { name: 'n_predict', maxCount: 1 },
+        { name: 'presence_penalty', maxCount: 1 },
+        { name: 'repeat_penalty', maxCount: 1 }
     ]),
     chatHandler
 );
