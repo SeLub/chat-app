@@ -11,14 +11,15 @@ export function addMessage(sessionId, message) {
     ).get(sessionId);
 
     db.prepare(`
-        INSERT INTO messages (id, session_id, question_id, role, content, model, attachments_meta, metrics, sort_order)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO messages (id, session_id, question_id, role, content, model, attachments_meta, metrics, sort_order, sysprompt_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
         id, sessionId, message.questionId, message.role, message.content,
         message.model,
         JSON.stringify(message.attachmentsMeta || []),
         JSON.stringify(message.metrics || {}),
-        max.max_order + 1
+        max.max_order + 1,
+        message.syspromptId || null
     );
 
     db.prepare(`

@@ -638,3 +638,61 @@
 **Не тронуто (осознанно):** `generate()` в обоих провайдерах (temperature: 0.7 остаётся, out of scope P0.1); vision-ветка chatController (generationParams пробрасывается, но vision-провайдер не использует их — по ТЗ); Ollama `generate()`.
 
 **Статус:** один коммит на `develop`; ручной DoD — см. ТЗ §12.
+
+---
+
+## 2026-11-13 — ТЗ P0.2: Prompt library with dynamic assembly (ветка `develop`)
+
+**Контекст.** ТЗ `docs/PRIORITY/P0.2 - Prompt library with dynamic assembly.md`: библиотека промптов (system + user_template) в БД, CRUD API, динамическая сборка контекста (`[Инструкции]` блок), UI (Prompt Manager `/templatemanager`, вкладка Prompts в QuestionsPanel, Selected Prompts modal). Удаление legacy `sessions.sysprompt`.
+
+**Решения (подтверждены владельцем).**
+1. **Модель A:** `user_template` промпты идут в `[Инструкции]` блок в `buildLLMContext`, НЕ копируются в composer. Composer = текст, который пользователь редактирует; `[Инструкции]` = оригинал из БД по `selectedTemplateIds`. Дублирования нет.
+2. **Рассинхронизация composer — осознанно.** Composer не персистится (`useState('')`). После F5: чекбоки восстановлены из `localStorage` (`selectedTemplateIds`), текст шаблона в composer НЕ восстановлен, `[Инструкции]` собираются из БД по `selectedTemplateIds`. Чекбокс = «шаблон включён в промпт» (источник — БД), composer = «пользователь дополнительно вставил текст для редактирования». После F5 чекбоксы восстановлены, composer пуст — `[Инструкции]` при отправке содержат оригинал из БД, а `[Вопрос]` — пустой (или то, что пользователь введёт заново). Дублирования нет.
+3. **DROP COLUMN sysprompt** — guarded через `sqlite_version() >= 3.35` (better-sqlite3 бандлит свой SQLite ≥ 3.35). Fallback `console.warn`. `PRAGMA legacy_alter_table` не нужен (в better-sqlite3 по умолчанию OFF).
+4. **FK messages.sysprompt_id** — `TEXT REFERENCES prompts(id) ON DELETE SET NULL`, без `NOT NULL` (assistant-сообщения → NULL, legacy → NULL). SQLite не проверяет существующие строки при ADD COLUMN — OK.
+5. **selectedTemplateIds в FormData** — `JSON.stringify` в одно поле. Backend: `try { JSON.parse(...) } catch { selectedTemplateIds = [] }`.
+6. **AI Helper resize** — в тот же PR (1 файл + ~15 строк).
+7. **sessionRepo/sessionRoutes** — убрать `sysprompt` из SELECT/INSERT/PATCH. `types/index.ts` — убрать `sysprompt: string` из `Session`. `sessionStore.ts` — удалить `sysprompt`, `setSysprompt`, `updateSysprompt`.
+
+**Реализация (бэкенд — 5 логических блоков).**
+
+*Блок 1: Схема + сиды.*
+- `init.js`: `prompts` (CREATE), `messages.sysprompt_id` (CREATE + guarded ALTER), `sessions.sysprompt` (DROP guarded), индексы, сиды.
+- `promptSeeds.js` (NEW): 4 seed prompts (3 system + 1 user_template), `INSERT OR IGNORE`.
+
+*Блок 2: Prompt CRUD API.*
+- `promptRepo.js` (NEW): CRUD с is_default guards (createPrompt, getAllPrompts, getPromptById, getPromptsByIds, getSystemPrompt, getDefaultSystemPrompt, updatePrompt, deletePrompt).
+- `promptController.js` (NEW): REST handlers с валидацией.
+- `promptRoutes.js` (NEW): GET/POST/PUT/DELETE on `/api/prompts`.
+- `app.js`: `/api/prompts` mounted.
+
+*Блок 3: Динамическая сборка контекста.*
+- `contextBuilder.js`: `promptSelection` param, `[Инструкции]` блок (user_template из БД), sysprompt из prompts table, DEFAULT_SYSPROMPT fallback.
+- `sessionService.js`: проброс `promptSelection`.
+- `chatController.js`: извлечение `syspromptId` + `selectedTemplateIds`, валидация, сохранение `sysprompt_id` в messages.
+- `messageRepo.js`: `sysprompt_id` в INSERT.
+- `chatRoutes.js`: новые поля в `upload.fields`.
+
+*Блок 4: Удаление legacy sysprompt.*
+- `sessionRepo.js`: убрать `sysprompt` из SELECT/INSERT.
+- `sessionRoutes.js`: убрать `sysprompt` из PATCH.
+
+*Блок 5: Frontend.*
+- `types/index.ts`: `Prompt` interface, `ChatRequestData` + `syspromptId`/`selectedTemplateIds`, `Session` без `sysprompt`.
+- `apiGateway.ts`: `promptsApi`, `chatApi.send` с новыми полями, `sessionsApi` без `sysprompt`.
+- `promptStore.ts` (NEW): Zustand persist store (prompts, syspromptId, selectedTemplateIds, toggleTemplate, setSyspromptId, loadPrompts).
+- `sessionStore.ts`: все sysprompt удалены; sendMessage включает `syspromptId`/`selectedTemplateIds` из promptStore.
+- `prompt-manager.tsx` (NEW): Dashboard-style page на `/templatemanager` (stat cards, search, grouped list, CRUD).
+- `prompt-form-modal.tsx` (NEW): Create/edit Dialog modal.
+- `selected-prompts-modal.tsx` (NEW): Read-only preview выбранных промптов + `[Вопрос]`.
+- `prompts-tab.tsx` (NEW): Вкладка Prompts в QuestionsPanel (radio system + checkbox templates).
+- `questions-panel.tsx`: sysprompt textarea удалён, Prompts tab → `<PromptsTab />`.
+- `chat-area.tsx`: `questionPreview` для SelectedPromptsModal.
+- `ai-helper-overlay.tsx`: Resize support (w-80 → min(80vw,1200px), ResizeObserver, minWidth/minHeight, maxWidth/maxHeight).
+- `App.tsx`: `/templatemanager` route.
+
+**Тесты.** Бэкенд: 281/281 (было 257, +24: 10 `promptRepo.test.js` + 9 `promptController.test.js` + 5 `contextBuilder.prompts.test.js`). Фронтенд: 179/179. TypeScript build — 0 ошибок.
+
+**Не тронуто (осознанно):** `questionPreview` в SelectedPromptsModal — prop optional, не подключён из ChatArea в этой итерации (modal показывает placeholder); индикатор «текст шаблона не в composer» в левой панели — out of scope (на будущее).
+
+**Статус:** один коммит на `develop`; ручной DoD — см. ТЗ §3.

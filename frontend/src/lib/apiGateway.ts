@@ -12,6 +12,7 @@ import type {
   AttachResponse,
   SessionAttachmentsResponse,
   SessionMode,
+  Prompt,
 } from '@/types';
 
 export class ApiError extends Error {
@@ -81,7 +82,7 @@ export const sessionsApi = {
     if (options?.offset) params.append('offset', String(options.offset));
     if (options?.search) params.append('search', options.search);
     const qs = params.toString();
-    return request<Array<{ id: string; title: string; category: string; message_count: number; model?: string; provider?: string; sysprompt: string; created_at: string; updated_at: string; mode?: SessionMode; project_id?: string; last_send_error?: string | null }>>(
+    return request<Array<{ id: string; title: string; category: string; message_count: number; model?: string; provider?: string; created_at: string; updated_at: string; mode?: SessionMode; project_id?: string; last_send_error?: string | null }>>(
       'GET',
       `/api/sessions${qs ? '?' + qs : ''}`,
     );
@@ -89,7 +90,7 @@ export const sessionsApi = {
   get(id: string) {
     // ТЗ send-error-persist (№3): last_send_error — сырой JSON-столбец sessions
     // (персистентная плашка последней провальной отправки, переживает F5).
-    return request<{ id: string; title: string; category: string; model?: string; provider?: string; sysprompt: string; message_count: number; created_at: string; updated_at: string; mode?: SessionMode; project_id?: string; last_send_error?: string | null }>(
+    return request<{ id: string; title: string; category: string; model?: string; provider?: string; message_count: number; created_at: string; updated_at: string; mode?: SessionMode; project_id?: string; last_send_error?: string | null }>(
       'GET',
       `/api/sessions/${id}`,
     );
@@ -158,6 +159,14 @@ export const chatApi = {
         if (value === undefined || value === null) continue;
         formData.append(key, String(value));
       }
+    }
+
+    // P0.2: prompt selection
+    if (data.syspromptId) {
+      formData.append('syspromptId', data.syspromptId);
+    }
+    if (data.selectedTemplateIds && data.selectedTemplateIds.length > 0) {
+      formData.append('selectedTemplateIds', JSON.stringify(data.selectedTemplateIds));
     }
 
     if (files?.file) {
@@ -271,6 +280,25 @@ export const attachmentsApi = {
   },
 };
 
+// === Prompts API (P0.2) ===
+export const promptsApi = {
+  list(): Promise<Prompt[] | null> {
+    return request<Prompt[]>('GET', '/api/prompts');
+  },
+  get(id: string): Promise<Prompt | null> {
+    return request<Prompt>('GET', `/api/prompts/${id}`);
+  },
+  create(data: { name: string; type: 'system' | 'user_template'; content: string; is_default?: number }): Promise<Prompt | null> {
+    return request<Prompt>('POST', '/api/prompts', { body: data });
+  },
+  update(id: string, data: { name?: string; type?: 'system' | 'user_template'; content?: string; is_default?: number }): Promise<Prompt | null> {
+    return request<Prompt>('PUT', `/api/prompts/${id}`, { body: data });
+  },
+  delete(id: string): Promise<{ success: boolean } | null> {
+    return request<{ success: boolean }>('DELETE', `/api/prompts/${id}`);
+  },
+};
+
 export const apiGateway = {
   sessions: sessionsApi,
   chat: chatApi,
@@ -280,5 +308,6 @@ export const apiGateway = {
   config: configApi,
   projects: projectsApi,
   attachments: attachmentsApi,
+  prompts: promptsApi,
   ApiError,
 };
