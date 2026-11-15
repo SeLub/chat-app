@@ -63,6 +63,54 @@ function clearSendErrorSafe(sessionId) {
     }
 }
 
+// ТЗ Last Prompt: сохранение финального промпта последнего запроса (per session).
+// Вызывается ПОСЛЕ buildLLMContext, ДО provider.chat (провал провайдера не
+// стирает «что ушло в модель»), затем повторно — после done/error с
+// finishReason/usage (перезапись; timestamp — время отправки, передаётся явно).
+// base64-картинки НЕ храним — только { size, type }. Ни запись не роняет
+// основной обработчик (try/catch + warn).
+function persistLastPrompt(sessionId, contextResult, contextMessages, extra = {}) {
+    try {
+        sessionService.setLastPrompt(sessionId, {
+            prompt: contextMessages.map((m) => ({
+                role: m.role,
+                content: m.content,
+                ...(m.images
+                    ? {
+                        images: m.images.map((img) => ({
+                            size: typeof img === 'string' ? img.length : 0,
+                            type: 'base64',
+                        })),
+                    }
+                    : {}),
+            })),
+            meta: {
+                mode: extra.mode,
+                currentAttachments: (extra.currentAttachments || []).map((a) => ({
+                    fileId: a.fileId, name: a.name, kind: a.kind, size: a.size,
+                })),
+                fixedChars: contextResult.info?.fixedChars ?? 0,
+                actualHistoryChars: contextResult.info?.actualHistoryChars ?? 0,
+                targetChars: contextResult.info?.targetChars ?? 0,
+                includedQAPairs: contextResult.info?.includedQAPairs ?? 0,
+                totalQAPairs: contextResult.info?.totalQAPairs ?? 0,
+                excludedIndices: contextResult.info?.excludedIndices ?? [],
+                syspromptId: extra.promptSelection?.syspromptId ?? null,
+                selectedTemplateIds: extra.promptSelection?.selectedTemplateIds ?? [],
+                generationParams: extra.generationParams ?? {},
+                questionId: extra.questionId,
+                model: extra.model,
+                provider: extra.provider,
+                timestamp: extra.timestamp ?? Date.now(),
+                ...(extra.finishReason !== undefined ? { finishReason: extra.finishReason } : {}),
+                ...(extra.usage !== undefined ? { usage: extra.usage } : {}),
+            },
+        });
+    } catch (e) {
+        log.warn('Failed to persist last_prompt', { sessionId: sessionId?.slice(0, 8), error: e.message });
+    }
+}
+
 // Классификация details провайдера (тот же контракт, что пробрасывается на фронт):
 // жёсткий 400 llama.cpp → context_overflow с реальными числами токенизатора,
 // остальное → server. Используется catch-ветками chat и vision.
@@ -72,6 +120,60 @@ function classifyProviderError(details) {
     const nCtxTok = typeof d.n_ctx === 'number' ? d.n_ctx : undefined;
     const isOverflow = d.type === 'exceed_context_size_error' || (promptTok != null && nCtxTok != null);
     return { isOverflow, promptTok, nCtxTok };
+}
+
+// ТЗ Streaming_Reasoning: сохранение partial-сообщения при разрыве mid-stream
+// или ошибке. Использует composeAssistantAnswer для маркера обрыва.
+function savePartialStreamMessage(sessionId, streamState, message, model, currentAttachments, promptSelection, contextLength) {
+    try {
+        const { answer, reasoningSaved } = composeAssistantAnswer({
+            content: streamState.fullResponse,
+            reasoning: streamState.fullReasoning,
+            finishReason: streamState.finishReason,
+            metrics: streamState.metrics,
+            contextLength
+        });
+
+        const userMsgId = sessionService.addMessage(sessionId, {
+            role: 'user',
+            content: message,
+            model,
+            questionId: streamState.questionId,
+            attachmentsMeta: currentAttachments,
+            syspromptId: promptSelection?.syspromptId
+        });
+        attachmentService.claimAttachments(
+            currentAttachments.map((a) => a.fileId).filter(Boolean),
+            userMsgId
+        );
+        sessionService.addMessage(sessionId, {
+            role: 'assistant',
+            content: answer,
+            model,
+            questionId: streamState.questionId,
+            metrics: {
+                ...(streamState.metrics || {}),
+                ...(reasoningSaved
+                    ? {
+                        reasoningChars: (streamState.fullReasoning || '').length,
+                        reasoningPreview: (streamState.fullReasoning || '').slice(0, 1000),
+                    }
+                    : {})
+            },
+            reasoning: streamState.fullReasoning || null
+        });
+        streamState.saved = true;
+        log.info('Partial stream message saved', {
+            sessionId: sessionId?.slice(0, 8),
+            questionId: streamState.questionId,
+            contentChars: (streamState.fullResponse || '').length,
+            reasoningChars: (streamState.fullReasoning || '').length
+        });
+    } catch (e) {
+        log.error('Failed to save partial stream message', { error: e.message });
+    } finally {
+        streamState.saved = true;
+    }
 }
 
 // ============================================================
@@ -108,7 +210,7 @@ export function composeAssistantAnswer({ content, reasoning, finishReason, metri
     if (reasoningText.length > 0) {
         const preview = reasoningText.trimEnd().slice(0, REASONING_PREVIEW_CHARS);
         const moreNote = reasoningText.length > REASONING_PREVIEW_CHARS
-            ? `\n…(сокращено: всего ${reasoningText.length} символов размышлений — полные в логах сервера)`
+            ? `\n…(сокращено: всего ${reasoningText.length} символов размышлений — полные в блоке Reasoning)`
             : '';
         const note = `[Ответ не сформирован] Модель потратила ${metrics?.outputTokens ?? '?'} токенов на внутренние размышления (reasoning), но контекст (${contextLength ?? '?'} токенов) закончился до начала видимого ответа.\n\nНачало размышлений:\n${preview}${moreNote}\n\n[Что делать: увеличьте --ctx-size llama-server, отключите размышления модели или ограничьте их.]`;
         return { answer: note, reasoningSaved: true };
@@ -121,6 +223,9 @@ export function composeAssistantAnswer({ content, reasoning, finishReason, metri
 
 export async function chatHandler(req, res) {
     let { message, model, sessionId, questionId, contextLength, retainPercent, includeQuestionIds, syspromptId } = req.body;
+
+    // ТЗ Streaming_Reasoning: определение streaming по Accept header
+    const isStream = req.headers.accept?.includes('text/event-stream');
 
     // P0.2: selectedTemplateIds — JSON array in a single FormData field
     let selectedTemplateIds = [];
@@ -144,6 +249,7 @@ export async function chatHandler(req, res) {
         hasFile: !!file,
         codeFiles: codeFiles.length,
         questionId,
+        isStream,
         // P0.1: какие generation params пришли (пустые поля = server default).
         generationParams: Object.keys(req.body).filter((k) =>
             ['temperature', 'top_p', 'top_k', 'min_p', 'n_predict', 'presence_penalty', 'repeat_penalty'].includes(k)
@@ -153,6 +259,22 @@ export async function chatHandler(req, res) {
     // TZ-B.3: временные файлы (diskStorage, uploads/tmp) удаляются после обработки в любом исходе.
     // Это единственное разрешённое удаление — пользовательские файлы реестра не удаляются никогда.
     const tmpFilePaths = [file?.path, ...codeFiles.map((cf) => cf?.path)].filter(Boolean);
+
+    // ТЗ Last Prompt: общий результат buildLLMContext — доступен в catch-ветках
+    // (обновление meta.finishReason='error' при провале ПОСЛЕ построения контекста).
+    let contextResult = null;
+    let contextMessages = null;
+    let chatLastPromptTs = null;
+
+    // ТЗ Streaming_Reasoning: состояние для streaming (накопленный контент, partial save)
+    let streamState = {
+        fullResponse: '',
+        fullReasoning: '',
+        finishReason: null,
+        metrics: null,
+        questionId: null,
+        saved: false
+    };
 
     // ТЗ answer-loss-diagnostics (доп. изучение 2026-11-12): в логе llama.cpp
     // владельца первая задача отменялась («stop: cancel task» = разрыв
@@ -170,11 +292,20 @@ export async function chatHandler(req, res) {
                     sessionId: sessionId?.slice(0, 8),
                     questionId,
                     hasFile: !!file,
-                    codeFiles: codeFiles.length
+                    codeFiles: codeFiles.length,
+                    isStream
                 });
+
+                // ТЗ Streaming_Reasoning: при разрыве mid-stream сохранить накопленный partial
+                if (isStream && !streamState.saved && (streamState.fullResponse || streamState.fullReasoning)) {
+                    savePartialStreamMessage(sessionId, streamState, message, model, currentAttachments, promptSelection, contextLength);
+                }
             }
         });
     }
+
+    // Переменная для currentAttachments (нужна в close handler)
+    let currentAttachments = [];
 
     // ТЗ attachment-cascade: fileIds строк реестра, созданных ЭТОЙ отправкой (RESEARCH).
     // PROJECT-ветка строки не создаёт (reference — пул сессии): claim/cleanup к ней неприменимы.
@@ -269,7 +400,7 @@ export async function chatHandler(req, res) {
         // === Шаг 1. Все вложения — в единый реестр attachments ===
         // PROJECT: currentAttachments — текущий пул reference сессии (attach);
         // attachments_meta сообщения — снимок на момент отправки (§3.8.4).
-        const currentAttachments = [];
+        currentAttachments = [];
         if (mode === 'project') {
             const refs = attachmentService.listSessionAttachments(sessionId, 'reference');
             for (const r of refs) {
@@ -373,6 +504,20 @@ export async function chatHandler(req, res) {
                     },
                 ];
 
+                // ТЗ Last Prompt: сохранить финальный промпт ДО provider.chat
+                // (провал провайдера не стирает «что ушло в модель»).
+                const visionLastPromptTs = Date.now();
+                persistLastPrompt(sessionId, contextResult, contextMessages, {
+                    mode,
+                    currentAttachments,
+                    promptSelection,
+                    generationParams,
+                    questionId: visionQuestionId,
+                    model,
+                    provider: req.providerName,
+                    timestamp: visionLastPromptTs,
+                });
+
                 const result = await req.provider.chat({
                     model,
                     messages: contextMessages,
@@ -397,11 +542,30 @@ export async function chatHandler(req, res) {
                     content: result.response,
                     model,
                     questionId: visionQuestionId,
-                    metrics: result.metrics
+                    metrics: result.metrics,
+                    // ТЗ Streaming_Reasoning: сохраняем reasoning если провайдер вернул
+                    reasoning: result.reasoning || null
                 });
 
                 // ТЗ send-error-persist (№3): успешная отправка гасит персистентную плашку.
                 clearSendErrorSafe(sessionId);
+
+                // ТЗ Last Prompt: обновить meta (finishReason/usage), timestamp — отправки.
+                persistLastPrompt(sessionId, contextResult, contextMessages, {
+                    mode,
+                    currentAttachments,
+                    promptSelection,
+                    generationParams,
+                    questionId: visionQuestionId,
+                    model,
+                    provider: req.providerName,
+                    timestamp: visionLastPromptTs,
+                    finishReason: result.finishReason ?? null,
+                    usage: {
+                        inputTokens: result.metrics?.inputTokens ?? null,
+                        outputTokens: result.metrics?.outputTokens ?? null,
+                    },
+                });
 
                 return res.json({
                     response: result.response,
@@ -442,7 +606,7 @@ export async function chatHandler(req, res) {
         // === Обычный chat (без картинки) ===
         try {
 
-            const contextResult = await sessionService.buildContext(
+            contextResult = await sessionService.buildContext(
                 sessionId,
                 currentAttachments,
                 contextLength,
@@ -454,7 +618,21 @@ export async function chatHandler(req, res) {
 
             // ТЗ one-system: последнее user-сообщение — [Вопрос] с чистым текстом
             // (файлы не инлайнятся — они в [Материалы] через реестр)
-            const contextMessages = [...contextResult.conversation, { role: 'user', content: `[Вопрос]\n${message}` }];
+            contextMessages = [...contextResult.conversation, { role: 'user', content: `[Вопрос]\n${message}` }];
+
+            // ТЗ Last Prompt: сохранить финальный промпт ДО provider.chat
+            // (пре-флайт/провал провайдера не стирают «что ушло в модель»).
+            chatLastPromptTs = Date.now();
+            persistLastPrompt(sessionId, contextResult, contextMessages, {
+                mode,
+                currentAttachments,
+                promptSelection,
+                generationParams,
+                questionId: questionId || `q_${Date.now()}`,
+                model,
+                provider: req.providerName,
+                timestamp: chatLastPromptTs,
+            });
 
             log.info('Context built', {
                 contextSize: contextResult.contextSize,
@@ -515,132 +693,336 @@ export async function chatHandler(req, res) {
             const totalQAPairs = contextResult.info?.totalQAPairs ?? 0;
             const isManualMode = parsedIncludeIds && parsedIncludeIds.length < totalQAPairs;
 
-            const result = await req.provider.chat({
-                model,
-                messages: contextMessages,
-                stream: false,
-                cache_prompt: !isManualMode,
-                n_keep: isManualMode ? 0 : undefined,
-                // P0.1: динамические generation params (пустые = server default).
-                generationParams
-            });
+            // ТЗ Streaming_Reasoning: ветка streaming vs non-streaming
+            if (isStream) {
+                // Установка SSE-заголовков
+                res.writeHead(200, {
+                    'Content-Type': 'text/event-stream',
+                    'Cache-Control': 'no-cache',
+                    'Connection': 'keep-alive',
+                    'X-Accel-Buffering': 'no'
+                });
 
-            // ТЗ answer-loss-diagnostics: честная фиксация исхода хода в логе
-            // (раньше «LLM response received» не было вовсе — инцидент «ответ
-            // не дошёл и логов нет» невозможно было расследовать постфактум).
-            log.info('LLM response received', {
-                finishReason: result.finishReason ?? null,
-                truncated: result.metrics?.truncated === true,
-                contentChars: (result.response || '').length,
-                reasoningChars: (result.reasoning || '').length,
-                inputTokens: result.metrics?.inputTokens ?? null,
-                outputTokens: result.metrics?.outputTokens ?? null
-            });
+                const finalQuestionId = questionId || `q_${Date.now()}`;
+                streamState.questionId = finalQuestionId;
 
-            const { answer, reasoningSaved } = composeAssistantAnswer({
-                content: result.response,
-                reasoning: result.reasoning,
-                finishReason: result.finishReason,
-                metrics: result.metrics,
-                contextLength
-            });
-
-            const finalQuestionId = questionId || `q_${Date.now()}`;
-            const userMsgId = sessionService.addMessage(sessionId, {
-                role: 'user',
-                content: message,
-                model,
-                questionId: finalQuestionId,
-                attachmentsMeta: currentAttachments,
-                syspromptId: promptSelection.syspromptId
-            });
-            // ТЗ attachment-cascade: строки реестра принадлежат сообщению (см. vision-ветку)
-            attachmentService.claimAttachments(sentFileIds, userMsgId);
-            sessionService.addMessage(sessionId, {
-                role: 'assistant',
-                content: answer,
-                model,
-                questionId: finalQuestionId,
-                // ТЗ adaptive-context-budget (№3): promptChars — символы промпта
-                // ЭТОГО хода; вместе с inputTokens (полный промпт, см.
-                // metricsService) — измеренная плотность следующего хода.
-                // Vision-ветка promptChars не пишет (mmproj, char-плотность неприменима).
-                // ТЗ answer-loss-diagnostics: при reasoning-only ходе в метрики
-                // пишутся reasoningChars/reasoningPreview (диагностика в Copy Q&A).
-                metrics: {
-                    ...(result.metrics || {}),
-                    promptChars,
-                    ...(reasoningSaved
-                        ? {
-                            reasoningChars: (result.reasoning || '').length,
-                            reasoningPreview: (result.reasoning || '').slice(0, 1000),
+                const onToken = (type, delta) => {
+                    if (type === 'token') {
+                        streamState.fullResponse += delta;
+                        if (!res.writableEnded) {
+                            res.write(`data: ${JSON.stringify({ type: 'token', delta })}\n\n`);
                         }
-                        : {})
-                }
-            });
+                    } else if (type === 'reasoning') {
+                        streamState.fullReasoning += delta;
+                        if (!res.writableEnded) {
+                            res.write(`data: ${JSON.stringify({ type: 'reasoning', delta })}\n\n`);
+                        }
+                    }
+                };
 
-            // ТЗ send-error-persist (№3): успешная отправка гасит персистентную плашку.
-            clearSendErrorSafe(sessionId);
+                const result = await req.provider.chat({
+                    model,
+                    messages: contextMessages,
+                    stream: true,
+                    cache_prompt: !isManualMode,
+                    n_keep: isManualMode ? 0 : undefined,
+                    generationParams,
+                    onToken
+                });
 
-            res.json({
-                response: answer,
-                model,
-                metrics: result.metrics,
-                questionId: finalQuestionId,
-                attachmentsMeta: currentAttachments,
-                excludedIndices: contextResult.info.excludedIndices || [],
-                contextInfo: {
-                    contextSize: contextResult.contextSize,
-                    fixedChars: contextResult.info.fixedChars,
-                    actualHistoryChars: contextResult.info.actualHistoryChars,
-                    totalChars: contextResult.info.fixedChars + contextResult.info.actualHistoryChars,
-                    targetChars: contextResult.info.targetChars,
-                    includedQAPairs: contextResult.info.includedQAPairs,
-                    totalQAPairs: contextResult.info.totalQAPairs,
-                    // ТЗ Project mode A (§3.8.6): новые поля — опциональны для фронта
-                    mode: contextResult.info.mode,
-                    filesAttached: currentAttachments.length,
-                    filesMissing: contextResult.info.filesMissing || [],
-                    filesTooLarge: contextResult.info.filesTooLarge || []
-                }
-            });
+                // ТЗ answer-loss-diagnostics: честная фиксация исхода хода в логе
+                log.info('LLM response received (stream)', {
+                    finishReason: result.finishReason ?? null,
+                    truncated: result.metrics?.truncated === true,
+                    contentChars: (result.response || '').length,
+                    reasoningChars: (result.reasoning || '').length,
+                    inputTokens: result.metrics?.inputTokens ?? null,
+                    outputTokens: result.metrics?.outputTokens ?? null
+                });
+
+                const { answer, reasoningSaved } = composeAssistantAnswer({
+                    content: result.response,
+                    reasoning: result.reasoning,
+                    finishReason: result.finishReason,
+                    metrics: result.metrics,
+                    contextLength
+                });
+
+                const userMsgId = sessionService.addMessage(sessionId, {
+                    role: 'user',
+                    content: message,
+                    model,
+                    questionId: finalQuestionId,
+                    attachmentsMeta: currentAttachments,
+                    syspromptId: promptSelection.syspromptId
+                });
+                attachmentService.claimAttachments(sentFileIds, userMsgId);
+                sessionService.addMessage(sessionId, {
+                    role: 'assistant',
+                    content: answer,
+                    model,
+                    questionId: finalQuestionId,
+                    metrics: {
+                        ...(result.metrics || {}),
+                        promptChars,
+                        ...(reasoningSaved
+                            ? {
+                                reasoningChars: (result.reasoning || '').length,
+                                reasoningPreview: (result.reasoning || '').slice(0, 1000),
+                            }
+                            : {})
+                    },
+                    // ТЗ Streaming_Reasoning: полный reasoning в БД
+                    reasoning: result.reasoning || null
+                });
+
+                // ТЗ send-error-persist (№3): успешная отправка гасит персистентную плашку.
+                clearSendErrorSafe(sessionId);
+                streamState.saved = true;
+
+                // ТЗ Last Prompt: обновить meta (finishReason/usage), timestamp — отправки.
+                persistLastPrompt(sessionId, contextResult, contextMessages, {
+                    mode,
+                    currentAttachments,
+                    promptSelection,
+                    generationParams,
+                    questionId: finalQuestionId,
+                    model,
+                    provider: req.providerName,
+                    timestamp: chatLastPromptTs,
+                    finishReason: result.finishReason ?? null,
+                    usage: {
+                        inputTokens: result.metrics?.inputTokens ?? null,
+                        outputTokens: result.metrics?.outputTokens ?? null,
+                    },
+                });
+
+                // Отправка done-чанка
+                res.write(`data: ${JSON.stringify({
+                    type: 'done',
+                    metrics: result.metrics,
+                    finishReason: result.finishReason,
+                    questionId: finalQuestionId,
+                    excludedIndices: contextResult.info.excludedIndices || [],
+                    contextInfo: {
+                        contextSize: contextResult.contextSize,
+                        fixedChars: contextResult.info.fixedChars,
+                        actualHistoryChars: contextResult.info.actualHistoryChars,
+                        totalChars: contextResult.info.fixedChars + contextResult.info.actualHistoryChars,
+                        targetChars: contextResult.info.targetChars,
+                        includedQAPairs: contextResult.info.includedQAPairs,
+                        totalQAPairs: contextResult.info.totalQAPairs,
+                        mode: contextResult.info.mode,
+                        filesAttached: currentAttachments.length,
+                        filesMissing: contextResult.info.filesMissing || [],
+                        filesTooLarge: contextResult.info.filesTooLarge || []
+                    }
+                })}\n\n`);
+                res.end();
+            } else {
+                // Non-streaming (как раньше)
+                const result = await req.provider.chat({
+                    model,
+                    messages: contextMessages,
+                    stream: false,
+                    cache_prompt: !isManualMode,
+                    n_keep: isManualMode ? 0 : undefined,
+                    generationParams
+                });
+
+                // ТЗ answer-loss-diagnostics: честная фиксация исхода хода в логе
+                log.info('LLM response received', {
+                    finishReason: result.finishReason ?? null,
+                    truncated: result.metrics?.truncated === true,
+                    contentChars: (result.response || '').length,
+                    reasoningChars: (result.reasoning || '').length,
+                    inputTokens: result.metrics?.inputTokens ?? null,
+                    outputTokens: result.metrics?.outputTokens ?? null
+                });
+
+                const { answer, reasoningSaved } = composeAssistantAnswer({
+                    content: result.response,
+                    reasoning: result.reasoning,
+                    finishReason: result.finishReason,
+                    metrics: result.metrics,
+                    contextLength
+                });
+
+                const finalQuestionId = questionId || `q_${Date.now()}`;
+                const userMsgId = sessionService.addMessage(sessionId, {
+                    role: 'user',
+                    content: message,
+                    model,
+                    questionId: finalQuestionId,
+                    attachmentsMeta: currentAttachments,
+                    syspromptId: promptSelection.syspromptId
+                });
+                // ТЗ attachment-cascade: строки реестра принадлежат сообщению (см. vision-ветку)
+                attachmentService.claimAttachments(sentFileIds, userMsgId);
+                sessionService.addMessage(sessionId, {
+                    role: 'assistant',
+                    content: answer,
+                    model,
+                    questionId: finalQuestionId,
+                    // ТЗ adaptive-context-budget (№3): promptChars — символы промпта
+                    // ЭТОГО хода; вместе с inputTokens (полный промпт, см.
+                    // metricsService) — измеренная плотность следующего хода.
+                    // Vision-ветка promptChars не пишет (mmproj, char-плотность неприменима).
+                    // ТЗ answer-loss-diagnostics: при reasoning-only ходе в метрики
+                    // пишутся reasoningChars/reasoningPreview (диагностика в Copy Q&A).
+                    metrics: {
+                        ...(result.metrics || {}),
+                        promptChars,
+                        ...(reasoningSaved
+                            ? {
+                                reasoningChars: (result.reasoning || '').length,
+                                reasoningPreview: (result.reasoning || '').slice(0, 1000),
+                            }
+                            : {})
+                    },
+                    // ТЗ Streaming_Reasoning: полный reasoning в БД
+                    reasoning: result.reasoning || null
+                });
+
+                // ТЗ send-error-persist (№3): успешная отправка гасит персистентную плашку.
+                clearSendErrorSafe(sessionId);
+
+                // ТЗ Last Prompt: обновить meta (finishReason/usage), timestamp — отправки.
+                persistLastPrompt(sessionId, contextResult, contextMessages, {
+                    mode,
+                    currentAttachments,
+                    promptSelection,
+                    generationParams,
+                    questionId: finalQuestionId,
+                    model,
+                    provider: req.providerName,
+                    timestamp: chatLastPromptTs,
+                    finishReason: result.finishReason ?? null,
+                    usage: {
+                        inputTokens: result.metrics?.inputTokens ?? null,
+                        outputTokens: result.metrics?.outputTokens ?? null,
+                    },
+                });
+
+                res.json({
+                    response: answer,
+                    model,
+                    metrics: result.metrics,
+                    questionId: finalQuestionId,
+                    attachmentsMeta: currentAttachments,
+                    excludedIndices: contextResult.info.excludedIndices || [],
+                    contextInfo: {
+                        contextSize: contextResult.contextSize,
+                        fixedChars: contextResult.info.fixedChars,
+                        actualHistoryChars: contextResult.info.actualHistoryChars,
+                        totalChars: contextResult.info.fixedChars + contextResult.info.actualHistoryChars,
+                        targetChars: contextResult.info.targetChars,
+                        includedQAPairs: contextResult.info.includedQAPairs,
+                        totalQAPairs: contextResult.info.totalQAPairs,
+                        // ТЗ Project mode A (§3.8.6): новые поля — опциональны для фронта
+                        mode: contextResult.info.mode,
+                        filesAttached: currentAttachments.length,
+                        filesMissing: contextResult.info.filesMissing || [],
+                        filesTooLarge: contextResult.info.filesTooLarge || []
+                    }
+                });
+            }
         } catch (error) {
-            log.error('Chat error', { error: error.message, code: error.code, details: error.details });
-            // ТЗ attachment-cascade: проваленная отправка не оставляет строк в реестре
-            attachmentService.deleteUnclaimedAttachments(sentFileIds);
-            // ТЗ send-error-persist (№3): плашка последней провальной отправки —
-            // переживает F5 (в messages ничего не пишется, вопрос был optimistic).
-            const { isOverflow, promptTok, nCtxTok } = classifyProviderError(error.details);
-            persistSendError(sessionId, {
-                kind: isOverflow ? 'context_overflow' : 'server',
-                providerName: req.providerName,
-                failedText: message,
-                fileNames: sentFileNames,
-                ...(isOverflow ? { nPromptTokens: promptTok, nCtxTokens: nCtxTok } : {}),
-                message: error.message,
-            });
-            // ТЗ context-overflow-ux: details провайдера (n_prompt_tokens/n_ctx/type
-            // из тела 400 llama.cpp) — верхним уровнем, баннер фронта покажет числа.
-            res.status(500).json({
-                error: error.message || 'Connection failed',
-                ...(error.details && typeof error.details === 'object' ? error.details : {})
-            });
+            log.error('Chat error', { error: error.message, code: error.code, details: error.details, isStream });
+
+            // ТЗ Last Prompt: провал ПОСЛЕ buildLLMContext — обновить meta (finishReason='error').
+            // last_prompt сохранён (до provider.chat) — пользователь видит, ЧТО ушло.
+            if (isStream) {
+                persistLastPrompt(sessionId, contextResult, contextMessages, {
+                    mode,
+                    currentAttachments,
+                    promptSelection,
+                    generationParams,
+                    questionId: streamState.questionId,
+                    model,
+                    provider: req.providerName,
+                    timestamp: chatLastPromptTs,
+                    finishReason: 'error',
+                });
+            }
+
+            // ТЗ Streaming_Reasoning: при ошибке mid-stream — отправить error-чанк и сохранить partial
+            if (isStream && !streamState.saved) {
+                // Сохранить накопленный partial (если есть)
+                if (streamState.fullResponse || streamState.fullReasoning) {
+                    savePartialStreamMessage(sessionId, streamState, message, model, currentAttachments, promptSelection, contextLength);
+                }
+
+                // Отправить error-чанк (без done)
+                if (!res.writableEnded) {
+                    res.write(`data: ${JSON.stringify({
+                        type: 'error',
+                        error: error.message || 'Connection failed',
+                        ...(error.details && typeof error.details === 'object' ? error.details : {})
+                    })}\n\n`);
+                    res.end();
+                }
+            } else if (isStream) {
+                // Streaming, но partial уже сохранён или нет контента — просто завершить
+                if (!res.writableEnded) {
+                    res.write(`data: ${JSON.stringify({
+                        type: 'error',
+                        error: error.message || 'Connection failed',
+                        ...(error.details && typeof error.details === 'object' ? error.details : {})
+                    })}\n\n`);
+                    res.end();
+                }
+            } else {
+                // Non-streaming (как раньше)
+                // ТЗ attachment-cascade: проваленная отправка не оставляет строк в реестре
+                attachmentService.deleteUnclaimedAttachments(sentFileIds);
+                // ТЗ send-error-persist (№3): плашка последней провальной отправки —
+                // переживает F5 (в messages ничего не пишется, вопрос был optimistic).
+                const { isOverflow, promptTok, nCtxTok } = classifyProviderError(error.details);
+                persistSendError(sessionId, {
+                    kind: isOverflow ? 'context_overflow' : 'server',
+                    providerName: req.providerName,
+                    failedText: message,
+                    fileNames: sentFileNames,
+                    ...(isOverflow ? { nPromptTokens: promptTok, nCtxTokens: nCtxTok } : {}),
+                    message: error.message,
+                });
+                // ТЗ context-overflow-ux: details провайдера (n_prompt_tokens/n_ctx/type
+                // из тела 400 llama.cpp) — верхним уровнем, баннер фронта покажет числа.
+                res.status(500).json({
+                    error: error.message || 'Connection failed',
+                    ...(error.details && typeof error.details === 'object' ? error.details : {})
+                });
+            }
         }
     } catch (error) {
-        log.error('Error processing URLs', { error: error.message });
-        // ТЗ attachment-cascade: реестр не переживает проваленную отправку
-        // (ветка context-config вне inner-try — строки уже вставлены)
-        attachmentService.deleteUnclaimedAttachments(sentFileIds);
-        // ТЗ send-error-persist (№3): провал до веток chat/vision — тоже плашка
-        // (message на этом этапе ещё исходный текст запроса).
-        persistSendError(sessionId, {
-            kind: 'server',
-            providerName: req.providerName,
-            failedText: message || '',
-            fileNames: sentFileNames,
-            message: error.message,
-        });
-        res.status(500).json({ error: 'Failed to process message' });
+        log.error('Error processing URLs', { error: error.message, isStream });
+
+        // ТЗ Streaming_Reasoning: при ошибке до начала streaming — отправить error-чанк
+        if (isStream && !streamState.saved) {
+            if (!res.writableEnded) {
+                res.write(`data: ${JSON.stringify({
+                    type: 'error',
+                    error: error.message || 'Failed to process message'
+                })}\n\n`);
+                res.end();
+            }
+        } else {
+            // Non-streaming (как раньше)
+            // ТЗ attachment-cascade: реестр не переживает проваленную отправку
+            // (ветка context-config вне inner-try — строки уже вставлены)
+            attachmentService.deleteUnclaimedAttachments(sentFileIds);
+            // ТЗ send-error-persist (№3): провал до веток chat/vision — тоже плашка
+            // (message на этом этапе ещё исходный текст запроса).
+            persistSendError(sessionId, {
+                kind: 'server',
+                providerName: req.providerName,
+                failedText: message || '',
+                fileNames: sentFileNames,
+                message: error.message,
+            });
+            res.status(500).json({ error: 'Failed to process message' });
+        }
     } finally {
         // TZ-B.3: cleanup временных файлов — сама директория uploads/tmp сохраняется
         await Promise.all(tmpFilePaths.map((p) => fs.promises.unlink(p).catch(() => {})));

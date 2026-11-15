@@ -55,6 +55,8 @@ export interface ChatResponse {
   contextInfo?: { contextSize: number; totalChars: number; includedQAPairs: number; totalQAPairs: number };
   excludedIndices?: number[];
   error?: string;
+  /** ТЗ Streaming_Reasoning: полный reasoning-текст модели */
+  reasoning?: string | null;
 }
 
 export interface ModelInfo {
@@ -98,6 +100,43 @@ export interface ImageData {
   thumbnailUrl: string;
   fullUrl: string;
   filename: string;
+}
+
+// ТЗ Last Prompt: финальный промпт последней отправки (sessions.last_prompt)
+export interface PromptImageRef {
+  size: number;
+  type: 'base64';
+}
+
+export interface PromptMessage {
+  role: 'system' | 'user' | 'assistant';
+  content: string;
+  images?: PromptImageRef[];
+}
+
+export interface LastPromptMeta {
+  mode?: string;
+  currentAttachments?: Array<{ fileId: string; name: string; kind?: string; size?: number }>;
+  fixedChars?: number;
+  actualHistoryChars?: number;
+  targetChars?: number;
+  includedQAPairs?: number;
+  totalQAPairs?: number;
+  excludedIndices?: number[];
+  syspromptId?: string | null;
+  selectedTemplateIds?: string[];
+  generationParams?: Record<string, unknown>;
+  questionId?: string;
+  model?: string;
+  provider?: string;
+  timestamp?: number;
+  finishReason?: string | null;
+  usage?: { inputTokens: number | null; outputTokens: number | null };
+}
+
+export interface LastPrompt {
+  prompt: PromptMessage[];
+  meta: LastPromptMeta;
 }
 
 export interface ResponseMetrics {
@@ -203,7 +242,54 @@ export interface ChatMessage {
   attachmentsMeta?: AttachmentMeta[];
   imageData?: ImageData;
   excludedIndices?: number[];
+  /** ТЗ Streaming_Reasoning: полный reasoning-текст модели (источник истины) */
+  reasoning?: string | null;
+  /** ТЗ Streaming_Reasoning §3.4: причина завершения ('stop' | 'length' | 'error') */
+  finishReason?: string;
 }
+
+// ============================================================
+// ТЗ Streaming_Reasoning: SSE streaming event types
+// ============================================================
+
+export interface StreamTokenEvent {
+  type: 'token';
+  delta: string;
+}
+
+export interface StreamReasoningEvent {
+  type: 'reasoning';
+  delta: string;
+}
+
+export interface StreamDoneEvent {
+  type: 'done';
+  metrics?: ResponseMetrics;
+  finishReason?: string;
+  questionId: string;
+  excludedIndices?: number[];
+  contextInfo?: {
+    contextSize: number;
+    fixedChars: number;
+    actualHistoryChars: number;
+    totalChars: number;
+    targetChars: number;
+    includedQAPairs: number;
+    totalQAPairs: number;
+    mode?: string;
+    filesAttached?: number;
+    filesMissing?: string[];
+    filesTooLarge?: string[];
+  };
+}
+
+export interface StreamErrorEvent {
+  type: 'error';
+  error: string;
+  [key: string]: unknown;
+}
+
+export type StreamEvent = StreamTokenEvent | StreamReasoningEvent | StreamDoneEvent | StreamErrorEvent;
 
 export interface ToastMessage {
   id: string;

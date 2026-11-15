@@ -60,6 +60,10 @@ export function initializeSchema(database) {
                и по явному dismiss — плашка переживает F5 (провальная отправка
                не оставляет следов в messages/attachments). */
             last_send_error TEXT,
+            /* ТЗ Last Prompt: финальный промпт последнего запроса
+               {prompt: [{role, content, images?}], meta: {...}} или NULL.
+               Перезаписывается при каждом новом запросе (per session). */
+            last_prompt     TEXT DEFAULT NULL,
             message_count   INTEGER DEFAULT 0,
             is_archived     INTEGER DEFAULT 0,
             created_at      TEXT DEFAULT (datetime('now')),
@@ -77,6 +81,9 @@ export function initializeSchema(database) {
             model           TEXT,
             attachments_meta TEXT DEFAULT '[]',
             metrics         TEXT DEFAULT '{}',
+            /* ТЗ Streaming_Reasoning: полный reasoning (размышления) модели.
+               НЕ включается в промпт (buildLLMContext читает только content). */
+            reasoning       TEXT DEFAULT NULL,
             sort_order      INTEGER NOT NULL,
             /* P0.2: ссылка на system-промпт из prompts (NULL = fallback) */
             sysprompt_id    TEXT REFERENCES prompts(id) ON DELETE SET NULL,
@@ -179,6 +186,11 @@ function ensureColumns(database) {
         database.exec('ALTER TABLE sessions ADD COLUMN last_send_error TEXT');
     }
 
+    /* ТЗ Last Prompt: колонка финального промпта последнего запроса. */
+    if (sessionCols.length > 0 && !sessionCols.includes('last_prompt')) {
+        database.exec('ALTER TABLE sessions ADD COLUMN last_prompt TEXT DEFAULT NULL');
+    }
+
     /* P0.2: DROP sessions.sysprompt (заменено на prompts table).
        SQLite ≥ 3.35 поддерживает DROP COLUMN. better-sqlite3 бандлит свой SQLite (≥3.35). */
     if (sessionCols.length > 0 && sessionCols.includes('sysprompt')) {
@@ -202,6 +214,12 @@ function ensureColumns(database) {
     const msgCols = columnNames('messages');
     if (msgCols.length > 0 && !msgCols.includes('sysprompt_id')) {
         database.exec('ALTER TABLE messages ADD COLUMN sysprompt_id TEXT REFERENCES prompts(id) ON DELETE SET NULL');
+    }
+
+    /* ТЗ Streaming_Reasoning: полный reasoning (размышления) модели.
+       Guarded ALTER для legacy-БД. */
+    if (msgCols.length > 0 && !msgCols.includes('reasoning')) {
+        database.exec('ALTER TABLE messages ADD COLUMN reasoning TEXT DEFAULT NULL');
     }
 
     const attachmentCols = columnNames('attachments');

@@ -13,6 +13,8 @@ import type {
   SessionAttachmentsResponse,
   SessionMode,
   Prompt,
+  StreamEvent,
+  LastPrompt,
 } from '@/types';
 
 export class ApiError extends Error {
@@ -104,6 +106,7 @@ export const sessionsApi = {
       attachmentsMeta?: unknown;
       metrics?: unknown;
       imageData?: unknown;
+      reasoning?: string | null;
     }>>(
       'GET',
       `/api/sessions/${id}/messages`,
@@ -131,6 +134,10 @@ export const sessionsApi = {
   // ТЗ send-error-persist (№3): явный dismiss персистентной плашки (крестик).
   clearSendError(id: string) {
     return request<{ ok: boolean }>('DELETE', `/api/sessions/${id}/send-error`);
+  },
+  // ТЗ Last Prompt: финальный промпт последней отправки (404 — промпта ещё нет).
+  getLastPrompt(id: string) {
+    return request<LastPrompt>('GET', `/api/sessions/${id}/last-prompt`);
   },
 };
 
@@ -184,6 +191,119 @@ export const chatApi = {
       '/api/chat',
       { body: formData, provider },
     );
+  },
+
+  /**
+   * ТЗ Streaming_Reasoning: SSE streaming send.
+   * Returns a ReadableStream of parsed StreamEvent objects.
+   * The caller is responsible for consuming the stream and handling events.
+   */
+  async sendStream(
+    data: ChatRequestData,
+    provider: ProviderName,
+    files?: { file?: File; codeFiles?: File[] },
+  ): Promise<ReadableStream<StreamEvent>> {
+    const formData = new FormData();
+    formData.append('message', data.message);
+    formData.append('model', data.model);
+    formData.append('sessionId', data.sessionId);
+    formData.append('questionId', data.questionId);
+    formData.append('retainPercent', String(data.retainPercent));
+
+    if (data.contextLength !== undefined) {
+      formData.append('contextLength', String(data.contextLength));
+    }
+
+    formData.append('includeQuestionIds', JSON.stringify(data.includeQuestionIds));
+
+    if (data.generationParams) {
+      for (const [key, value] of Object.entries(data.generationParams)) {
+        if (value === undefined || value === null) continue;
+        formData.append(key, String(value));
+      }
+    }
+
+    if (data.syspromptId) {
+      formData.append('syspromptId', data.syspromptId);
+    }
+    if (data.selectedTemplateIds && data.selectedTemplateIds.length > 0) {
+      formData.append('selectedTemplateIds', JSON.stringify(data.selectedTemplateIds));
+    }
+
+    if (files?.file) {
+      formData.append('file', files.file);
+    }
+
+    if (files?.codeFiles) {
+      for (const codeFile of files.codeFiles) {
+        formData.append('codeFiles', codeFile);
+      }
+    }
+
+    const response = await fetch('/api/chat', {
+      method: 'POST',
+      headers: {
+        'Accept': 'text/event-stream',
+        'X-Provider': provider,
+      },
+      body: formData,
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({ error: response.statusText }));
+      const errorMessage = errorData.error || errorData.message || `HTTP ${response.status}`;
+      logger.error(`API POST /api/chat (stream) failed`, { status: response.status, error: errorMessage });
+      throw new ApiError(response.status, errorMessage, errorData);
+    }
+
+    if (!response.body) {
+      throw new ApiError(0, 'No response body for streaming');
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    const stream = new ReadableStream<StreamEvent>({
+      start(controller) {
+        const read = () => {
+          reader.read().then(({ done, value }) => {
+            if (done) {
+              controller.close();
+              return;
+            }
+
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop() || '';
+
+            for (const line of lines) {
+              const trimmed = line.trim();
+              if (!trimmed.startsWith('data:')) continue;
+              const jsonStr = trimmed.slice(5).trim();
+              if (!jsonStr) continue;
+              try {
+                const event = JSON.parse(jsonStr) as StreamEvent;
+                controller.enqueue(event);
+              } catch {
+                logger.warn('Failed to parse SSE chunk', { jsonStr });
+              }
+            }
+
+            read();
+          }).catch((err) => {
+            logger.error('SSE stream read error', err);
+            controller.error(err);
+          });
+        };
+        read();
+      },
+      cancel() {
+        reader.cancel().catch(() => {});
+      },
+    });
+
+    return stream;
   },
 };
 
