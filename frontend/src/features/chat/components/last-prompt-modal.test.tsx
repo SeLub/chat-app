@@ -160,7 +160,7 @@ describe('LastPromptModal', () => {
     const copied = copyToClipboard.mock.calls[0][0] as string;
     expect(copied).toContain('## System');
     expect(copied).toContain('You are a helpful assistant.');
-    expect(copied).toContain('## User:');
+    expect(copied).toContain('## User');
     expect(copied).toContain('Hello, world!');
   });
 

@@ -68,9 +68,8 @@ export function LastPromptModal({
     if (!data) return '';
     const parts: string[] = [];
     for (const m of data.prompt) {
-      const header =
-        m.role === 'system' ? '## System' : `## ${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content.slice(0, 60)}`;
-      parts.push(`---\n${header}\n\n${m.content}`);
+      const label = m.role === 'system' ? 'System' : m.role === 'user' ? 'User' : 'Assistant';
+      parts.push(`---\n## ${label}\n\n${m.content}`);
       if (m.images && m.images.length > 0) {
         parts.push(`**[images: ${m.images.length} × base64]**`);
       }
