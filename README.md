@@ -117,6 +117,18 @@ EXACTLY one system (sysprompt) + [Materials] (attachment/URL/project file text)
 
 **llama.cpp cache awareness.** `inputTokens` in the metrics is the full prompt size (`usage.prompt_tokens`, fallback `timings.prompt_n + cache_n`): with llama.cpp slot caching the token bar and per-session totals are not undercounted on cache hits; `cachedTokens` is also visible in the metrics.
 
+### Last prompt
+
+The final LLM context (system + user messages + metadata) from the last request is persisted per session and viewable in the UI:
+
+- **Persistence:** `sessions.last_prompt` (JSON, TEXT) — overwritten on every chat/vision request. Written **before** the provider call (so a provider failure still shows what was sent), then updated after `done`/error with `finishReason` and `usage`.
+- **API:** `GET /api/sessions/:id/last-prompt` → `{ prompt: PromptMessage[], meta: LastPromptMeta }` or `404` if no prompt yet.
+- **UI:** `👁 Prompt` button next to `⚙ Params` in the stat footer opens a modal with:
+  - **Meta section** — model, mode, provider, question ID, timestamp, finish reason, token usage, context budget breakdown, generation params.
+  - **Prompt messages** — rendered as Markdown (same pipeline as chat: GFM, breaks, syntax highlighting). Images are shown as `**[images: N × base64]**` (base64 content is never stored).
+  - **Copy button** — copies the prompt as Markdown (`## System` / `## User:` headers, `---` separators), not JSON.
+- **States:** loading spinner → content; `404` → "Промпта ещё нет"; other errors → destructive text.
+
 ### Send-error UX
 
 * A failed send does not create a fake "question-error" pair in the chat — a **banner** is shown instead, with classification (context overflow / provider down / network / server), human-readable text and compact numbers (`3.94M / 98K`).

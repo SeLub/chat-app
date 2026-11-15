@@ -696,3 +696,35 @@
 **Не тронуто (осознанно):** `questionPreview` в SelectedPromptsModal — prop optional, не подключён из ChatArea в этой итерации (modal показывает placeholder); индикатор «текст шаблона не в composer» в левой панели — out of scope (на будущее).
 
 **Статус:** один коммит на `develop`; ручной DoD — см. ТЗ §3.
+
+---
+
+## 2026-11-15 — ТЗ «Last Prompt»: просмотр финального промпта (ветка `develop`)
+
+**Контекст.** ТЗ `docs/last_prompt_log&copy.md`: сохранение финального LLM-контекста (prompt + meta) в `sessions.last_prompt`, API `GET /api/sessions/:id/last-prompt`, UI — кнопка `👁 Prompt` в StatFooter + модалка с Markdown-рендером.
+
+**Решения (подтверждены владельцем).**
+1. **Один PR** (§7 ТЗ описывает PR-1/PR-2, но разрешён один) — бэкенд + фронтенд + тесты + docs в одном коммите.
+2. **persistLastPrompt** вызывается **до** `provider.chat` (чтобы при ошибке провайдера всё равно видно, что ушло), затем обновляется после `done`/error с `finishReason`/`usage`.
+3. **Изображения** — только `{size, type: 'base64'}`, без base64-контента (экономия БД).
+4. **Copy** — копирует Markdown (не JSON, не meta): `## System` / `## User:` + `---` разделители.
+5. **`contextResult`/`chatLastPromptTs`** — вынесены в function scope (`let ... = null`), т.к. catch-блок stream-error ссылается на них (иначе ReferenceError).
+
+**Реализация (бэкенд).**
+- `init.js`: `last_prompt TEXT DEFAULT NULL` в CREATE TABLE + guarded ALTER в `ensureColumns`.
+- `sessionRepo.js`: `setLastPrompt(id, payload)` / `getLastPrompt(id)` (JSON stringify/parse, null при отсутствии/битом JSON, не трогает `updated_at`).
+- `sessionService.js`: прокси `setLastPrompt`/`getLastPrompt`.
+- `chatController.js`: `persistLastPrompt(sessionId, contextResult, contextMessages, extra)` — try/catch + log.warn; call sites: vision (до/после chat), chat (до provider, после stream done, после non-stream success, catch stream error).
+- `sessionRoutes.js`: `GET /:id/last-prompt` (404 для отсутствующей сессии или промпта).
+
+**Реализация (фронтенд).**
+- `types/index.ts`: `PromptImageRef`, `PromptMessage`, `LastPromptMeta`, `LastPrompt`.
+- `apiGateway.ts`: `sessionsApi.getLastPrompt(id)`.
+- `last-prompt-modal.tsx` (NEW): fetch on open, loading spinner, 404 → «Промпта ещё нет», error → destructive text; MetaSection (grid) + PromptBlock per message (ReactMarkdown, `remarkPlugins`/`rehypePlugins` из chatRender); Copy button → clipboard (Markdown).
+- `chat-area.tsx`: `Eye` icon, `LastPromptModal` import, `sessionId` prop в StatFooter, `lastPromptOpen` state, кнопка `👁 Prompt` после `⚙ Params`.
+
+**Тесты.** Бэкенд: 18 новых (7 db + 3 routes + 8 controller) — все зелёные; регрессия: failure set идентичен baseline (35 pre-existing). Фронтенд: 7 новых (modal: loading, success, images, 404, error, copy, closed) — все зелёные. Итого фронтенд: 186/186. TypeScript build — 0 ошибок.
+
+**Не тронуто (осознанно):** `clearChat` (§2.6 ТЗ) — не существует в коде, дополнительная работа не нужна.
+
+**Статус:** один коммит на `develop`; ручной DoD — см. ТЗ §3.

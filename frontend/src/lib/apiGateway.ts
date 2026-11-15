@@ -14,6 +14,7 @@ import type {
   SessionMode,
   Prompt,
   StreamEvent,
+  LastPrompt,
 } from '@/types';
 
 export class ApiError extends Error {
@@ -133,6 +134,10 @@ export const sessionsApi = {
   // ТЗ send-error-persist (№3): явный dismiss персистентной плашки (крестик).
   clearSendError(id: string) {
     return request<{ ok: boolean }>('DELETE', `/api/sessions/${id}/send-error`);
+  },
+  // ТЗ Last Prompt: финальный промпт последней отправки (404 — промпта ещё нет).
+  getLastPrompt(id: string) {
+    return request<LastPrompt>('GET', `/api/sessions/${id}/last-prompt`);
   },
 };
 

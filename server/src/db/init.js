@@ -60,6 +60,10 @@ export function initializeSchema(database) {
                и по явному dismiss — плашка переживает F5 (провальная отправка
                не оставляет следов в messages/attachments). */
             last_send_error TEXT,
+            /* ТЗ Last Prompt: финальный промпт последнего запроса
+               {prompt: [{role, content, images?}], meta: {...}} или NULL.
+               Перезаписывается при каждом новом запросе (per session). */
+            last_prompt     TEXT DEFAULT NULL,
             message_count   INTEGER DEFAULT 0,
             is_archived     INTEGER DEFAULT 0,
             created_at      TEXT DEFAULT (datetime('now')),
@@ -180,6 +184,11 @@ function ensureColumns(database) {
     const sessionCols = columnNames('sessions');
     if (sessionCols.length > 0 && !sessionCols.includes('last_send_error')) {
         database.exec('ALTER TABLE sessions ADD COLUMN last_send_error TEXT');
+    }
+
+    /* ТЗ Last Prompt: колонка финального промпта последнего запроса. */
+    if (sessionCols.length > 0 && !sessionCols.includes('last_prompt')) {
+        database.exec('ALTER TABLE sessions ADD COLUMN last_prompt TEXT DEFAULT NULL');
     }
 
     /* P0.2: DROP sessions.sysprompt (заменено на prompts table).

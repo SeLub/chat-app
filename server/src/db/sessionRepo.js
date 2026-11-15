@@ -73,6 +73,25 @@ export function getSendError(id) {
     }
 }
 
+/* ТЗ Last Prompt: финальный промпт последнего запроса (JSON {prompt, meta}).
+   Перезаписывается при каждом новом запросе. updated_at НЕ трогаем —
+   просмотр/сохранение промпта не повод поднимать сессию в списке. */
+export function setLastPrompt(id, payload) {
+    const json = payload == null ? null : JSON.stringify(payload);
+    getDb().prepare('UPDATE sessions SET last_prompt = ? WHERE id = ?').run(json, id);
+}
+
+export function getLastPrompt(id) {
+    const row = getDb().prepare('SELECT last_prompt FROM sessions WHERE id = ?').get(id);
+    if (!row || !row.last_prompt) return null;
+    try {
+        const parsed = JSON.parse(row.last_prompt);
+        return parsed && typeof parsed === 'object' ? parsed : null;
+    } catch {
+        return null;
+    }
+}
+
 export function archiveSession(id, newTitle) {
     getDb().prepare(`
         UPDATE sessions SET title = ?, updated_at = datetime('now') WHERE id = ?

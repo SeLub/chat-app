@@ -102,6 +102,43 @@ export interface ImageData {
   filename: string;
 }
 
+// ТЗ Last Prompt: финальный промпт последней отправки (sessions.last_prompt)
+export interface PromptImageRef {
+  size: number;
+  type: 'base64';
+}
+
+export interface PromptMessage {
+  role: 'system' | 'user' | 'assistant';
+  content: string;
+  images?: PromptImageRef[];
+}
+
+export interface LastPromptMeta {
+  mode?: string;
+  currentAttachments?: Array<{ fileId: string; name: string; kind?: string; size?: number }>;
+  fixedChars?: number;
+  actualHistoryChars?: number;
+  targetChars?: number;
+  includedQAPairs?: number;
+  totalQAPairs?: number;
+  excludedIndices?: number[];
+  syspromptId?: string | null;
+  selectedTemplateIds?: string[];
+  generationParams?: Record<string, unknown>;
+  questionId?: string;
+  model?: string;
+  provider?: string;
+  timestamp?: number;
+  finishReason?: string | null;
+  usage?: { inputTokens: number | null; outputTokens: number | null };
+}
+
+export interface LastPrompt {
+  prompt: PromptMessage[];
+  meta: LastPromptMeta;
+}
+
 export interface ResponseMetrics {
   inputTokens: number;
   outputTokens: number;
