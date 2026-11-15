@@ -391,17 +391,6 @@ export function ChatArea({ className }: { className?: string }) {
     clearAttachments();
   }, [activeSessionId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Listen for files dispatched from ResearchPanel (second entry point for attach)
-  useEffect(() => {
-    const handler = (e: Event) => {
-      const files = (e as CustomEvent<File[]>).detail;
-      if (!files || files.length === 0) return;
-      processFiles(files);
-    };
-    window.addEventListener('chat-attach-files', handler);
-    return () => window.removeEventListener('chat-attach-files', handler);
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
   const processFiles = useCallback((files: File[]) => {
     const newFileSlot: FilePreview[] = [];
     const newCodeFiles: FilePreview[] = [];
@@ -430,6 +419,17 @@ export function ChatArea({ className }: { className?: string }) {
       setCodeFiles((prev) => [...prev, ...newCodeFiles]);
     }
   }, []);
+
+  // Listen for files dispatched from ResearchPanel (second entry point for attach)
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const files = (e as CustomEvent<File[]>).detail;
+      if (!files || files.length === 0) return;
+      processFiles(files);
+    };
+    window.addEventListener('chat-attach-files', handler);
+    return () => window.removeEventListener('chat-attach-files', handler);
+  }, [processFiles]);
 
   const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
