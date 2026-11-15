@@ -122,7 +122,9 @@ describe('LastPromptModal', () => {
     );
 
     await waitFor(() => expect(screen.getByText(/Промпта ещё нет/)).toBeInTheDocument());
-    expect(screen.queryByText('Copy')).not.toBeInTheDocument();
+    // Copy button is in the sticky header but disabled when no data
+    const copyBtn = screen.getByText('Copy').closest('button');
+    expect(copyBtn).toBeDisabled();
   });
 
   it('shows error state on non-404 errors', async () => {
