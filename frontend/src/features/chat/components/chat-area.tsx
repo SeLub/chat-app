@@ -391,14 +391,22 @@ export function ChatArea({ className }: { className?: string }) {
     clearAttachments();
   }, [activeSessionId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files) return;
+  // Listen for files dispatched from ResearchPanel (second entry point for attach)
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const files = (e as CustomEvent<File[]>).detail;
+      if (!files || files.length === 0) return;
+      processFiles(files);
+    };
+    window.addEventListener('chat-attach-files', handler);
+    return () => window.removeEventListener('chat-attach-files', handler);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const processFiles = useCallback((files: File[]) => {
     const newFileSlot: FilePreview[] = [];
     const newCodeFiles: FilePreview[] = [];
 
-    for (const file of Array.from(files)) {
+    for (const file of files) {
       const preview = file.type.startsWith('image/') ? URL.createObjectURL(file) : undefined;
       const item = { file, preview };
 
@@ -421,9 +429,14 @@ export function ChatArea({ className }: { className?: string }) {
     if (newCodeFiles.length > 0) {
       setCodeFiles((prev) => [...prev, ...newCodeFiles]);
     }
-
-    e.target.value = '';
   }, []);
+
+  const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files) return;
+    processFiles(Array.from(files));
+    e.target.value = '';
+  }, [processFiles]);
 
   const removeFileSlot = useCallback(() => {
     if (fileSlot?.preview) URL.revokeObjectURL(fileSlot.preview);
