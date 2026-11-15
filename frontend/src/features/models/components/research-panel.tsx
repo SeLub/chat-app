@@ -37,8 +37,8 @@ export function ResearchPanel() {
         (актуальные версии файлов, mtime-кэш).
       </p>
 
-      {/* Кнопка attach — внизу, на том же уровне что «Browse project files» в ProjectPanel */}
-      <div className="flex flex-col gap-2 pt-1">
+      {/* Кнопка attach — прижата к низу (mt-auto), на том же уровне что «Browse project files» в ProjectPanel */}
+      <div className="flex flex-col gap-2 mt-auto">
         <Button
           size="sm"
           variant="outline"
