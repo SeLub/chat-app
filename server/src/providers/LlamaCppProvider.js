@@ -458,7 +458,7 @@ export class LlamaCppProvider extends BaseProvider {
                             if (data.choices?.[0]?.finish_reason) {
                                 finishReason = data.choices[0].finish_reason;
                             }
-                            if (data.usage) {
+                            if (data.usage || data.timings) {
                                 lastMetrics = extractLlamaCppMetrics(data, { finishReason });
                             }
                         } catch (e) {
