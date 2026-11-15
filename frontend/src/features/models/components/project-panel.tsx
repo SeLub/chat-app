@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from 'react';
 import {
   Folder,
   FolderOpen,
-  Paperclip,
   ListTree,
   X,
   Loader2,
@@ -43,7 +42,6 @@ export function ProjectPanel() {
   const mode = useSessionStore((s) => s.mode);
 
   const dirInputRef = useRef<HTMLInputElement>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const [browseOpen, setBrowseOpen] = useState(false);
 
   const baseDirOk = config?.contextBaseDir.ok ?? false;
@@ -120,13 +118,6 @@ export function ProjectPanel() {
       return;
     }
     await createProject(segments[0]);
-  };
-
-  const onFilesPicked = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const picked = Array.from(e.target.files ?? []);
-    e.target.value = '';
-    if (picked.length === 0) return;
-    await attach(picked.map((f) => f.name));
   };
 
   return (
@@ -238,17 +229,8 @@ export function ProjectPanel() {
         )}
       </section>
 
-      {/* Кнопки attach/browse (§4) */}
+      {/* Кнопка Browse (§4) — Attach file(s) перенесён в ResearchPanel */}
       <div className="flex flex-col gap-2 pt-1">
-        <Button
-          size="sm"
-          variant="outline"
-          disabled={!baseDirOk || !currentProject || isLoading}
-          onClick={() => fileInputRef.current?.click()}
-        >
-          <Paperclip className="w-4 h-4" />
-          Attach file(s)
-        </Button>
         <Button
           size="sm"
           variant="outline"
@@ -267,13 +249,6 @@ export function ProjectPanel() {
         hidden
         {...{ webkitdirectory: '', directory: '' }}
         onChange={onDirectoryPicked}
-      />
-      <input
-        ref={fileInputRef}
-        type="file"
-        multiple
-        hidden
-        onChange={onFilesPicked}
       />
 
       <BrowseDialog
