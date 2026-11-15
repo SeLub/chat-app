@@ -63,6 +63,54 @@ function clearSendErrorSafe(sessionId) {
     }
 }
 
+// ТЗ Last Prompt: сохранение финального промпта последнего запроса (per session).
+// Вызывается ПОСЛЕ buildLLMContext, ДО provider.chat (провал провайдера не
+// стирает «что ушло в модель»), затем повторно — после done/error с
+// finishReason/usage (перезапись; timestamp — время отправки, передаётся явно).
+// base64-картинки НЕ храним — только { size, type }. Ни запись не роняет
+// основной обработчик (try/catch + warn).
+function persistLastPrompt(sessionId, contextResult, contextMessages, extra = {}) {
+    try {
+        sessionService.setLastPrompt(sessionId, {
+            prompt: contextMessages.map((m) => ({
+                role: m.role,
+                content: m.content,
+                ...(m.images
+                    ? {
+                        images: m.images.map((img) => ({
+                            size: typeof img === 'string' ? img.length : 0,
+                            type: 'base64',
+                        })),
+                    }
+                    : {}),
+            })),
+            meta: {
+                mode: extra.mode,
+                currentAttachments: (extra.currentAttachments || []).map((a) => ({
+                    fileId: a.fileId, name: a.name, kind: a.kind, size: a.size,
+                })),
+                fixedChars: contextResult.info?.fixedChars ?? 0,
+                actualHistoryChars: contextResult.info?.actualHistoryChars ?? 0,
+                targetChars: contextResult.info?.targetChars ?? 0,
+                includedQAPairs: contextResult.info?.includedQAPairs ?? 0,
+                totalQAPairs: contextResult.info?.totalQAPairs ?? 0,
+                excludedIndices: contextResult.info?.excludedIndices ?? [],
+                syspromptId: extra.promptSelection?.syspromptId ?? null,
+                selectedTemplateIds: extra.promptSelection?.selectedTemplateIds ?? [],
+                generationParams: extra.generationParams ?? {},
+                questionId: extra.questionId,
+                model: extra.model,
+                provider: extra.provider,
+                timestamp: extra.timestamp ?? Date.now(),
+                ...(extra.finishReason !== undefined ? { finishReason: extra.finishReason } : {}),
+                ...(extra.usage !== undefined ? { usage: extra.usage } : {}),
+            },
+        });
+    } catch (e) {
+        log.warn('Failed to persist last_prompt', { sessionId: sessionId?.slice(0, 8), error: e.message });
+    }
+}
+
 // Классификация details провайдера (тот же контракт, что пробрасывается на фронт):
 // жёсткий 400 llama.cpp → context_overflow с реальными числами токенизатора,
 // остальное → server. Используется catch-ветками chat и vision.
@@ -211,6 +259,12 @@ export async function chatHandler(req, res) {
     // TZ-B.3: временные файлы (diskStorage, uploads/tmp) удаляются после обработки в любом исходе.
     // Это единственное разрешённое удаление — пользовательские файлы реестра не удаляются никогда.
     const tmpFilePaths = [file?.path, ...codeFiles.map((cf) => cf?.path)].filter(Boolean);
+
+    // ТЗ Last Prompt: общий результат buildLLMContext — доступен в catch-ветках
+    // (обновление meta.finishReason='error' при провале ПОСЛЕ построения контекста).
+    let contextResult = null;
+    let contextMessages = null;
+    let chatLastPromptTs = null;
 
     // ТЗ Streaming_Reasoning: состояние для streaming (накопленный контент, partial save)
     let streamState = {
@@ -450,6 +504,20 @@ export async function chatHandler(req, res) {
                     },
                 ];
 
+                // ТЗ Last Prompt: сохранить финальный промпт ДО provider.chat
+                // (провал провайдера не стирает «что ушло в модель»).
+                const visionLastPromptTs = Date.now();
+                persistLastPrompt(sessionId, contextResult, contextMessages, {
+                    mode,
+                    currentAttachments,
+                    promptSelection,
+                    generationParams,
+                    questionId: visionQuestionId,
+                    model,
+                    provider: req.providerName,
+                    timestamp: visionLastPromptTs,
+                });
+
                 const result = await req.provider.chat({
                     model,
                     messages: contextMessages,
@@ -481,6 +549,23 @@ export async function chatHandler(req, res) {
 
                 // ТЗ send-error-persist (№3): успешная отправка гасит персистентную плашку.
                 clearSendErrorSafe(sessionId);
+
+                // ТЗ Last Prompt: обновить meta (finishReason/usage), timestamp — отправки.
+                persistLastPrompt(sessionId, contextResult, contextMessages, {
+                    mode,
+                    currentAttachments,
+                    promptSelection,
+                    generationParams,
+                    questionId: visionQuestionId,
+                    model,
+                    provider: req.providerName,
+                    timestamp: visionLastPromptTs,
+                    finishReason: result.finishReason ?? null,
+                    usage: {
+                        inputTokens: result.metrics?.inputTokens ?? null,
+                        outputTokens: result.metrics?.outputTokens ?? null,
+                    },
+                });
 
                 return res.json({
                     response: result.response,
@@ -521,7 +606,7 @@ export async function chatHandler(req, res) {
         // === Обычный chat (без картинки) ===
         try {
 
-            const contextResult = await sessionService.buildContext(
+            contextResult = await sessionService.buildContext(
                 sessionId,
                 currentAttachments,
                 contextLength,
@@ -533,7 +618,21 @@ export async function chatHandler(req, res) {
 
             // ТЗ one-system: последнее user-сообщение — [Вопрос] с чистым текстом
             // (файлы не инлайнятся — они в [Материалы] через реестр)
-            const contextMessages = [...contextResult.conversation, { role: 'user', content: `[Вопрос]\n${message}` }];
+            contextMessages = [...contextResult.conversation, { role: 'user', content: `[Вопрос]\n${message}` }];
+
+            // ТЗ Last Prompt: сохранить финальный промпт ДО provider.chat
+            // (пре-флайт/провал провайдера не стирают «что ушло в модель»).
+            chatLastPromptTs = Date.now();
+            persistLastPrompt(sessionId, contextResult, contextMessages, {
+                mode,
+                currentAttachments,
+                promptSelection,
+                generationParams,
+                questionId: questionId || `q_${Date.now()}`,
+                model,
+                provider: req.providerName,
+                timestamp: chatLastPromptTs,
+            });
 
             log.info('Context built', {
                 contextSize: contextResult.contextSize,
@@ -681,6 +780,23 @@ export async function chatHandler(req, res) {
                 clearSendErrorSafe(sessionId);
                 streamState.saved = true;
 
+                // ТЗ Last Prompt: обновить meta (finishReason/usage), timestamp — отправки.
+                persistLastPrompt(sessionId, contextResult, contextMessages, {
+                    mode,
+                    currentAttachments,
+                    promptSelection,
+                    generationParams,
+                    questionId: finalQuestionId,
+                    model,
+                    provider: req.providerName,
+                    timestamp: chatLastPromptTs,
+                    finishReason: result.finishReason ?? null,
+                    usage: {
+                        inputTokens: result.metrics?.inputTokens ?? null,
+                        outputTokens: result.metrics?.outputTokens ?? null,
+                    },
+                });
+
                 // Отправка done-чанка
                 res.write(`data: ${JSON.stringify({
                     type: 'done',
@@ -771,6 +887,23 @@ export async function chatHandler(req, res) {
                 // ТЗ send-error-persist (№3): успешная отправка гасит персистентную плашку.
                 clearSendErrorSafe(sessionId);
 
+                // ТЗ Last Prompt: обновить meta (finishReason/usage), timestamp — отправки.
+                persistLastPrompt(sessionId, contextResult, contextMessages, {
+                    mode,
+                    currentAttachments,
+                    promptSelection,
+                    generationParams,
+                    questionId: finalQuestionId,
+                    model,
+                    provider: req.providerName,
+                    timestamp: chatLastPromptTs,
+                    finishReason: result.finishReason ?? null,
+                    usage: {
+                        inputTokens: result.metrics?.inputTokens ?? null,
+                        outputTokens: result.metrics?.outputTokens ?? null,
+                    },
+                });
+
                 res.json({
                     response: answer,
                     model,
@@ -796,6 +929,22 @@ export async function chatHandler(req, res) {
             }
         } catch (error) {
             log.error('Chat error', { error: error.message, code: error.code, details: error.details, isStream });
+
+            // ТЗ Last Prompt: провал ПОСЛЕ buildLLMContext — обновить meta (finishReason='error').
+            // last_prompt сохранён (до provider.chat) — пользователь видит, ЧТО ушло.
+            if (isStream) {
+                persistLastPrompt(sessionId, contextResult, contextMessages, {
+                    mode,
+                    currentAttachments,
+                    promptSelection,
+                    generationParams,
+                    questionId: streamState.questionId,
+                    model,
+                    provider: req.providerName,
+                    timestamp: chatLastPromptTs,
+                    finishReason: 'error',
+                });
+            }
 
             // ТЗ Streaming_Reasoning: при ошибке mid-stream — отправить error-чанк и сохранить partial
             if (isStream && !streamState.saved) {

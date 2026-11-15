@@ -45,6 +45,15 @@ export function getSessionSendError(id) {
     return sessionRepo.getSendError(id);
 }
 
+// ТЗ Last Prompt: финальный промпт последнего запроса (per session, перезапись).
+export function setLastPrompt(id, payload) {
+    return sessionRepo.setLastPrompt(id, payload);
+}
+
+export function getLastPrompt(id) {
+    return sessionRepo.getLastPrompt(id);
+}
+
 // === Messages ===
 export function getMessagesBySession(sessionId) {
     return messageRepo.getMessagesBySession(sessionId);

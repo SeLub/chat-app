@@ -23,12 +23,14 @@ import {
   ClipboardCopy,
   ArrowUp,
   AlertTriangle,
+  Eye,
 } from 'lucide-react';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useProviderStore } from '@/stores/providerStore';
 import { useUIStore } from '@/stores/uiStore';
 import { useGenerationParamsStore } from '@/stores/generationParamsStore';
 import { GenerationParamsModal } from '@/features/chat/components/generation-params-modal';
+import { LastPromptModal } from '@/features/chat/components/last-prompt-modal';
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { useNavigate } from 'react-router-dom';
@@ -118,6 +120,7 @@ function StatFooter({
   totalInputTokens,
   totalOutputTokens,
   userMsgCount,
+  sessionId,
 }: {
   currentModel: string | null;
   modelDetail: { size?: number; details?: { size?: number } } | null;
@@ -126,9 +129,11 @@ function StatFooter({
   totalInputTokens: number;
   totalOutputTokens: number;
   userMsgCount: number;
+  sessionId: string | null;
 }) {
   const [open, setOpen] = useState(false);
   const [paramsOpen, setParamsOpen] = useState(false);
+  const [lastPromptOpen, setLastPromptOpen] = useState(false);
   const models = useProviderStore((s) => s.models);
   const genParams = useGenerationParamsStore((s) => s.params);
   const activePreset = useGenerationParamsStore((s) => s.activePreset);
@@ -212,7 +217,18 @@ function StatFooter({
       >
         ⚙ Params{presetBadge}
       </Button>
+      <Button
+        variant="ghost"
+        size="sm"
+        className="h-6 px-2 text-xs font-mono"
+        onClick={() => setLastPromptOpen(true)}
+        title="Показать финальный промпт последней отправки"
+      >
+        <Eye className="w-3.5 h-3.5 mr-1" />
+        Prompt
+      </Button>
       <GenerationParamsModal open={paramsOpen} onOpenChange={setParamsOpen} />
+      <LastPromptModal open={lastPromptOpen} onOpenChange={setLastPromptOpen} sessionId={sessionId} />
     </div>
   );
 }
@@ -1373,6 +1389,7 @@ export function ChatArea({ className }: { className?: string }) {
         totalInputTokens={totalInputTokens}
         totalOutputTokens={totalOutputTokens}
         userMsgCount={userMsgCount}
+        sessionId={viewingSessionId}
       />
     </main>
   );
