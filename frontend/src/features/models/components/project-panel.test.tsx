@@ -165,4 +165,53 @@ describe('ProjectPanel — attached files split', () => {
       expect(mockGetLastPrompt).toHaveBeenCalledWith('sess-1');
     });
   });
+
+  it('caches 404 and does not re-request getLastPrompt on re-render', async () => {
+    mockAttachments.push(makeAttachment('A', 'a.js'));
+    // Simulate 404 response
+    mockGetLastPrompt.mockRejectedValue(Object.assign(new Error('Not Found'), { status: 404 }));
+
+    const { rerender } = render(<ProjectPanel />);
+
+    // First request happens
+    await waitFor(() => {
+      expect(mockGetLastPrompt).toHaveBeenCalledTimes(1);
+    });
+
+    // Re-render (e.g., attachments changed) — should NOT re-request due to 404 cache
+    mockAttachments.push(makeAttachment('B', 'b.js'));
+    rerender(<ProjectPanel />);
+
+    // Wait a tick to ensure no additional call was made
+    await new Promise((r) => setTimeout(r, 50));
+    expect(mockGetLastPrompt).toHaveBeenCalledTimes(1);
+  });
+
+  it('resets 404 cache when streaming starts (streamingActive becomes true)', async () => {
+    mockAttachments.push(makeAttachment('A', 'a.js'));
+    mockGetLastPrompt.mockRejectedValue(Object.assign(new Error('Not Found'), { status: 404 }));
+
+    const { rerender } = render(<ProjectPanel />);
+
+    // First request → 404 → cached
+    await waitFor(() => {
+      expect(mockGetLastPrompt).toHaveBeenCalledTimes(1);
+    });
+
+    // Streaming starts → resets 404 cache
+    mockSessionStore.streaming.active = true;
+    rerender(<ProjectPanel />);
+
+    // Streaming ends → should re-request (cache was reset)
+    mockGetLastPrompt.mockResolvedValue({
+      prompt: [],
+      meta: { currentAttachments: [{ fileId: 'A' }] },
+    });
+    mockSessionStore.streaming.active = false;
+    rerender(<ProjectPanel />);
+
+    await waitFor(() => {
+      expect(mockGetLastPrompt).toHaveBeenCalledTimes(2);
+    });
+  });
 });
