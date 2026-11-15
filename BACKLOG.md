@@ -3,6 +3,8 @@
 > Задача берётся в работу только по прямому указанию владельца (отдельным ТЗ).
 > Порядок и объём очередного трека определяет владелец.
 >
+> **2026-11-14, актуализация после P0.1/P0.2/Streaming+Reasoning:** закрыто — streaming, reasoning, prompts, generation params. Добавлены новые отложенные направления (Project mode testing, Docker-инфраструктура, RAG/vector DB, мульти-репо RAG, Git-интеграция).
+>
 > **2026-11-11, актуализация владельцем:** #3 и #4 устарели и не подтверждаются,
 > #5 исполнен (см. «Закрыто / устарело»); добавлены новые отложенные направления.
 > #6 подтверждён в работе (проблема подтверждена, решение — по итогам исследования
@@ -34,11 +36,14 @@
 | E2E Playwright смоук | ТЗ «Миграция на React», п. E.2 — `frontend/e2e/`, devDep `@playwright/test`, 11 сценариев |
 | llama.cpp vision | TODO в `LlamaCppProvider.js` (PROJECT_CONTEXT #121): поле `images` на message — формат Ollama; llama.cpp `/v1/chat/completions` его не стандартизует — vision гарантирован только для Ollama |
 | PROJECT-режим: vision/картинки | ТЗ Project mode A — RESEARCH-only в этом ТЗ; расширение по желанию владельца |
-| RAG / vector DB (Qdrant), Tree-sitter, watch/индексация, streaming | ТЗ `docs/plans/RAG/1783463502202-vector-db-repo-indexing-final.md` (Qdrant :6333, mxbai-embed-large в RAM через llama.cpp, Tree-sitter AST, hybrid search, SHA-256 incremental indexing, streaming) |
+| RAG / vector DB (Qdrant), Tree-sitter, watch/индексация | ТЗ `docs/plans/RAG/1783463502202-vector-db-repo-indexing-final.md` (Qdrant :6333, mxbai-embed-large в RAM через llama.cpp, Tree-sitter AST, hybrid search, SHA-256 incremental indexing). Streaming — выполнено (ТЗ Streaming+Reasoning) |
+| Project mode: тестирование | ТЗ Project mode A — RESEARCH-only; тестирование по желанию владельца |
+| Docker-инфраструктура | Контейнеризация сервера/фронта, compose-файл, healthcheck, volumes |
+| Мульти-репо RAG | Расширение RAG на несколько репозиториев одновременно (Qdrant collections per repo) |
 | Отложенное создание сессии в БД | ТЗ `docs/plans/1784201363408-deferred-session-creation.md` (pending-сессия: UUID в localStorage, запись в БД при первом сообщении; указано владельцем в кластере PROJECT-расширений) |
 | Multi-project | ТЗ Project mode A (вариант A — один проект на сессию) |
 | Git-интеграция | ТЗ Project mode A (вне скоупа) |
-| Reasoning-модели: UI для reasoning_content + подсказки AI-helper | ТЗ answer-loss-diagnostics (2026-11-12, ветка `fix/answer-loss-diagnostics`): collapsible-панель размышлений в чате (сейчас preview 1200 симв в content), отключение/ограничение мышления per-request (`chat_template_kwargs`, не проверено на сборке владельца); `generateHint` AI-helper ходит в llama.cpp без max_tokens — подсказка ждёт окончания reasoning (инцидент: 2301 токен вместо 1–3 предложений) |
+| Reasoning-модели: `generateHint` AI-helper без max_tokens | ТЗ answer-loss-diagnostics (2026-11-12): `generateHint` ходит в llama.cpp без max_tokens — подсказка ждёт окончания reasoning (инцидент: 2301 токен вместо 1–3 предложений). UI для reasoning_content — **выполнено** (ТЗ Streaming+Reasoning) |
 
 ## Закрыто / устарело
 
@@ -54,3 +59,5 @@
 | 3 | «Таблица `attachments` пуста после сообщения с вложением» (Фаза B) | **Устарело**: PR #16 демонтировал инлайн-документы — файлы всегда идут через реестр attachments; владелец 2026-11-11: не подтверждается |
 | 4 | Демонтаж правой панели `SettingsPanel` | **Устарело**: панель — живой UI Project mode (PR #17); владелец 2026-11-11: не подтверждается |
 | 5 | Удаление `public/`, переезд vad-assets → `server/public/` | **Исполнено**: `frontend/public/` отсутствует, `server/public/vad-assets/` на месте; владелец 2026-11-11: сделано |
+| Streaming + Reasoning (SSE) | SSE streaming (`Accept: text/event-stream`), reasoning persistence (`messages.reasoning`), rAF throttling, partial save on disconnect, `finishReason`/truncated marker | **Исполнено**: commit `6a00215` (feat: SSE streaming + reasoning persistence) — 12 файлов, +1176/-298. ТЗ `docs/plans/DONE/ТЗ Streaming_Reasoning.md` |
+| Prompts / Generation params | UI для управления промптами и параметрами генерации | **Исполнено**: часть трека P0.1/P0.2 |

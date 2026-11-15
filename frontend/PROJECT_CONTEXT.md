@@ -46,16 +46,27 @@ Multi-Provider AI Chat — десктопный инструмент для ра
   - `includeQuestionIds` — **JSON.stringify(string[])** — id вопросов, включённых в контекст
   - `file` — одиночный File (PDF/DOC/XLS/изображение), опционально
   - `codeFiles` — несколько файлов (append для каждого), опционально
-- **Ответ: обычный JSON. СТРИМИНГА НЕТ.** Читаем `response.json()`.
-  ```ts
-  {
-    response: string;              // markdown
-    metrics?: { tps, promptTps, ttft, loadTime, totalTime, inputTokens, outputTokens };
-    imageData?: { thumbnailUrl, fullUrl, filename };
-    contextInfo?: { contextSize, totalChars, includedQAPairs, totalQAPairs };
-    excludedIndices?: number[];    // НОМЕРА Q, исключённые из контекста
-  }
-  ```
+  - `syspromptId` — id system prompt из библиотеки (опционально)
+  - `selectedTemplateIds` — **JSON.stringify(string[])** — id user templates (опционально)
+  - `temperature`, `top_p`, `top_k`, `min_p`, `n_predict`, `presence_penalty`, `repeat_penalty` — generation params (опционально, «не прислано — не передаём»)
+- **Ответ: два режима.**
+  - **JSON** (по умолчанию, без `Accept: text/event-stream`):
+    ```ts
+    {
+      response: string;              // markdown
+      metrics?: { tps, promptTps, ttft, loadTime, totalTime, inputTokens, outputTokens };
+      imageData?: { thumbnailUrl, fullUrl, filename };
+      contextInfo?: { contextSize, totalChars, includedQAPairs, totalQAPairs };
+      excludedIndices?: number[];    // НОМЕРА Q, исключённые из контекста
+      reasoning?: string | null;     // полный reasoning-текст модели
+    }
+    ```
+  - **SSE** (`Accept: text/event-stream`): поток событий `data: {json}\n\n`:
+    - `{type:'token', delta}` — чанк ответа
+    - `{type:'reasoning', delta}` — чанк reasoning
+    - `{type:'done', metrics, finishReason, questionId, excludedIndices, contextInfo}` — завершение
+    - `{type:'error', error}` — ошибка (partial content сохраняется)
+  - **Vision** — всегда JSON (stream не поддерживается).
 - Ошибки: `503 {error}` провайдер недоступен (показываем сообщение + предлагаем сменить провайдера); прочие статусы `{error}`; при тексте ошибки с `ECONNREFUSED` — человекочитаемое пояснение.
 
 ### 3.2 Провайдеры и модели
@@ -300,11 +311,18 @@ Multi-Provider AI Chat — десктопный инструмент для ра
 | 131 | `mtimeStale` — семантика приёмки PR #17 (3.1): `extracted_mtime=NULL` («кэш не инициализирован», свежий attach) → `mtimeStale: false`; stale только при `extracted_mtime !== null && extracted_mtime !== stat.mtimeMs`. Бейдж `stale` в панели появляется после первого вопроса при изменении файла. `missing` при не-настроенном `CONTEXT_BASE_DIR` оставлен как есть (красный баннер §5.1 объясняет причину; после настройки env — самозаживляется; третье состояние не вводили). | Приёмка PR #17, 2026-11-11 |
 | 132 | `GET /api/sessions/:id/attachments` — бейдж `tooLarge` (stat-only: `stat.size > MAX_REFERENCE_FILE_SIZE`; файл разросся после attach — в `[Материалы]` не попадёт, TOO LARGE-блок при сборке). AttachList: сводка «N/M in context» в заголовке (missing/tooLarge — блокирующие; stale — нет, перечитывается). `MAX_REFERENCE_FILE_SIZE` задокументирован в `server/.env.example`. | Приёмка PR #17, 2026-11-11 |
 | 133 | BACKLOG #6 — восстановлено извлечение текста из документов (`utils/docExtract.js`): `extractText(buffer, filename)` по расширению — `.pdf` → pdfjs-dist (legacy, постранично getTextContent), `.doc/.docx` → word-extractor, `.xls/.xlsx/.csv` → xlsx (первый лист → sheet_to_csv), прочее → utf-8. Точки: `attachmentRepo.extractFromPaths` (RESEARCH-документы/код — Buffer + extractText вместо utf-8) и `buildLLMContext` PROJECT reference (doc-расширения парсятся при перечитке, mtime-кэш прежний; ошибка парсера → catch → MISSING-блок, мусор не инлайнится). Регрессия PR #16 закрыта: processDocument демонтировали вместе с парсерами — PDF в `extracted_text` был сырым байтовым потоком и попадал в `[Материалы]`. Пакеты уже были в package.json (webService) — новых зависимостей нет. | BACKLOG #6, 2026-11-11 (проблема и подход подтверждены владельцем) |
+| 134 | Стриминг `/api/chat` (ТЗ Streaming_Reasoning): SSE по `Accept: text/event-stream`, тот же POST multipart. JSON — по умолчанию (регрессия для vision). Провайдеры принимают `onToken?: (type, delta) => void`; `LlamaCppProvider`/`OllamaProvider` форвардят чанки. `OllamaProvider` — фикс буферизации (разрезанные чанки TCP). chatController — partial save на `req.on('close')` и на error (маркер `composeAssistantAnswer`). rAF-throttled рендер в ChatArea (plain text в процессе, финальный markdown). `node-fetch` v3: `Readable.toWeb(response.body)` для Web ReadableStream. | ТЗ Streaming+Reasoning, 2026-11-13 |
+| 135 | Reasoning: `messages.reasoning` (TEXT, nullable) — полный, F5-recovery. ReasoningBlock (свёрнут, `finishReason='length'` → развёрнут + маркер). Reasoning НЕ в промпт (buildLLMContext читает только content). `composeAssistantAnswer` маркер исправлен («в блоке Reasoning», не «в логах»). metrics.reasoningChars/reasoningPreview — оставлены для диагностики. | ТЗ Streaming+Reasoning, 2026-11-13 |
+| 136 | Prompt library (P0.2): таблица `prompts` (system/user_template, is_default), `messages.sysprompt_id` (FK ON DELETE SET NULL), DROP `sessions.sysprompt` (guarded sqlite_version >= 3.35). `/api/prompts` CRUD. `buildLLMContext` — system из prompts (fallback DEFAULT_SYSPROMPT), `[Инструкции]` из user_templates (`--- TEMPLATE: <name> ---`, ORDER BY created_at ASC). Model A: чекбоксы = `[Инструкции]` (из БД), не копируются в composer. promptStore (persist в localStorage). Prompt Manager (`/templatemanager`), PromptsTab, SelectedPromptsModal. | ТЗ P0.2, 2026-11-13 |
+| 137 | Generation params (P0.1): 7 параметров per-message, «не передано — не отправляем». `parseGenerationParams` (валидация: integer, n_predict≠0, диапазоны). Провайдеры: удалён hardcoded temperature 0.7, `n_predict` → `max_tokens`/`num_predict` (приоритет над maxTokens). UI: `⚙ Params` (пресеты Coding/Creative/Deep Reasoning/Custom, fieldError highlight, Reset). generationParamsStore (persist). | ТЗ P0.1, 2026-11-13 |
+| 138 | AI Helper overlay: resize (`resize: both`, `min(80vw,1200px)`, minWidth 320, maxWidth 95vw), ResizeObserver → `resized` flag. Drag сохранён. | ТЗ P0.2 §2.8, 2026-11-13 |
+| 139 | `sessionStore.streaming` state: active/content/reasoning/questionId/metrics/finishReason/excludedIndices/contextInfo. `sendMessageStream` — reader loop, done/error, finalize/cancel, EOF без done → finalize (partial) или cancel+rollback. | ТЗ Streaming+Reasoning |
+| 140 | Frontend tests: promptStore (persist, toggle), PromptsTab (loading/empty/list), SelectedPromptsModal (live preview), ReasoningBlock (collapsed/truncated), chat-area streaming (rAF, plain text), apiGateway.sendStream (SSE parsing). | ТЗ Streaming+Reasoning |
 
 ## 8. Запрещено
 
 1. Изменять `docs/reference/public-archive/` (golden master легаси-фронта, read-only) и содержимое `server/public/vad-assets/` (не копировать в `frontend/public`, не удалять — решение #109).
-2. Предполагать стриминг `/api/chat`.
+2. Стриминг `/api/chat` — реализован (SSE по `Accept: text/event-stream`); не ломать контракт (token/reasoning/done/error), не менять формат без ТЗ. Vision — JSON только.
 3. Вызывать `/qa-pairs`, `/context-config`.
 4. Сырой fetch/WebSocket вне выделенных модулей.
 5. Добавлять зависимости или менять версии пакетов без ТЗ.
@@ -385,3 +403,5 @@ chat-app/
 2. ~~attachments: сохранять пути/метаданные присланных файлов в БД~~ — ВЫПОЛНЕНО (Фаза B, TZ-B.2: таблица `attachments` + `attachments_meta`)
 3. (из §7.27) Архивация: timestamp-суффикс против дублей unsavedSession N
 4. ~~Чистка backend/package.json: фронтовые devDeps, дубль vitest~~ — ВЫПОЛНЕНО (Фаза F, TZ-F.6)
+5. ~~Reasoning-модели: UI для reasoning_content~~ — ВЫПОЛНЕНО (ReasoningBlock, ТЗ Streaming+Reasoning)
+6. `generateHint` AI-helper — подсказка ждёт окончания reasoning (без max_tokens) — остаётся в бэклоге (отдельно от ReasoningBlock, это про AI Helper, не про чат)
