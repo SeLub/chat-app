@@ -213,7 +213,9 @@ export async function buildLLMContext(sessionId, currentAttachments = [], contex
     }
 
     // 2. Получаем историю из БД (только user и assistant; metrics — для №3,
-    //    измеренной плотности последнего текстового ответа)
+    //    измеренной плотности последнего текстового ответа).
+    // Reasoning НЕ включается в контекст (только content) —
+    // раздувает промпт (10–35 КБ/сообщение), не нужен модели (internal).
     const messages = db.prepare(
         'SELECT role, content, attachments_meta, question_id, sort_order, metrics FROM messages WHERE session_id = ? ORDER BY sort_order ASC'
     ).all(sessionId);
@@ -375,7 +377,7 @@ export function getQAPairs(sessionId) {
     // Финальное ТЗ: image_data демонтирован — единственный источник вложений это
     // attachments_meta (реестр attachments). Фронт строит imageData из kind='image' в meta.
     const messages = db.prepare(
-        'SELECT role, content, question_id, sort_order, model, attachments_meta, metrics FROM messages WHERE session_id = ? ORDER BY sort_order ASC'
+        'SELECT role, content, reasoning, question_id, sort_order, model, attachments_meta, metrics FROM messages WHERE session_id = ? ORDER BY sort_order ASC'
     ).all(sessionId);
 
     const qaPairs = [];
@@ -401,6 +403,7 @@ export function getQAPairs(sessionId) {
             // Если у ассистента есть модель, обновляем (на случай, если она отличается, но обычно она та же)
             if (msg.model) currentQuestion.model = msg.model;
             currentQuestion.metrics = msg.metrics || '{}';
+            currentQuestion.answerReasoning = msg.reasoning || '';
 
             qaPairs.push(currentQuestion);
             currentQuestion = null;

@@ -235,6 +235,8 @@ export function ChatArea({ className }: { className?: string }) {
   const viewingSessionId = useSessionStore((s) => s.viewingSessionId);
   const currentSessionTitle = useSessionStore((s) => s.currentSessionTitle);
   const sendMessage = useSessionStore((s) => s.sendMessage);
+  const sendMessageStream = useSessionStore((s) => s.sendMessageStream);
+  const streamingActive = useSessionStore((s) => s.streaming.active);
   const returnToCurrent = useSessionStore((s) => s.returnToCurrent);
   const clearChat = useSessionStore((s) => s.clearChat);
   const deleteSession = useSessionStore((s) => s.deleteSession);
@@ -250,6 +252,46 @@ export function ChatArea({ className }: { className?: string }) {
   const [fileSlot, setFileSlot] = useState<FilePreview | null>(null);
   const [codeFiles, setCodeFiles] = useState<FilePreview[]>([]);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  // ТЗ Streaming_Reasoning: rAF throttling for streaming content
+  const [streamContent, setStreamContent] = useState('');
+  const [streamReasoning, setStreamReasoning] = useState('');
+  const streamContentRef = useRef('');
+  const streamReasoningRef = useRef('');
+  const rafRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (streamingActive) {
+      const unsubscribe = useSessionStore.subscribe((state) => {
+        streamContentRef.current = state.streaming.content;
+        streamReasoningRef.current = state.streaming.reasoning;
+        if (rafRef.current == null) {
+          rafRef.current = requestAnimationFrame(() => {
+            setStreamContent(streamContentRef.current);
+            setStreamReasoning(streamReasoningRef.current);
+            rafRef.current = null;
+          });
+        }
+      });
+      return () => {
+        unsubscribe();
+        if (rafRef.current != null) {
+          cancelAnimationFrame(rafRef.current);
+          rafRef.current = null;
+        }
+      };
+    } else {
+      setStreamContent('');
+      setStreamReasoning('');
+      streamContentRef.current = '';
+      streamReasoningRef.current = '';
+      if (rafRef.current != null) {
+        cancelAnimationFrame(rafRef.current);
+        rafRef.current = null;
+      }
+    }
+    return undefined;
+  }, [streamingActive]);
 
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -396,7 +438,8 @@ export function ChatArea({ className }: { className?: string }) {
     clearAttachments();
     setIsSending(true);
     try {
-      await sendMessage(text, files);
+      // ТЗ Streaming_Reasoning: use streaming send
+      await sendMessageStream(text, files);
       await refreshStatus();
     } catch (e) {
       // Guards (нет сессии/модели) — исключение доходит сюда. ТЗ
@@ -421,7 +464,7 @@ export function ChatArea({ className }: { className?: string }) {
       setIsSending(false);
       textareaRef.current?.focus();
     }
-  }, [inputValue, isSending, sendMessage, collectFiles, clearAttachments, refreshStatus]);
+  }, [inputValue, isSending, sendMessageStream, collectFiles, clearAttachments, refreshStatus]);
 
   // ТЗ context-overflow-ux (№2): «Повторить» на баннере — повторная отправка
   // ИСХОДНОГО вопроса с исходными вложениями; композер на время попытки
@@ -434,7 +477,7 @@ export function ChatArea({ className }: { className?: string }) {
     clearAttachments();
     setIsSending(true);
     try {
-      await sendMessage(err.failedText, err.failedFiles);
+      await sendMessageStream(err.failedText, err.failedFiles);
       await refreshStatus();
     } catch (e) {
       useUIStore.getState().addToast(
@@ -457,7 +500,7 @@ export function ChatArea({ className }: { className?: string }) {
       setIsSending(false);
       textareaRef.current?.focus();
     }
-  }, [isSending, sendMessage, refreshStatus, clearAttachments]);
+  }, [isSending, sendMessageStream, refreshStatus, clearAttachments]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -476,6 +519,8 @@ export function ChatArea({ className }: { className?: string }) {
     questionId: string;
     question: string;
     answers: string[];
+    answerReasonings: (string | null)[];
+    answerFinishReasons: (string | undefined)[];
     model?: string;
     excludedIndices?: number[];
     attachmentsMeta?: AttachmentMeta[];
@@ -490,12 +535,16 @@ export function ChatArea({ className }: { className?: string }) {
         questionId: msg.questionId,
         question: msg.content,
         answers: [],
+        answerReasonings: [],
+        answerFinishReasons: [],
         model: msg.model,
         excludedIndices: undefined,
         attachmentsMeta: msg.attachmentsMeta,
       };
     } else if (currentGroup) {
       currentGroup.answers.push(msg.content);
+      currentGroup.answerReasonings.push(msg.reasoning ?? null);
+      currentGroup.answerFinishReasons.push(msg.finishReason);
       if (msg.excludedIndices && msg.excludedIndices.length > 0) {
         currentGroup.excludedIndices = msg.excludedIndices;
       }
@@ -925,80 +974,95 @@ export function ChatArea({ className }: { className?: string }) {
                     )}
 
                     {/* Answers */}
-                    {group.answers.map((answer, idx) => (
-                      <div key={`ans-${idx}`} className="rounded-xl bg-card border border-border p-4">
-                        <div className="flex items-center gap-2.5 mb-1.5">
-                          <span className="text-xs font-semibold text-success">AI</span>
-                          <button
-                            onClick={() => handleCopy(answer, `copy-${idx}`)}
-                            className="p-1 hover:bg-muted rounded transition-colors"
-                          >
-                            {copiedId === `copy-${idx}` ? (
-                              <Check className="w-3 h-3 text-success" />
-                            ) : (
-                              <Copy className="w-3 h-3 text-muted-foreground" />
-                            )}
-                          </button>
-                        </div>
-                        {group.imageData?.thumbnailUrl && (
-                          <div className="mt-1.5">
-                            <img
-                              src={group.imageData.thumbnailUrl}
-                              className="max-w-[200px] rounded-lg cursor-pointer hover:opacity-90 transition-opacity"
-                              onClick={() => window.open(group.imageData!.fullUrl, '_blank')}
-                              onError={(e) => { e.currentTarget.style.display = 'none'; }}
-                            />
-                            <div className="text-xs text-muted-foreground mt-1">{group.imageData.filename}</div>
+                    {group.answers.map((answer, idx) => {
+                      const reasoning = group.answerReasonings[idx];
+                      const truncated = group.answerFinishReasons[idx] === 'length';
+                      return (
+                        <div key={`ans-${idx}`} className="rounded-xl bg-card border border-border p-4">
+                          <div className="flex items-center gap-2.5 mb-1.5">
+                            <span className="text-xs font-semibold text-success">AI</span>
+                            <button
+                              onClick={() => handleCopy(answer, `copy-${idx}`)}
+                              className="p-1 hover:bg-muted rounded transition-colors"
+                            >
+                              {copiedId === `copy-${idx}` ? (
+                                <Check className="w-3 h-3 text-success" />
+                              ) : (
+                                <Copy className="w-3 h-3 text-muted-foreground" />
+                              )}
+                            </button>
                           </div>
-                        )}
-                        <div className="chat-markdown">
-                          <ReactMarkdown remarkPlugins={remarkPlugins} rehypePlugins={rehypePlugins} components={{ pre: CodeBlock }}>
-                            {answer}
-                          </ReactMarkdown>
+                          {group.imageData?.thumbnailUrl && (
+                            <div className="mt-1.5">
+                              <img
+                                src={group.imageData.thumbnailUrl}
+                                className="max-w-[200px] rounded-lg cursor-pointer hover:opacity-90 transition-opacity"
+                                onClick={() => window.open(group.imageData!.fullUrl, '_blank')}
+                                onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                              />
+                              <div className="text-xs text-muted-foreground mt-1">{group.imageData.filename}</div>
+                            </div>
+                          )}
+                          {/* ТЗ Streaming_Reasoning: Reasoning block */}
+                          {reasoning && reasoning.length > 0 && (
+                            <details className="mb-2 rounded-lg border border-border bg-secondary/50" open={truncated}>
+                              <summary className="cursor-pointer px-3 py-2 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors">
+                                💭 Reasoning ({reasoning.length} chars){truncated && ' · truncated'}
+                              </summary>
+                              <div className="px-3 pb-2 text-xs text-muted-foreground whitespace-pre-wrap max-h-64 overflow-y-auto">
+                                {reasoning}
+                              </div>
+                            </details>
+                          )}
+                          <div className="chat-markdown">
+                            <ReactMarkdown remarkPlugins={remarkPlugins} rehypePlugins={rehypePlugins} components={{ pre: CodeBlock }}>
+                              {answer}
+                            </ReactMarkdown>
+                          </div>
+                          {/* Answer actions */}
+                          <div className="flex items-center gap-1 mt-1.5">
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-6 px-2 text-xs gap-1"
+                                  onClick={() => scrollToQuestion(group.questionId)}
+                                  aria-label="Go to question"
+                                >
+                                  <ArrowUp className="w-3 h-3" />
+                                  Question
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent side="bottom">Go to question</TooltipContent>
+                            </Tooltip>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-6 px-2 text-xs gap-1"
+                                  onClick={async () => {
+                                    const qaText = `## Question\n\n${group.question}\n\n## Answer\n\n${answer}`;
+                                    try {
+                                      await navigator.clipboard.writeText(qaText);
+                                      useUIStore.getState().addToast('Q&A copied as Markdown!', 'success');
+                                    } catch {
+                                      useUIStore.getState().addToast('Failed to copy', 'error');
+                                    }
+                                  }}
+                                  aria-label="Copy Q&A as Markdown"
+                                >
+                                  <ClipboardCopy className="w-3 h-3" />
+                                  Copy Q&A
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent side="bottom">Copy Q&A as Markdown</TooltipContent>
+                            </Tooltip>
+                          </div>
                         </div>
-                        {/* Answer actions */}
-                        <div className="flex items-center gap-1 mt-1.5">
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="h-6 px-2 text-xs gap-1"
-                                onClick={() => scrollToQuestion(group.questionId)}
-                                aria-label="Go to question"
-                              >
-                                <ArrowUp className="w-3 h-3" />
-                                Question
-                              </Button>
-                            </TooltipTrigger>
-                            <TooltipContent side="bottom">Go to question</TooltipContent>
-                          </Tooltip>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="h-6 px-2 text-xs gap-1"
-                                onClick={async () => {
-                                  const qaText = `## Question\n\n${group.question}\n\n## Answer\n\n${answer}`;
-                                  try {
-                                    await navigator.clipboard.writeText(qaText);
-                                    useUIStore.getState().addToast('Q&A copied as Markdown!', 'success');
-                                  } catch {
-                                    useUIStore.getState().addToast('Failed to copy', 'error');
-                                  }
-                                }}
-                                aria-label="Copy Q&A as Markdown"
-                              >
-                                <ClipboardCopy className="w-3 h-3" />
-                                Copy Q&A
-                              </Button>
-                            </TooltipTrigger>
-                            <TooltipContent side="bottom">Copy Q&A as Markdown</TooltipContent>
-                          </Tooltip>
-                        </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 );
               })}
@@ -1013,9 +1077,36 @@ export function ChatArea({ className }: { className?: string }) {
                     <span className="text-xs font-medium text-muted-foreground">AI</span>
                     <Loader2 className="w-3 h-3 animate-spin text-muted-foreground" />
                   </div>
-                  <div className="text-sm text-muted-foreground italic">
-                    модель думает...
-                  </div>
+                  {/* ТЗ Streaming_Reasoning: streaming content with rAF throttling */}
+                  {streamingActive ? (
+                    <>
+                      {streamReasoning && (
+                        <details className="mb-2 rounded-lg border border-border bg-secondary/50" open>
+                          <summary className="cursor-pointer px-3 py-2 text-xs font-medium text-muted-foreground">
+                            💭 Reasoning...
+                          </summary>
+                          <div className="px-3 pb-2 text-xs text-muted-foreground whitespace-pre-wrap max-h-48 overflow-y-auto">
+                            {streamReasoning}
+                          </div>
+                        </details>
+                      )}
+                      {streamContent ? (
+                        <div className="chat-markdown">
+                          <ReactMarkdown remarkPlugins={remarkPlugins} rehypePlugins={rehypePlugins} components={{ pre: CodeBlock }}>
+                            {streamContent}
+                          </ReactMarkdown>
+                        </div>
+                      ) : (
+                        <div className="text-sm text-muted-foreground italic">
+                          модель думает...
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <div className="text-sm text-muted-foreground italic">
+                      модель думает...
+                    </div>
+                  )}
                 </div>
               </div>
             )}
