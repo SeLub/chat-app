@@ -373,6 +373,10 @@ export const projectsApi = {
     const qs = filter ? `?filter=${encodeURIComponent(filter)}` : '';
     return request<ProjectFilesResponse>('GET', `/api/projects/${projectId}/files${qs}`);
   },
+  /** Верхние директории проекта (плашки BrowseDialog) */
+  listTopLevelDirs(projectId: string) {
+    return request<{ dirs: string[] }>('GET', `/api/projects/${projectId}/top-level-dirs`);
+  },
   /** Attach reference-файлов (идемпотентно по session_id + file_path) */
   attach(projectId: string, sessionId: string, relativePaths: string[]) {
     return request<AttachResponse>('POST', `/api/projects/${projectId}/attach`, {

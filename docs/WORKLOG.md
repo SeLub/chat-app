@@ -744,3 +744,25 @@
 **Тесты:** Фронтенд: 5 новых — все зелёные. Итого: 191/191. TypeScript build — 0 ошибок.
 
 **Статус:** коммит на `develop`.
+
+---
+
+## 2026-11-16 — PROJECT mode UX fixes + BrowseDialog dir chips
+
+**ТЗ:** `docs/plans/attach_files_for_project_mode.md`.
+
+**Что сделано (бэкенд):**
+- `projectService.js`: новая функция `listTopLevelDirs(projectId)` — возвращает отсортированный список папок верхнего уровня (использует `IGNORED_DIRS`).
+- `projectController.js`: `listTopLevelDirsHandler` — 404 (нет проекта), 400 (нет пути), 200 `{ dirs: [...] }`.
+- `projectRoutes.js`: `GET /:id/top-level-dirs`.
+- `projectRoutes.topLevelDirs.test.js`: 3 интеграционных теста (200 sorted, empty project, 404).
+
+**Что сделано (фронтенд):**
+- `apiGateway.ts`: `projectsApi.listTopLevelDirs(projectId)`.
+- `browse-dialog.tsx`: **полная переписанка** — `dirs` state (fetch on open), `selectedDirs` (Set + `localStorage` persist `browse_dirs_<projectId>`), dir chips UI, клиентский `visibleFiles` filter, кнопка «All», empty-state подсказка, counter с «(в N папках)».
+- `chat-area.tsx`: `sessionMode` selector; скрепка «Attach files» скрыта в PROJECT mode (`{sessionMode !== 'project' && ...}`); `useEffect` на `activeSessionId` → сброс composer (`setInputValue('')` + `clearAttachments()`); явный сброс в обеих кнопках «Новая сессия».
+- `project-panel.tsx`: `lastPrompt404Ref` (useRef) — 404 кэш: не запрашивает `getLastPrompt` повторно после 404; сброс при `streamingActive: true`.
+
+**Тесты.** Бэкенд: 3 новых (integration) — все зелёные. Фронтенд: 6 (browse-dialog: chips, filter, All, persist, restore, empty dirs) + 2 (chat-area: paperclip visible/hidden) + 2 (project-panel: 404 cache, reset on stream) = 10 новых. Итого фронтенд: 201/201. TypeScript build — 0 ошибок.
+
+**Статус:** коммит на `develop`.

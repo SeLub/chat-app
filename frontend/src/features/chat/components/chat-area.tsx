@@ -248,6 +248,7 @@ export function ChatArea({ className }: { className?: string }) {
   const models = useProviderStore((s) => s.models);
   const selectModel = useProviderStore((s) => s.selectModel);
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
+  const sessionMode = useSessionStore((s) => s.mode);
   const viewingSessionId = useSessionStore((s) => s.viewingSessionId);
   const currentSessionTitle = useSessionStore((s) => s.currentSessionTitle);
   const sendMessage = useSessionStore((s) => s.sendMessage);
@@ -383,6 +384,12 @@ export function ChatArea({ className }: { className?: string }) {
     setFileSlot(null);
     setCodeFiles([]);
   }, [fileSlot, codeFiles]);
+
+  // Reset composer when switching sessions (covers "New session" and sidebar clicks)
+  useEffect(() => {
+    setInputValue('');
+    clearAttachments();
+  }, [activeSessionId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
@@ -1165,7 +1172,7 @@ export function ChatArea({ className }: { className?: string }) {
                 size="sm"
                 className="h-6 px-2 text-[11px]"
                 disabled={isSending}
-                onClick={() => void clearChat()}
+                onClick={() => { setInputValue(''); clearAttachments(); void clearChat(); }}
               >
                 Новая сессия
               </Button>
@@ -1244,7 +1251,7 @@ export function ChatArea({ className }: { className?: string }) {
                 variant="ghost"
                 size="sm"
                 className="h-6 px-2 text-[11px]"
-                onClick={() => void clearChat()}
+                onClick={() => { setInputValue(''); clearAttachments(); void clearChat(); }}
               >
                 Новая сессия
               </Button>
@@ -1327,21 +1334,25 @@ export function ChatArea({ className }: { className?: string }) {
             <TooltipContent side="bottom">AI Helper (звонки)</TooltipContent>
           </Tooltip>
 
-          <input
-            ref={fileInputRef}
-            type="file"
-            multiple
-            accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,.log,.py,.js,.ts,.jsx,.tsx,.json,.xml,.html,.css,.md,.java,.c,.cpp,.h,.go,.rs,.rb,.php,.swift,.kt,.sh,.yaml,.yml,.toml,.ini,.cfg,.conf,.env"
-            onChange={handleFileSelect}
-            className="hidden"
-          />
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            className="p-2.5 rounded-lg border border-border hover:bg-accent transition-colors flex-shrink-0"
-            aria-label="Attach files"
-          >
-            <Paperclip className="w-4 h-4" />
-          </button>
+          {sessionMode !== 'project' && (
+            <>
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,.log,.py,.js,.ts,.jsx,.tsx,.json,.xml,.html,.css,.md,.java,.c,.cpp,.h,.go,.rs,.rb,.php,.swift,.kt,.sh,.yaml,.yml,.toml,.ini,.cfg,.conf,.env"
+                onChange={handleFileSelect}
+                className="hidden"
+              />
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                className="p-2.5 rounded-lg border border-border hover:bg-accent transition-colors flex-shrink-0"
+                aria-label="Attach files"
+              >
+                <Paperclip className="w-4 h-4" />
+              </button>
+            </>
+          )}
           <textarea
             ref={textareaRef}
             value={inputValue}

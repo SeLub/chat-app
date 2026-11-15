@@ -70,26 +70,41 @@ export function ProjectPanel() {
   // ТЗ attached-files-split: загрузить last_prompt для определения «previous» файлов.
   // Перезапрос при: смене сессии, завершении стрима (true→false), изменении attachments.
   const streamingActive = useSessionStore((s) => s.streaming.active);
+  const lastPrompt404Ref = useRef(false);
   useEffect(() => {
     if (mode !== 'project' || !activeSessionId || streamingActive) return;
+    // 404 cache: don't re-request if we already know there's no last_prompt
+    if (lastPrompt404Ref.current) return;
     let cancelled = false;
     apiGateway.sessions
       .getLastPrompt(activeSessionId)
       .then((lp) => {
         if (cancelled) return;
+        lastPrompt404Ref.current = false;
         const ids = new Set(
           (lp?.meta?.currentAttachments || []).map((a) => a.fileId).filter(Boolean),
         );
         setLastPromptAttachmentIds(ids);
       })
-      .catch(() => {
-        if (!cancelled) setLastPromptAttachmentIds(new Set());
+      .catch((err) => {
+        if (cancelled) return;
+        // 404 = no last_prompt yet — cache to avoid console spam
+        const status = (err as { status?: number })?.status;
+        if (status === 404) {
+          lastPrompt404Ref.current = true;
+        }
+        setLastPromptAttachmentIds(new Set());
       });
     return () => {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeSessionId, mode, streamingActive, attachments]);
+
+  // Reset 404 cache when a new stream starts (a new last_prompt will exist after)
+  useEffect(() => {
+    if (streamingActive) lastPrompt404Ref.current = false;
+  }, [streamingActive]);
 
   const newFiles = attachments.filter((a) => !lastPromptAttachmentIds.has(a.fileId));
   const previousFiles = attachments.filter((a) => lastPromptAttachmentIds.has(a.fileId));

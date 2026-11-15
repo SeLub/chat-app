@@ -3,6 +3,7 @@
 // POST   /api/projects              — регистрация/поиск проекта + привязка к сессии
 // GET    /api/projects/:id          — информация о проекте (восстановление CurrentProject в UI)
 // GET    /api/projects/:id/files    — browse-список файлов (filter, лимит 500)
+// GET    /api/projects/:id/top-level-dirs — верхние директории (плашки BrowseDialog)
 // POST   /api/projects/:id/attach   — attach reference-файлов (идемпотентно)
 //
 // Session-scoped эндпоинты (GET /api/sessions/:id/attachments, DELETE
@@ -14,6 +15,7 @@ import {
     listProjectFilesHandler,
     getProjectHandler,
     attachHandler,
+    listTopLevelDirsHandler,
 } from '../controllers/projectController.js';
 
 const router = Router();
@@ -21,6 +23,7 @@ const router = Router();
 router.post('/', createProjectHandler);
 router.get('/:id', getProjectHandler);
 router.get('/:id/files', listProjectFilesHandler);
+router.get('/:id/top-level-dirs', listTopLevelDirsHandler);
 router.post('/:id/attach', attachHandler);
 
 export default router;

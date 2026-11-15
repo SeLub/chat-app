@@ -72,3 +72,13 @@ export function sessionAttachmentsHandler(req, res) {
         return res.status(500).json({ error: error.message });
     }
 }
+
+export function listTopLevelDirsHandler(req, res) {
+    try {
+        const { status, body } = projectService.listTopLevelDirs(req.params.id);
+        return res.status(status).json(body);
+    } catch (error) {
+        console.error('Error in GET /api/projects/:id/top-level-dirs:', error);
+        return res.status(500).json({ error: error.message });
+    }
+}
