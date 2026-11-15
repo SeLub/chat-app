@@ -88,49 +88,57 @@ export function LastPromptModal({
     }
   };
 
+  const copyButton = (
+    <Button variant="outline" size="sm" onClick={handleCopy} disabled={!data || loading}>
+      {copied ? <Check className="w-4 h-4 mr-1" /> : <Copy className="w-4 h-4 mr-1" />}
+      {copied ? 'Copied' : 'Copy'}
+    </Button>
+  );
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-4xl max-h-[85vh] overflow-auto">
-        <DialogHeader>
-          <DialogTitle>👁 Last Prompt</DialogTitle>
-          <DialogDescription>
-            Финальный контекст последней отправки в модель
-          </DialogDescription>
-        </DialogHeader>
+      <DialogContent className="max-w-4xl max-h-[85vh] flex flex-col overflow-hidden">
+        {/* Sticky header — always visible, Copy accessible at any scroll position */}
+        <div className="flex items-start justify-between gap-4 border-b border-border pb-3 shrink-0">
+          <DialogHeader className="min-w-0">
+            <DialogTitle>👁 Last Prompt</DialogTitle>
+            <DialogDescription>
+              Финальный контекст последней отправки в модель
+            </DialogDescription>
+          </DialogHeader>
+          {copyButton}
+        </div>
 
-        {loading && (
-          <div className="flex items-center justify-center py-12 text-muted-foreground">
-            <Loader2 className="w-5 h-5 animate-spin" />
-          </div>
-        )}
-
-        {error && !loading && (
-          <div className="py-8 text-center text-sm text-destructive">{error}</div>
-        )}
-
-        {notFound && !loading && (
-          <div className="py-8 text-center text-sm text-muted-foreground">
-            Промпта ещё нет — отправьте сообщение, чтобы увидеть, что ушло в модель.
-          </div>
-        )}
-
-        {data && !loading && (
-          <>
-            <MetaSection meta={data.meta} />
-            <div className="border-t border-border my-3" />
-            <div className="prose prose-sm dark:prose-invert max-w-none text-sm">
-              {data.prompt.map((m, i) => (
-                <PromptBlock key={i} message={m} />
-              ))}
+        {/* Scrollable content */}
+        <div className="flex-1 overflow-y-auto">
+          {loading && (
+            <div className="flex items-center justify-center py-12 text-muted-foreground">
+              <Loader2 className="w-5 h-5 animate-spin" />
             </div>
-            <div className="flex justify-end pt-3 border-t border-border">
-              <Button variant="outline" size="sm" onClick={handleCopy}>
-                {copied ? <Check className="w-4 h-4 mr-1" /> : <Copy className="w-4 h-4 mr-1" />}
-                {copied ? 'Copied' : 'Copy'}
-              </Button>
+          )}
+
+          {error && !loading && (
+            <div className="py-8 text-center text-sm text-destructive">{error}</div>
+          )}
+
+          {notFound && !loading && (
+            <div className="py-8 text-center text-sm text-muted-foreground">
+              Промпта ещё нет — отправьте сообщение, чтобы увидеть, что ушло в модель.
             </div>
-          </>
-        )}
+          )}
+
+          {data && !loading && (
+            <>
+              <MetaSection meta={data.meta} />
+              <div className="border-t border-border my-3" />
+              <div className="prose prose-sm dark:prose-invert max-w-none text-sm">
+                {data.prompt.map((m, i) => (
+                  <PromptBlock key={i} message={m} />
+                ))}
+              </div>
+            </>
+          )}
+        </div>
       </DialogContent>
     </Dialog>
   );
