@@ -1,10 +1,11 @@
 import { useState } from 'react';
 import { toast } from 'sonner';
-import { Settings2, FlaskConical } from 'lucide-react';
+import { Settings2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useSessionStore } from '@/stores/sessionStore';
 import { ModeToggle } from './mode-toggle';
 import { ProjectPanel } from './project-panel';
+import { ResearchPanel } from './research-panel';
 
 // ТЗ Project mode A (§4): правая панель — переключатель режима в шапке.
 // Research: настройки (замена заглушки «Reserved for Project mode»).
@@ -44,24 +45,7 @@ export function SettingsPanel({ className }: { className?: string }) {
       {mode === 'project' ? (
         <ProjectPanel />
       ) : (
-        // Research: реальное описание режима вместо заглушки «Reserved for Project mode»
-        <div className="flex-1 flex flex-col p-4 gap-3 overflow-y-auto">
-          <div className="rounded-lg border border-border p-3">
-            <div className="flex items-center gap-2 text-sm font-medium text-foreground">
-              <FlaskConical className="w-4 h-4 text-primary" />
-              Research mode
-            </div>
-            <p className="mt-2 text-xs text-muted-foreground leading-relaxed">
-              Диалог с моделью: файлы (PDF/DOC/код) и изображения прикладываются
-              через форму чата — они попадают в <span className="font-mono">[Материалы]</span> контекста
-              как снапшот на момент отправки.
-            </p>
-          </div>
-          <p className="text-xs text-muted-foreground italic">
-            Переключитесь в Project, чтобы работать с папкой репозитория на диске
-            (актуальные версии файлов, mtime-кэш).
-          </p>
-        </div>
+        <ResearchPanel />
       )}
     </aside>
   );

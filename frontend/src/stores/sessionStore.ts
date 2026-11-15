@@ -27,6 +27,19 @@ function parseLoose<T>(value: unknown, fallback: T): T {
 // (первый kind='image' с thumbnailUrl), которую возвращает реестр attachments.
 type QAPairImageMeta = { kind?: string; thumbnailUrl?: string; fullUrl?: string; name?: string };
 
+/** Sum assistant metrics from loaded messages (for F5 / switchToViewing restore). */
+function sumMetricsFromMessages(messages: ChatMessage[]): { input: number; output: number } {
+  let input = 0;
+  let output = 0;
+  for (const m of messages) {
+    if (m.role === 'assistant' && m.metrics) {
+      input += m.metrics.inputTokens || 0;
+      output += m.metrics.outputTokens || 0;
+    }
+  }
+  return { input, output };
+}
+
 function mapQAPairsToMessages(
   pairs: Array<{
     questionId: string;
@@ -323,9 +336,12 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
           if (rawMessages && Array.isArray(rawMessages)) {
             const normalized = mapQAPairsToMessages(rawMessages);
             const questionCount = normalized.filter((m) => m.role === 'user').length;
+            const { input, output } = sumMetricsFromMessages(normalized);
             set({
               messages: normalized,
               questionCounter: questionCount,
+              totalInputTokens: input,
+              totalOutputTokens: output,
             });
           }
           return;
@@ -383,9 +399,12 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     if (rawMessages && Array.isArray(rawMessages)) {
       const normalized = mapQAPairsToMessages(rawMessages);
       const questionCount = normalized.filter((m) => m.role === 'user').length;
+      const { input, output } = sumMetricsFromMessages(normalized);
       set({
         messages: normalized,
         questionCounter: questionCount,
+        totalInputTokens: input,
+        totalOutputTokens: output,
       });
     }
   },
@@ -724,9 +743,12 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       if (rawMessages && Array.isArray(rawMessages)) {
         const normalized = mapQAPairsToMessages(rawMessages);
         const questionCount = normalized.filter((m) => m.role === 'user').length;
+        const { input, output } = sumMetricsFromMessages(normalized);
         set({
           messages: normalized,
           questionCounter: questionCount,
+          totalInputTokens: input,
+          totalOutputTokens: output,
         });
       }
     } catch {

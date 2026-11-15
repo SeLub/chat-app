@@ -158,6 +158,38 @@ export function listProjectFiles(projectId, filter = '') {
 }
 
 /**
+ * ТЗ attach-files-for-project-mode §2.1: верхние директории проекта (1 уровень).
+ * Для BrowseDialog-плашек: 5–15 папок (server, frontend, docs, …).
+ * @returns {{ status: number, body: Object }}
+ */
+export function listTopLevelDirs(projectId) {
+    const project = projectRepo.getProject(projectId);
+    if (!project) return { status: 404, body: { error: 'Project not found' } };
+
+    const baseStatus = getContextBaseDirStatus();
+    if (!baseStatus.ok) return { status: 400, body: { error: baseStatus.error } };
+
+    const absDir = path.resolve(baseStatus.path, project.path);
+    if (!fs.existsSync(absDir) || !fs.statSync(absDir).isDirectory()) {
+        return { status: 400, body: { error: 'Project directory not found' } };
+    }
+
+    let entries;
+    try {
+        entries = fs.readdirSync(absDir, { withFileTypes: true });
+    } catch {
+        return { status: 400, body: { error: 'Cannot read project directory' } };
+    }
+
+    const dirs = entries
+        .filter((e) => e.isDirectory() && !IGNORED_DIRS.has(e.name))
+        .map((e) => e.name)
+        .sort((a, b) => a.localeCompare(b));
+
+    return { status: 200, body: { dirs } };
+}
+
+/**
  * §3.5: attach reference-файлов (идемпотентно по session_id + file_path).
  * Файлы НЕ копируются: строка attachments (kind='reference', path_base='context',
  * file_path='<projectPath>/<rel>', extracted_text='', extracted_mtime=NULL).

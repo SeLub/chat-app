@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from 'react';
 import {
   Folder,
   FolderOpen,
-  Paperclip,
   ListTree,
   X,
   Loader2,
@@ -14,6 +13,7 @@ import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { useProjectStore } from '@/stores/projectStore';
 import { useSessionStore } from '@/stores/sessionStore';
+import { apiGateway } from '@/lib/apiGateway';
 import { BrowseDialog } from './browse-dialog';
 import type { SessionReferenceAttachment } from '@/types';
 import { cn } from '@/lib/utils';
@@ -42,7 +42,6 @@ export function ProjectPanel() {
   const mode = useSessionStore((s) => s.mode);
 
   const dirInputRef = useRef<HTMLInputElement>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const [browseOpen, setBrowseOpen] = useState(false);
 
   const baseDirOk = config?.contextBaseDir.ok ?? false;
@@ -53,6 +52,10 @@ export function ProjectPanel() {
   // нет (stale-файл перечитывается при сборке и попадает актуальной версией).
   const inContextCount = attachments.filter((a) => !a.missing && !a.tooLarge).length;
 
+  // ТЗ attached-files-split: ID файлов, которые были в пуле на момент последнего
+  // отправленного запроса (из last_prompt.meta.currentAttachments).
+  const [lastPromptAttachmentIds, setLastPromptAttachmentIds] = useState<Set<string>>(new Set());
+
   // Смена активной сессии → перезагрузить пул reference и восстановить проект
   useEffect(() => {
     if (mode !== 'project') return;
@@ -61,6 +64,48 @@ export function ProjectPanel() {
     if (activeSessionId) init();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeSessionId, mode]);
+
+  // ТЗ attached-files-split: загрузить last_prompt для определения «previous» файлов.
+  // Перезапрос при: смене сессии, завершении стрима (true→false), изменении attachments.
+  const streamingActive = useSessionStore((s) => s.streaming.active);
+  const lastPrompt404Ref = useRef(false);
+  useEffect(() => {
+    if (mode !== 'project' || !activeSessionId || streamingActive) return;
+    // 404 cache: don't re-request if we already know there's no last_prompt
+    if (lastPrompt404Ref.current) return;
+    let cancelled = false;
+    apiGateway.sessions
+      .getLastPrompt(activeSessionId)
+      .then((lp) => {
+        if (cancelled) return;
+        lastPrompt404Ref.current = false;
+        const ids = new Set(
+          (lp?.meta?.currentAttachments || []).map((a) => a.fileId).filter(Boolean),
+        );
+        setLastPromptAttachmentIds(ids);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        // 404 = no last_prompt yet — cache to avoid console spam
+        const status = (err as { status?: number })?.status;
+        if (status === 404) {
+          lastPrompt404Ref.current = true;
+        }
+        setLastPromptAttachmentIds(new Set());
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeSessionId, mode, streamingActive, attachments]);
+
+  // Reset 404 cache when a new stream starts (a new last_prompt will exist after)
+  useEffect(() => {
+    if (streamingActive) lastPrompt404Ref.current = false;
+  }, [streamingActive]);
+
+  const newFiles = attachments.filter((a) => !lastPromptAttachmentIds.has(a.fileId));
+  const previousFiles = attachments.filter((a) => lastPromptAttachmentIds.has(a.fileId));
 
   const onDirectoryPicked = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
@@ -73,13 +118,6 @@ export function ProjectPanel() {
       return;
     }
     await createProject(segments[0]);
-  };
-
-  const onFilesPicked = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const picked = Array.from(e.target.files ?? []);
-    e.target.value = '';
-    if (picked.length === 0) return;
-    await attach(picked.map((f) => f.name));
   };
 
   return (
@@ -146,7 +184,7 @@ export function ProjectPanel() {
         )}
       </section>
 
-      {/* AttachList (§3.7): бейджи missing / too large / stale + сводка in context (приёмка 3.4) */}
+      {/* AttachList (§3.7 + attached-files-split): New / From previous answer */}
       <section aria-label="Attached project files" className="flex-1 min-h-0 flex flex-col">
         <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1.5">
           Attached files
@@ -162,60 +200,37 @@ export function ProjectPanel() {
         {attachments.length === 0 ? (
           <p className="text-xs text-muted-foreground italic py-2">No files attached</p>
         ) : (
-          <ul className="space-y-1">
-            {attachments.map((a: SessionReferenceAttachment) => (
-              <li
-                key={a.fileId}
-                className={cn(
-                  'group flex items-center gap-2 rounded-md border border-border px-2 py-1.5 text-xs',
-                  a.missing && 'border-red-500/40 bg-red-500/10',
-                )}
-              >
-                <span className="flex-1 truncate font-mono" title={a.filePath}>{a.name}</span>
-                {a.missing && (
-                  <span className="inline-flex items-center gap-1 text-red-600 dark:text-red-400 shrink-0">
-                    <TriangleAlert className="w-3 h-3" /> missing
-                  </span>
-                )}
-                {!a.missing && a.tooLarge && (
-                  <span
-                    className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400 shrink-0"
-                    title="Файл разросся сверх MAX_REFERENCE_FILE_SIZE после attach — в [Материалы] не попадёт (TOO LARGE)"
-                  >
-                    <FileWarning className="w-3 h-3" /> too large
-                  </span>
-                )}
-                {!a.missing && !a.tooLarge && a.mtimeStale && (
-                  <span className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400 shrink-0">
-                    <Clock className="w-3 h-3" /> stale
-                  </span>
-                )}
-                <button
-                  type="button"
-                  aria-label={`Detach ${a.name}`}
-                  className="opacity-50 hover:opacity-100 shrink-0"
-                  disabled={isLoading}
-                  onClick={() => detach(a.fileId)}
-                >
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              </li>
-            ))}
-          </ul>
+          <>
+            {newFiles.length > 0 && (
+              <>
+                <h4 className="text-xs font-semibold text-primary mb-1">
+                  New for this question ({newFiles.length})
+                </h4>
+                <ul className="space-y-1">
+                  {newFiles.map((a) => (
+                    <FileRow key={a.fileId} a={a} isLoading={isLoading} onDetach={() => detach(a.fileId)} />
+                  ))}
+                </ul>
+              </>
+            )}
+            {previousFiles.length > 0 && (
+              <>
+                <h4 className="text-xs font-semibold text-muted-foreground mt-3 mb-1">
+                  From previous answer ({previousFiles.length})
+                </h4>
+                <ul className="space-y-1">
+                  {previousFiles.map((a) => (
+                    <FileRow key={a.fileId} a={a} isLoading={isLoading} onDetach={() => detach(a.fileId)} />
+                  ))}
+                </ul>
+              </>
+            )}
+          </>
         )}
       </section>
 
-      {/* Кнопки attach/browse (§4) */}
+      {/* Кнопка Browse (§4) — Attach file(s) перенесён в ResearchPanel */}
       <div className="flex flex-col gap-2 pt-1">
-        <Button
-          size="sm"
-          variant="outline"
-          disabled={!baseDirOk || !currentProject || isLoading}
-          onClick={() => fileInputRef.current?.click()}
-        >
-          <Paperclip className="w-4 h-4" />
-          Attach file(s)
-        </Button>
         <Button
           size="sm"
           variant="outline"
@@ -235,13 +250,6 @@ export function ProjectPanel() {
         {...{ webkitdirectory: '', directory: '' }}
         onChange={onDirectoryPicked}
       />
-      <input
-        ref={fileInputRef}
-        type="file"
-        multiple
-        hidden
-        onChange={onFilesPicked}
-      />
 
       <BrowseDialog
         open={browseOpen}
@@ -249,5 +257,54 @@ export function ProjectPanel() {
         onAttach={(paths) => attach(paths)}
       />
     </div>
+  );
+}
+
+/** ТЗ attached-files-split: строка файла с бейджами missing/too large/stale + detach. */
+function FileRow({
+  a,
+  isLoading,
+  onDetach,
+}: {
+  a: SessionReferenceAttachment;
+  isLoading: boolean;
+  onDetach: () => void;
+}) {
+  return (
+    <li
+      className={cn(
+        'group flex items-center gap-2 rounded-md border border-border px-2 py-1.5 text-xs',
+        a.missing && 'border-red-500/40 bg-red-500/10',
+      )}
+    >
+      <span className="flex-1 truncate font-mono" title={a.filePath}>{a.name}</span>
+      {a.missing && (
+        <span className="inline-flex items-center gap-1 text-red-600 dark:text-red-400 shrink-0">
+          <TriangleAlert className="w-3 h-3" /> missing
+        </span>
+      )}
+      {!a.missing && a.tooLarge && (
+        <span
+          className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400 shrink-0"
+          title="Файл разросся сверх MAX_REFERENCE_FILE_SIZE после attach — в [Материалы] не попадёт (TOO LARGE)"
+        >
+          <FileWarning className="w-3 h-3" /> too large
+        </span>
+      )}
+      {!a.missing && !a.tooLarge && a.mtimeStale && (
+        <span className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400 shrink-0">
+          <Clock className="w-3 h-3" /> stale
+        </span>
+      )}
+      <button
+        type="button"
+        aria-label={`Detach ${a.name}`}
+        className="opacity-50 hover:opacity-100 shrink-0"
+        disabled={isLoading}
+        onClick={onDetach}
+      >
+        <X className="w-3.5 h-3.5" />
+      </button>
+    </li>
   );
 }

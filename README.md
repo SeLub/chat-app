@@ -10,7 +10,7 @@ Key ideas of the product:
 - **Smart context management** — adaptive history budget based on measured token density, pre-flight overflow check before the LLM call, manual selection of included pairs, LIFO trimming.
 - **Prompt library** — system prompts (radio) + user templates (checkboxes), assembled into `[Instructions]` in the prompt; persisted per-app in localStorage.
 - **Dynamic generation parameters** — temperature, top_p, top_k, min_p, n_predict, presence_penalty, repeat_penalty per message, with presets (Coding / Creative / Deep Reasoning / Custom) and "not set → server default" semantics.
-- **PROJECT mode** — bind a session to a project folder: reference files are read from disk in their current state on every request.
+- **PROJECT mode** — bind a session to a project folder: reference files are read from disk in their current state on every request. Attached files are visually split into "New for this question" / "From previous answer" (cumulative principle preserved — all files go into `[Materials]` of the next question). The paperclip "Attach files" button is **hidden** in PROJECT mode (use "Browse project files" instead). The Browse dialog shows **top-level directory chips** for quick filtering (persisted per project in `localStorage`).
 - **Attachment registry** — documents (PDF/DOCX/XLSX/CSV) with server-side text extraction, code (up to 50 files), images, web pages by URL; files are never deleted from disk.
 - **Send-error UX** — a structured banner with real tokenizer numbers; the question is never lost; the banner survives page reload; one-click quick actions.
 - **STT & AI Helper** — voice input via whisper.cpp and a floating meeting-capture overlay (microphone + system audio) with transcripts pushed into the chat.
