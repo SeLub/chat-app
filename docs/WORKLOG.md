@@ -728,3 +728,19 @@
 **Не тронуто (осознанно):** `clearChat` (§2.6 ТЗ) — существующий `clearChat` в `sessionStore.ts` не требует изменений: новая сессия получает пустой `last_prompt` автоматически (колонка NULL до первой отправки).
 
 **Статус:** один коммит на `develop`; ручной DoD — см. ТЗ §3.
+
+---
+
+## 2026-07-22 — Attached files: split New / From previous answer (ProjectPanel)
+
+**ТЗ:** `docs/attached_files_sepate_for_previous_new_ProjectPanel.md`.
+
+**Что сделано (фронтенд):**
+- `project-panel.tsx`: при PROJECT mode + `activeSessionId` компонент запрашивает `GET /sessions/:id/last-prompt` (после завершения стриминга), берёт `meta.currentAttachments` как «предыдущие» файлы. Список `attachments` визуально разбивается на два блока: «New for this question» (файлы, отсутствующие в `currentAttachments`) и «From previous answer» (файлы, уже были в предыдущем ответе). Кнопка Remove — на каждой строке. При 404/ошибке — один блок, без заголовков (fallback).
+- `project-panel.test.tsx`: 5 тестов (разделение, пустой список, 404, стриминг не запрашивает, завершение стриминга запрашивает).
+
+**Принцип накопления сохранён:** `[Материалы]` следующего вопроса по-прежнему содержит ВСЕ файлы (новые + предыдущие) — раздел только визуальный.
+
+**Тесты:** Фронтенд: 5 новых — все зелёные. Итого: 191/191. TypeScript build — 0 ошибок.
+
+**Статус:** коммит на `develop`.
