@@ -6,6 +6,7 @@
 // «не прислано — не передаём» — только присутствующие ключи в body.
 
 import fetch from 'node-fetch';
+import { Readable } from 'node:stream';
 import { stat } from 'node:fs/promises';
 import { BaseProvider } from './BaseProvider.js';
 import { extractLlamaCppMetrics } from '../services/metricsService.js';
@@ -333,7 +334,7 @@ export class LlamaCppProvider extends BaseProvider {
      * конкретный сервер llama.cpp может игнорировать неизвестные поля → vision
      * через llama.cpp не гарантирован. По ТЗ — не блокер, оставлено как есть.
      */
-    async chat({ model, messages, stream = false, maxTokens, cache_prompt, n_keep, generationParams = {} } = {}) {
+    async chat({ model, messages, stream = false, maxTokens, cache_prompt, n_keep, generationParams = {}, onToken } = {}) {
         try {
             // P0.1: generationParams — динамические параметры генерации.
             // Контракт: «не прислано — не передаём» — только присутствующие
@@ -413,7 +414,9 @@ export class LlamaCppProvider extends BaseProvider {
                 //     они выбрасывались молча.
                 // (в) finish_reason: у финального usage-чанка choices пуст,
                 //     он приходит в отдельном чанке — запоминаем последний.
-                const reader = response.body.getReader();
+                // node-fetch v3: response.body — Node Readable, конвертируем в Web ReadableStream
+                const webStream = Readable.toWeb(response.body);
+                const reader = webStream.getReader();
                 const decoder = new TextDecoder();
                 let done = false;
                 let buffer = '';
@@ -446,9 +449,11 @@ export class LlamaCppProvider extends BaseProvider {
                             const delta = data.choices?.[0]?.delta || {};
                             if (delta.content) {
                                 fullResponse += delta.content;
+                                if (onToken) onToken('token', delta.content);
                             }
                             if (delta.reasoning_content) {
                                 fullReasoning += delta.reasoning_content;
+                                if (onToken) onToken('reasoning', delta.reasoning_content);
                             }
                             if (data.choices?.[0]?.finish_reason) {
                                 finishReason = data.choices[0].finish_reason;

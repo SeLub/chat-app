@@ -4,6 +4,7 @@
 // min_p/n_predict→num_predict/presence_penalty/repeat_penalty). Контракт:
 // «не прислано — не передаём» — только присутствующие ключи в body.options.
 import fetch from 'node-fetch';
+import { Readable } from 'node:stream';
 import { BaseProvider } from './BaseProvider.js';
 import { extractMetrics } from '../services/metricsService.js';
 import { createLogger } from '../utils/logger.js';
@@ -136,7 +137,7 @@ export class OllamaProvider extends BaseProvider {
         }
     }
 
-    async chat({ model, messages, stream = false, generationParams = {} } = {}) {
+    async chat({ model, messages, stream = false, generationParams = {}, onToken } = {}) {
         try {
             // P0.1: generationParams — динамические параметры генерации.
             // Контракт: «не прислано — не передаём» — только присутствующие
@@ -185,10 +186,16 @@ export class OllamaProvider extends BaseProvider {
             }
 
             if (stream && response.body) {
-                const reader = response.body.getReader();
+                // ТЗ Streaming_Reasoning: буферизация строк (как в LlamaCppProvider) —
+                // разрезанные чанки TCP не теряются.
+                // node-fetch v3: response.body — Node Readable, конвертируем в Web ReadableStream
+                const webStream = Readable.toWeb(response.body);
+                const reader = webStream.getReader();
                 const decoder = new TextDecoder();
                 let done = false;
+                let buffer = '';
                 let fullResponse = '';
+                let fullReasoning = '';
                 let lastMetrics = null;
 
                 while (!done) {
@@ -196,25 +203,46 @@ export class OllamaProvider extends BaseProvider {
                     done = readDone;
 
                     if (value) {
-                        const chunk = decoder.decode(value, { stream: true });
-                        const lines = chunk.split('\n').filter(l => l.trim());
+                        buffer += decoder.decode(value, { stream: true });
+                    }
+                    if (!value && buffer === '') continue;
 
-                        for (const line of lines) {
-                            try {
-                                const data = JSON.parse(line);
-                                fullResponse += data.message?.content || '';
-                                if (data.done) {
-                                    lastMetrics = extractMetrics(data);
-                                }
-                            } catch (e) {
-                                log.debug('Failed to parse SSE chunk', { line });
+                    const lines = buffer.split('\n');
+                    buffer = lines.pop() ?? '';
+                    if (done && buffer !== '') {
+                        lines.push(buffer);
+                        buffer = '';
+                    }
+
+                    for (const rawLine of lines) {
+                        const line = rawLine.trim();
+                        if (!line) continue;
+                        try {
+                            const data = JSON.parse(line);
+                            const content = data.message?.content || '';
+                            if (content) {
+                                fullResponse += content;
+                                if (onToken) onToken('token', content);
                             }
+                            // Ollama может отдавать reasoning_content (некоторые модели)
+                            const reasoningContent = data.message?.reasoning_content || '';
+                            if (reasoningContent) {
+                                fullReasoning += reasoningContent;
+                                if (onToken) onToken('reasoning', reasoningContent);
+                            }
+                            if (data.done) {
+                                lastMetrics = extractMetrics(data);
+                            }
+                        } catch (e) {
+                            log.debug('Failed to parse SSE chunk', { line });
                         }
                     }
                 }
 
                 return {
                     response: fullResponse,
+                    reasoning: fullReasoning,
+                    finishReason: lastMetrics ? 'stop' : null,
                     metrics: lastMetrics || {}
                 };
             }

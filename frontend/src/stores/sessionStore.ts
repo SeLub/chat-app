@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { ChatMessage, ResponseMetrics, SessionMode } from '@/types';
+import type { ChatMessage, ResponseMetrics, SessionMode, StreamEvent } from '@/types';
 import { apiGateway, ApiError } from '@/lib/apiGateway';
 import { buildSendErrorInfo, buildPersistedSendErrorInfo, type SendErrorInfo } from '@/lib/sendError';
 import { useProviderStore } from './providerStore';
@@ -36,6 +36,7 @@ function mapQAPairsToMessages(
     attachments_meta?: unknown;
     attachmentsMeta?: unknown;
     metrics?: unknown;
+    reasoning?: string | null;
   }>,
 ): ChatMessage[] {
   const messages: ChatMessage[] = [];
@@ -76,10 +77,22 @@ function mapQAPairsToMessages(
         metrics: metrics as ResponseMetrics | undefined,
         attachmentsMeta: (attachmentsMeta ?? []) as ChatMessage['attachmentsMeta'],
         imageData,
+        reasoning: m.reasoning ?? null,
       });
     }
   }
   return messages;
+}
+
+interface StreamingState {
+  active: boolean;
+  content: string;
+  reasoning: string;
+  questionId: string | null;
+  metrics?: ResponseMetrics;
+  finishReason?: string;
+  excludedIndices?: number[];
+  contextInfo?: SessionStore['contextInfo'];
 }
 
 interface SessionStore {
@@ -101,6 +114,14 @@ interface SessionStore {
   // legacy 'chat' с бэка нормализуется в 'research'.
   mode: SessionMode;
 
+  // ТЗ Streaming_Reasoning: streaming state
+  streaming: StreamingState;
+  startStreaming: (questionId: string) => void;
+  appendStreamToken: (delta: string) => void;
+  appendStreamReasoning: (delta: string) => void;
+  finalizeStream: () => void;
+  cancelStream: () => void;
+
   init: () => Promise<void>;
   switchToViewing: (sessionId: string) => Promise<void>;
   returnToCurrent: () => Promise<void>;
@@ -111,6 +132,7 @@ interface SessionStore {
     metrics?: ResponseMetrics,
     excludedIndices?: number[],
     contextInfo?: SessionStore['contextInfo'],
+    reasoning?: string | null,
   ) => void;
   // ТЗ Project mode A (§4): переключение Research/Project через PATCH /api/sessions/:id
   setMode: (mode: SessionMode) => Promise<void>;
@@ -120,6 +142,11 @@ interface SessionStore {
   loadViewingSession: () => Promise<void>;
   saveConversation: (title: string, category: string) => Promise<void>;
   sendMessage: (
+    message: string,
+    files?: { file?: File; codeFiles?: File[] },
+  ) => Promise<void>;
+  // ТЗ Streaming_Reasoning: streaming send
+  sendMessageStream: (
     message: string,
     files?: { file?: File; codeFiles?: File[] },
   ) => Promise<void>;
@@ -207,7 +234,7 @@ function loadSelectedIds(sessionId: string): string[] | null {
 
 const normalizeMode = (raw?: string | null): SessionMode => (raw === 'project' ? 'project' : 'research');
 
-export const initialSessionState: Omit<SessionStore, 'init' | 'switchToViewing' | 'returnToCurrent' | 'addMessage' | 'addBotMessage' | 'updateSysprompt' | 'setSysprompt' | 'setMode' | 'deleteMessage' | 'clearChat' | 'exportConversation' | 'loadViewingSession' | 'saveConversation' | 'sendMessage' | 'setSendErrorFromException' | 'dismissSendError' | 'rollbackMessage' | 'setPersistedSendErrorFromSession' | 'dismissPersistedSendError' | 'saveContextState' | 'loadContextState' | 'resetContextState' | 'toggleContextMode' | 'toggleQuestionSelection' | 'selectAllQuestions' | 'deselectAllQuestions' | 'setInputValue' | 'setRetainPercent' | 'purgeSessionKeys' | 'startFreshAfterDelete' | 'deleteSession'> = {
+export const initialSessionState: Omit<SessionStore, 'init' | 'switchToViewing' | 'returnToCurrent' | 'addMessage' | 'addBotMessage' | 'updateSysprompt' | 'setSysprompt' | 'setMode' | 'deleteMessage' | 'clearChat' | 'exportConversation' | 'loadViewingSession' | 'saveConversation' | 'sendMessage' | 'sendMessageStream' | 'setSendErrorFromException' | 'dismissSendError' | 'rollbackMessage' | 'setPersistedSendErrorFromSession' | 'dismissPersistedSendError' | 'saveContextState' | 'loadContextState' | 'resetContextState' | 'toggleContextMode' | 'toggleQuestionSelection' | 'selectAllQuestions' | 'deselectAllQuestions' | 'setInputValue' | 'setRetainPercent' | 'purgeSessionKeys' | 'startFreshAfterDelete' | 'deleteSession' | 'startStreaming' | 'appendStreamToken' | 'appendStreamReasoning' | 'finalizeStream' | 'cancelStream'> = {
   activeSessionId: null,
   viewingSessionId: null,
   currentSessionTitle: '',
@@ -223,6 +250,12 @@ export const initialSessionState: Omit<SessionStore, 'init' | 'switchToViewing' 
   sendError: null,
   persistedSendError: null,
   mode: 'research',
+  streaming: {
+    active: false,
+    content: '',
+    reasoning: '',
+    questionId: null,
+  },
 };
 
 export const useSessionStore = create<SessionStore>((set, get) => ({
@@ -393,6 +426,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     metrics?: ResponseMetrics,
     excludedIndices?: number[],
     contextInfo?: SessionStore['contextInfo'],
+    reasoning?: string | null,
   ) {
     const inputTokens = metrics?.inputTokens || 0;
     const outputTokens = metrics?.outputTokens || 0;
@@ -408,6 +442,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
           model,
           metrics,
           excludedIndices,
+          reasoning: reasoning ?? null,
         },
       ];
 
@@ -417,6 +452,85 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         totalOutputTokens: state.totalOutputTokens + outputTokens,
         contextInfo,
       };
+    });
+  },
+
+  // ── ТЗ Streaming_Reasoning: streaming actions ──
+
+  startStreaming: (questionId: string) => {
+    set({
+      streaming: {
+        active: true,
+        content: '',
+        reasoning: '',
+        questionId,
+      },
+    });
+  },
+
+  appendStreamToken: (delta: string) => {
+    set((state) => ({
+      streaming: {
+        ...state.streaming,
+        content: state.streaming.content + delta,
+      },
+    }));
+  },
+
+  appendStreamReasoning: (delta: string) => {
+    set((state) => ({
+      streaming: {
+        ...state.streaming,
+        reasoning: state.streaming.reasoning + delta,
+      },
+    }));
+  },
+
+  finalizeStream: () => {
+    const { streaming, messages } = get();
+    if (!streaming.active) return;
+
+    const lastUserMsg = [...messages].reverse().find((m) => m.role === 'user');
+    const botMsg: ChatMessage = {
+      role: 'assistant',
+      content: streaming.content,
+      questionId: streaming.questionId || lastUserMsg?.questionId || '',
+      model: useProviderStore.getState().currentModel || 'unknown',
+      metrics: streaming.metrics,
+      excludedIndices: streaming.excludedIndices,
+      reasoning: streaming.reasoning || null,
+      finishReason: streaming.finishReason,
+    };
+
+    const inputTokens = streaming.metrics?.inputTokens || 0;
+    const outputTokens = streaming.metrics?.outputTokens || 0;
+
+    set((state) => ({
+      messages: [...state.messages, botMsg],
+      totalInputTokens: state.totalInputTokens + inputTokens,
+      totalOutputTokens: state.totalOutputTokens + outputTokens,
+      contextInfo: streaming.contextInfo,
+      streaming: {
+        active: false,
+        content: '',
+        reasoning: '',
+        questionId: null,
+      },
+    }));
+  },
+
+  cancelStream: () => {
+    set({
+      streaming: {
+        active: false,
+        content: '',
+        reasoning: '',
+        questionId: null,
+        metrics: undefined,
+        finishReason: undefined,
+        excludedIndices: undefined,
+        contextInfo: undefined,
+      },
     });
   },
 
@@ -776,6 +890,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       metrics,
       result.excludedIndices,
       result.contextInfo,
+      result.reasoning ?? null,
     );
 
     // ТЗ send-error-persist (№3): успех гасит персистентную плашку локально
@@ -783,6 +898,149 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     set({ persistedSendError: null });
 
     // After successful send at viewing ≠ active, sync active
+    if (get().viewingSessionId !== get().activeSessionId) {
+      const newActive = get().viewingSessionId!;
+      set({ activeSessionId: newActive });
+      localStorage.setItem('activeSessionId', newActive);
+    }
+  },
+
+  // ── ТЗ Streaming_Reasoning: streaming send ──
+  sendMessageStream: async (message: string, files?: { file?: File; codeFiles?: File[] }) => {
+    const { viewingSessionId, questionCounter, messages } = get();
+
+    if (!viewingSessionId) {
+      throw new Error('No viewing session');
+    }
+    const { currentModel, currentProvider } = useProviderStore.getState();
+    if (!currentModel) {
+      throw new Error('No model selected');
+    }
+
+    set({ sendError: null });
+
+    const n = questionCounter + 1;
+    const questionId = `q_${n}_${Date.now()}`;
+
+    const attachmentsMeta = files
+      ? [
+          ...(files.file ? [{ name: files.file.name, size: files.file.size, type: files.file.type }] : []),
+          ...(files.codeFiles ?? []).map((f) => ({ name: f.name, size: f.size, type: f.type })),
+        ]
+      : [];
+
+    const userMsg: ChatMessage = {
+      role: 'user',
+      content: message,
+      questionId,
+      model: currentModel,
+      attachmentsMeta,
+    };
+    get().addMessage(userMsg);
+
+    let includeQuestionIds: string[];
+    if (get().contextMode === 'standard') {
+      includeQuestionIds = messages
+        .filter((m) => m.role === 'user')
+        .map((m) => m.questionId);
+      includeQuestionIds.push(questionId);
+    } else {
+      includeQuestionIds = [...get().selectedQuestionIds];
+    }
+
+    const { params: genParams } = useGenerationParamsStore.getState();
+    const { syspromptId, selectedTemplateIds } = usePromptStore.getState();
+
+    get().startStreaming(questionId);
+
+    try {
+      const stream = await apiGateway.chat.sendStream(
+        {
+          sessionId: viewingSessionId,
+          message,
+          model: currentModel,
+          questionId,
+          contextLength: useProviderStore.getState().currentContextLength ?? undefined,
+          retainPercent: get().retainPercent,
+          includeQuestionIds,
+          generationParams: Object.keys(genParams).length > 0 ? genParams : undefined,
+          syspromptId: syspromptId || undefined,
+          selectedTemplateIds: selectedTemplateIds.length > 0 ? selectedTemplateIds : undefined,
+        },
+        currentProvider,
+        files,
+      );
+
+      const reader = stream.getReader();
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        const event = value as StreamEvent;
+
+        if (event.type === 'token') {
+          get().appendStreamToken(event.delta);
+        } else if (event.type === 'reasoning') {
+          get().appendStreamReasoning(event.delta);
+        } else if (event.type === 'done') {
+          // Set streaming metrics/context before finalizing
+          set((state) => ({
+            streaming: {
+              ...state.streaming,
+              metrics: event.metrics as ResponseMetrics | undefined,
+              finishReason: event.finishReason,
+              excludedIndices: event.excludedIndices,
+              contextInfo: event.contextInfo as SessionStore['contextInfo'] | undefined,
+            },
+          }));
+          get().finalizeStream();
+          set({ persistedSendError: null });
+        } else if (event.type === 'error') {
+          const errorMsg = event.error || 'Stream error';
+          // If we have partial content, save it as a message
+          const { streaming } = get();
+          if (streaming.content || streaming.reasoning) {
+            set((state) => ({
+              streaming: {
+                ...state.streaming,
+                metrics: undefined,
+                finishReason: 'error',
+              },
+            }));
+            get().finalizeStream();
+          } else {
+            get().cancelStream();
+            get().rollbackMessage(questionId);
+          }
+          get().setSendErrorFromException(
+            new Error(errorMsg),
+            message,
+            files,
+            currentProvider,
+            viewingSessionId,
+          );
+          return;
+        }
+      }
+
+      // Stream ended without done/error event — finalize if we have content
+      if (get().streaming.active) {
+        const { streaming } = get();
+        if (streaming.content || streaming.reasoning) {
+          get().finalizeStream();
+        } else {
+          get().cancelStream();
+          get().rollbackMessage(questionId);
+        }
+      }
+    } catch (e) {
+      get().cancelStream();
+      get().rollbackMessage(questionId);
+      get().setSendErrorFromException(e, message, files, currentProvider, viewingSessionId);
+      return;
+    }
+
     if (get().viewingSessionId !== get().activeSessionId) {
       const newActive = get().viewingSessionId!;
       set({ activeSessionId: newActive });
