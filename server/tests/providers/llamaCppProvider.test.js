@@ -152,3 +152,55 @@ describe('LlamaCppProvider: parseLlamaCppErrorResponse (ТЗ context-overflow-ux
         assert.equal(parsed.n_prompt_tokens, undefined);
     });
 });
+
+// ============================================================
+// ТЗ context-bar-fix: stream metrics из timings (без usage)
+// ============================================================
+// llama-server (b4xxx–b6xxx) в streaming-режиме НЕ шлёт data.usage —
+// только data.timings в финальном чанке. Раньше условие if(data.usage)
+// пропускало extractLlamaCppMetrics → lastMetrics=null → токены=0.
+// Фикс: if(data.usage || data.timings).
+describe('LlamaCppProvider: stream metrics from timings-only chunk', () => {
+    it('timings без usage → inputTokens/outputTokens из prompt_n/predicted_n', async () => {
+        const { extractLlamaCppMetrics } = await import('../../src/services/metricsService.js');
+        // Реальный финальный чанк llama-server (проверено curl, 2026-11-15)
+        const finalChunk = {
+            choices: [{ finish_reason: 'stop', index: 0, delta: {} }],
+            timings: {
+                cache_n: 0, prompt_n: 14, prompt_ms: 502.938,
+                predicted_n: 10, predicted_ms: 300.342,
+            },
+        };
+        const m = extractLlamaCppMetrics(finalChunk, { finishReason: 'stop' });
+        assert.equal(m.inputTokens, 14);
+        assert.equal(m.outputTokens, 10);
+        assert.equal(m.finishReason, 'stop');
+        assert.equal(m.truncated, false);
+    });
+
+    it('timings с cache_n → inputTokens = prompt_n + cache_n', async () => {
+        const { extractLlamaCppMetrics } = await import('../../src/services/metricsService.js');
+        const finalChunk = {
+            choices: [{ finish_reason: 'stop', index: 0, delta: {} }],
+            timings: {
+                cache_n: 900, prompt_n: 100, prompt_ms: 50,
+                predicted_n: 40, predicted_ms: 800,
+            },
+        };
+        const m = extractLlamaCppMetrics(finalChunk, { finishReason: 'stop' });
+        assert.equal(m.inputTokens, 1000); // 100 + 900
+        assert.equal(m.outputTokens, 40);
+    });
+
+    it('usage + timings → usage приоритетнее (regression)', async () => {
+        const { extractLlamaCppMetrics } = await import('../../src/services/metricsService.js');
+        const finalChunk = {
+            choices: [{ finish_reason: 'stop', index: 0, delta: {} }],
+            usage: { prompt_tokens: 5000, completion_tokens: 200 },
+            timings: { cache_n: 0, prompt_n: 14, prompt_ms: 50, predicted_n: 10, predicted_ms: 300 },
+        };
+        const m = extractLlamaCppMetrics(finalChunk, { finishReason: 'stop' });
+        assert.equal(m.inputTokens, 5000); // usage.prompt_tokens > prompt_n
+        assert.equal(m.outputTokens, 10); // timings.predicted_n (usage.completion_tokens нет)
+    });
+});
