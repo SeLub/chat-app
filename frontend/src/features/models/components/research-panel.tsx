@@ -32,7 +32,12 @@ export function ResearchPanel() {
         </p>
       </div>
 
-      {/* Кнопка attach — на том же уровне, что «Attach file(s)» / «Browse project files» в ProjectPanel */}
+      <p className="text-xs text-muted-foreground italic">
+        Переключитесь в Project, чтобы работать с папкой репозитория на диске
+        (актуальные версии файлов, mtime-кэш).
+      </p>
+
+      {/* Кнопка attach — внизу, на том же уровне что «Browse project files» в ProjectPanel */}
       <div className="flex flex-col gap-2 pt-1">
         <Button
           size="sm"
@@ -52,11 +57,6 @@ export function ResearchPanel() {
         onChange={handleFileSelect}
         className="hidden"
       />
-
-      <p className="text-xs text-muted-foreground italic">
-        Переключитесь в Project, чтобы работать с папкой репозитория на диске
-        (актуальные версии файлов, mtime-кэш).
-      </p>
     </div>
   );
 }
