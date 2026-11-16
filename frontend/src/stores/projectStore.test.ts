@@ -87,10 +87,10 @@ describe('projectStore (ТЗ Project mode A §4)', () => {
     expect(mocked.toast.success).toHaveBeenCalled();
   });
 
-  it('createProject(): ошибка API → тост, currentProject не установлен', async () => {
+  it('createProject(): ошибка API → тост, currentProject не установлен, ошибка проброшена', async () => {
     mocked.apiGateway.projects.create.mockRejectedValue(new mocked.ApiError(400, 'Project directory not found'));
 
-    await useProjectStore.getState().createProject('nope');
+    await expect(useProjectStore.getState().createProject('nope')).rejects.toThrow('Project directory not found');
 
     expect(mocked.toast.error).toHaveBeenCalledWith('Project directory not found');
     expect(useProjectStore.getState().currentProject).toBeNull();

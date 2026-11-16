@@ -68,9 +68,12 @@ export function ProjectPanel() {
   // ТЗ attached-files-split: загрузить last_prompt для определения «previous» файлов.
   // Перезапрос при: смене сессии, завершении стрима (true→false), изменении attachments.
   const streamingActive = useSessionStore((s) => s.streaming.active);
+  const messagesCount = useSessionStore((s) => s.messages.length);
   const lastPrompt404Ref = useRef(false);
   useEffect(() => {
     if (mode !== 'project' || !activeSessionId || streamingActive) return;
+    // Новый чат — нет сообщений → нет last_prompt → не запрашивать (404).
+    if (messagesCount === 0) return;
     // 404 cache: don't re-request if we already know there's no last_prompt
     if (lastPrompt404Ref.current) return;
     let cancelled = false;
@@ -97,7 +100,7 @@ export function ProjectPanel() {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeSessionId, mode, streamingActive, attachments]);
+  }, [activeSessionId, mode, streamingActive, attachments, messagesCount]);
 
   // Reset 404 cache when a new stream starts (a new last_prompt will exist after)
   useEffect(() => {
@@ -117,7 +120,19 @@ export function ProjectPanel() {
       toast.error('Выберите папку внутри CONTEXT_BASE_DIR (папка целиком)');
       return;
     }
-    await createProject(segments[0]);
+    const relativePath = segments[0];
+    try {
+      await createProject(relativePath);
+    } catch (err: any) {
+      if (err?.status === 400) {
+        toast.error(
+          `Папка «${relativePath}» не найдена в CONTEXT_BASE_DIR. ` +
+          `Выберите КОРЕНЬ проекта (например, «me2em-protocol»), а не его подпапку.`,
+        );
+      } else {
+        toast.error(err?.message || 'Не удалось открыть проект');
+      }
+    }
   };
 
   return (

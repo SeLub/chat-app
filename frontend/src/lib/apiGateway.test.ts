@@ -1,6 +1,18 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { apiGateway } from './apiGateway';
 
+// Use vi.hoisted to create mock logger accessible throughout the file
+const mocked = vi.hoisted(() => ({
+  logger: {
+    error: vi.fn(),
+    warn: vi.fn(),
+    info: vi.fn(),
+    debug: vi.fn(),
+  },
+}));
+
+vi.mock('./logger', () => ({ logger: mocked.logger }));
+
 // Global mock for fetch
 const mockFetch = vi.fn();
 vi.stubGlobal('fetch', mockFetch);
@@ -15,6 +27,8 @@ function mockFetchResponse(data: unknown, status = 200) {
 
 beforeEach(() => {
   mockFetch.mockReset();
+  mocked.logger.error.mockReset();
+  mocked.logger.warn.mockReset();
 });
 
 describe('chatApi.send — FormData contract (§3.1)', () => {
@@ -236,5 +250,21 @@ describe('sessionsApi.update с mode (ТЗ Project mode A §3.2)', () => {
     expect(call[0]).toBe('/api/sessions/sess-1');
     expect(call[1].method).toBe('PATCH');
     expect(JSON.parse(call[1].body)).toEqual({ mode: 'project' });
+  });
+});
+
+describe('silent404 — не спамить 404 в консоль (ТЗ last-prompt 404)', () => {
+  it('getLastPrompt: 404 логирует warn, не error (silent404: true)', async () => {
+    mockFetch.mockResolvedValue(new Response(JSON.stringify({ error: 'Not found' }), { status: 404 }));
+    await expect(apiGateway.sessions.getLastPrompt('sess-1')).rejects.toThrow();
+    expect(mocked.logger.warn.mock.calls[0][0]).toContain('API GET /api/sessions/sess-1/last-prompt returned 404 (silent)');
+    expect(mocked.logger.error).not.toHaveBeenCalled();
+  });
+
+  it('projects.create: 404 логирует error (без silent404)', async () => {
+    mockFetch.mockResolvedValue(new Response(JSON.stringify({ error: 'Not found' }), { status: 404 }));
+    await expect(apiGateway.projects.create('sess-1', 'repo')).rejects.toThrow();
+    expect(mocked.logger.error.mock.calls[0][0]).toContain('API POST /api/projects failed');
+    expect(mocked.logger.warn).not.toHaveBeenCalled();
   });
 });

@@ -34,6 +34,7 @@ const mockSessionStore: any = {
   activeSessionId: 'sess-1',
   mode: 'project',
   streaming: { active: false, content: '', reasoning: '', questionId: null },
+  messages: [],
 };
 
 vi.mock('@/stores/sessionStore', () => ({
@@ -59,6 +60,12 @@ vi.mock('./browse-dialog', () => ({
   BrowseDialog: () => <div data-testid="browse-dialog" />,
 }));
 
+// Mock sonner — use vi.hoisted to avoid hoisting issues
+const mocked = vi.hoisted(() => ({
+  toast: { success: vi.fn(), error: vi.fn() },
+}));
+vi.mock('sonner', () => ({ toast: mocked.toast }));
+
 function makeAttachment(fileId: string, name: string) {
   return {
     fileId,
@@ -80,6 +87,7 @@ beforeEach(() => {
 describe('ProjectPanel — attached files split', () => {
   it('shows "New for this question" when last_prompt has no matching files', async () => {
     mockAttachments.push(makeAttachment('A', 'a.js'), makeAttachment('B', 'b.js'));
+    mockSessionStore.messages = [{ id: 'm1' } as any];
     mockGetLastPrompt.mockResolvedValue({
       prompt: [],
       meta: { currentAttachments: [] },
@@ -99,6 +107,7 @@ describe('ProjectPanel — attached files split', () => {
       makeAttachment('B', 'b.js'),
       makeAttachment('C', 'c.js'),
     );
+    mockSessionStore.messages = [{ id: 'm1' } as any];
     mockGetLastPrompt.mockResolvedValue({
       prompt: [],
       meta: { currentAttachments: [{ fileId: 'A' }, { fileId: 'B' }] },
@@ -119,6 +128,7 @@ describe('ProjectPanel — attached files split', () => {
       makeAttachment('A', 'a.js'),
       makeAttachment('B', 'b.js'),
     );
+    mockSessionStore.messages = [{ id: 'm1' } as any];
     mockGetLastPrompt.mockResolvedValue({
       prompt: [],
       meta: { currentAttachments: [{ fileId: 'A' }, { fileId: 'B' }] },
@@ -133,6 +143,7 @@ describe('ProjectPanel — attached files split', () => {
   });
 
   it('shows "No files attached" when attachments is empty', async () => {
+    mockSessionStore.messages = [{ id: 'm1' } as any];
     mockGetLastPrompt.mockResolvedValue({
       prompt: [],
       meta: { currentAttachments: [] },
@@ -147,6 +158,7 @@ describe('ProjectPanel — attached files split', () => {
 
   it('re-requests last_prompt when streamingActive transitions to false', async () => {
     mockAttachments.push(makeAttachment('A', 'a.js'));
+    mockSessionStore.messages = [{ id: 'm1' } as any];
     mockGetLastPrompt.mockResolvedValue({
       prompt: [],
       meta: { currentAttachments: [{ fileId: 'A' }] },
@@ -168,6 +180,7 @@ describe('ProjectPanel — attached files split', () => {
 
   it('caches 404 and does not re-request getLastPrompt on re-render', async () => {
     mockAttachments.push(makeAttachment('A', 'a.js'));
+    mockSessionStore.messages = [{ id: 'm1' } as any];
     // Simulate 404 response
     mockGetLastPrompt.mockRejectedValue(Object.assign(new Error('Not Found'), { status: 404 }));
 
@@ -189,6 +202,7 @@ describe('ProjectPanel — attached files split', () => {
 
   it('resets 404 cache when streaming starts (streamingActive becomes true)', async () => {
     mockAttachments.push(makeAttachment('A', 'a.js'));
+    mockSessionStore.messages = [{ id: 'm1' } as any];
     mockGetLastPrompt.mockRejectedValue(Object.assign(new Error('Not Found'), { status: 404 }));
 
     const { rerender } = render(<ProjectPanel />);
@@ -213,5 +227,93 @@ describe('ProjectPanel — attached files split', () => {
     await waitFor(() => {
       expect(mockGetLastPrompt).toHaveBeenCalledTimes(2);
     });
+  });
+
+  it('does NOT request last_prompt when messagesCount === 0 (новый чат)', async () => {
+    mockAttachments.push(makeAttachment('A', 'a.js'));
+    mockSessionStore.messages = []; // ← пустой чат
+    mockGetLastPrompt.mockResolvedValue({
+      prompt: [],
+      meta: { currentAttachments: [] },
+    });
+
+    render(<ProjectPanel />);
+
+    // Даем время на рендер и useEffect
+    await new Promise((r) => setTimeout(r, 50));
+    expect(mockGetLastPrompt).not.toHaveBeenCalled();
+  });
+
+  it('requests last_prompt when messagesCount > 0', async () => {
+    mockAttachments.push(makeAttachment('A', 'a.js'));
+    mockSessionStore.messages = [{ id: 'm1' } as any];
+    mockGetLastPrompt.mockResolvedValue({
+      prompt: [],
+      meta: { currentAttachments: [] },
+    });
+
+    render(<ProjectPanel />);
+
+    await waitFor(() => {
+      expect(mockGetLastPrompt).toHaveBeenCalledWith('sess-1');
+    });
+  });
+});
+
+describe('ProjectPanel — onDirectoryPicked', () => {
+  beforeEach(() => {
+    mocked.toast.error.mockReset();
+    mocked.toast.success.mockReset();
+  });
+
+  it('400 from createProject → toast с подсказкой «выберите корень проекта»', async () => {
+    mockProjectStore.createProject.mockRejectedValue(
+      Object.assign(new Error('Project directory not found'), { status: 400 }),
+    );
+
+    render(<ProjectPanel />);
+
+    const input = document.querySelector('input[type="file"][hidden]') as HTMLInputElement;
+    expect(input).toBeInTheDocument();
+
+    // Симулируем выбор папки packages/ (подпапка внутри проекта)
+    const file = Object.assign(new File(['x'], 'foo.js'), { webkitRelativePath: 'packages/foo.js' });
+    Object.defineProperty(input, 'files', {
+      value: [file],
+      writable: false,
+    });
+
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+
+    await waitFor(() => {
+      expect(mocked.toast.error).toHaveBeenCalledWith(
+        expect.stringContaining('packages'),
+      );
+      expect(mocked.toast.error).toHaveBeenCalledWith(
+        expect.stringContaining('КОРЕНЬ проекта'),
+      );
+    });
+  });
+
+  it('успешный createProject → вызов createProject с правильным путём', async () => {
+    mockProjectStore.createProject.mockResolvedValue(undefined);
+
+    render(<ProjectPanel />);
+
+    const input = document.querySelector('input[type="file"][hidden]') as HTMLInputElement;
+
+    const file = Object.assign(new File(['x'], 'foo.js'), { webkitRelativePath: 'my-project/foo.js' });
+    Object.defineProperty(input, 'files', {
+      value: [file],
+      writable: false,
+    });
+
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+
+    await waitFor(() => {
+      expect(mockProjectStore.createProject).toHaveBeenCalledWith('my-project');
+    });
+    // Успешный вызов — нет toast.error
+    expect(mocked.toast.error).not.toHaveBeenCalled();
   });
 });
