@@ -31,9 +31,9 @@ export class ApiError extends Error {
 async function request<T>(
   method: string,
   path: string,
-  options: { body?: unknown; provider?: ProviderName; headers?: Record<string, string> } = {},
+  options: { body?: unknown; provider?: ProviderName; headers?: Record<string, string>; silent404?: boolean } = {},
 ): Promise<T | null> {
-  const { body, headers = {}, provider } = options;
+  const { body, headers = {}, provider, silent404 } = options;
 
   const fetchHeaders: Record<string, string> = { ...headers };
 
@@ -62,7 +62,11 @@ async function request<T>(
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({ error: response.statusText }));
       const errorMessage = errorData.error || errorData.message || `HTTP ${response.status}`;
-      logger.error(`API ${method} ${path} failed`, { status: response.status, error: errorMessage });
+      if (response.status === 404 && silent404) {
+        logger.warn(`API ${method} ${path} returned 404 (silent)`, { status: response.status, error: errorMessage });
+      } else {
+        logger.error(`API ${method} ${path} failed`, { status: response.status, error: errorMessage });
+      }
       throw new ApiError(response.status, errorMessage, errorData);
     }
 
@@ -136,8 +140,9 @@ export const sessionsApi = {
     return request<{ ok: boolean }>('DELETE', `/api/sessions/${id}/send-error`);
   },
   // ТЗ Last Prompt: финальный промпт последней отправки (404 — промпта ещё нет).
+  // silent404: 404 — не ошибка (новый чат / нет промпта), не спамить в консоль.
   getLastPrompt(id: string) {
-    return request<LastPrompt>('GET', `/api/sessions/${id}/last-prompt`);
+    return request<LastPrompt>('GET', `/api/sessions/${id}/last-prompt`, { silent404: true });
   },
 };
 

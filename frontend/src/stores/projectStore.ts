@@ -111,6 +111,8 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
       }
     } catch (error) {
       toastError(error, 'Не удалось подключить проект');
+      // Пробрасываем ошибку наружу, чтобы caller мог показать детальный toast (например, подсказку «выберите корень проекта»).
+      throw error;
     } finally {
       set({ isLoading: false });
     }
